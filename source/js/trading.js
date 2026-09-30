@@ -3,7 +3,7 @@
 
 import { DAY, HOUR, clamp } from './util.js';
 import { trade, previewTrade, priceAt, notify, SPREAD, fmtQty } from './engine.js';
-import { bsPrice, greeks, impliedVol, YEAR, CONTRACT, OPT_SPREAD } from './bs.js';
+import { bsPrice, greeks, optionVol, YEAR, CONTRACT, OPT_SPREAD } from './bs.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
 const money = (x) => '$' + x.toFixed(2);
@@ -63,14 +63,23 @@ export const optKey = (under, type, strike, exp) => `${under}|${type}|${strike}|
 export function quoteOption(state, under, type, strike, exp, now = Date.now()) {
   const a = state.assets[under];
   const T = Math.max(0, (exp - now) / YEAR);
-  const iv = impliedVol(a, now);
+  const vol = optionVol(state, a, exp, now);
+  const iv = vol.iv;
   const mid = bsPrice(type, a.price, strike, T, iv);
+  // How much of the premium is game risk: price it again as if no games were left.
+  const quietIv = vol.gameVar > 0 ? Math.sqrt(Math.max(vol.total - vol.gameVar, 1e-9) / vol.T) : iv;
+  const quiet = vol.gameVar > 0 ? bsPrice(type, a.price, strike, T, quietIv) : mid;
+  const gameShare = mid > 0.005 ? clamp(1 - quiet / mid, 0, 1) : 0;
+  // Time decay measured over the next day, so a game tomorrow shows up as a big drop.
+  const tomorrow = Math.max(now, Math.min(exp, now + 86400e3));
+  const midTomorrow = bsPrice(type, a.price, strike, Math.max(0, (exp - tomorrow) / YEAR), optionVol(state, a, exp, tomorrow).iv);
   const half = Math.max(0.01, mid * OPT_SPREAD);
   const ask = round2(Math.max(0.01, mid + half));
   const bid = round2(Math.max(0, mid - half));
   const g = greeks(type, a.price, strike, T, iv);
   const breakeven = type === 'call' ? strike + ask : strike - ask;
-  return { mid, bid, ask, iv, T, ...g, breakeven, toBreakeven: breakeven / a.price - 1, under: a.price };
+  return { mid, bid, ask, iv, T, ...g, theta: midTomorrow - mid, breakeven, toBreakeven: breakeven / a.price - 1, under: a.price,
+    games: vol.games, gameMove: vol.move, gameShare };
 }
 
 export function buyOption(state, { under, type, strike, exp }, qty, now = Date.now()) {

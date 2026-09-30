@@ -120,7 +120,7 @@ async function loadSchedule(state, league, now) {
     const events = await loadScoreboards(league, now, now + 4 * DAY);
     state.schedule[league] = events.filter((e) => e.state === 'pre' && e.date > now - HOUR).slice(0, 120)
       .map((e) => ({ id: e.id, date: e.date, name: e.name, preseason: e.preseason, teams: e.teams.map((t) => ({ id: t.id, abbr: t.abbr, home: t.home })) }));
-    s.schedule = now;
+    s.schedule = now; s.scheduleTo = now + 4 * DAY;
   } catch { /* optional */ }
 }
 

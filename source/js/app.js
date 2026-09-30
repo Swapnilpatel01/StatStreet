@@ -9,7 +9,7 @@ import {
   dollarsToQty, expirations, strikes, optKey, quoteOption, buyOption, sellOption, optLabel, placeOrder,
   cancelOrder, buyingPower, addRecurring, cancelRecurring, addAlert, removeAlert, runAutomation, payoffCurve,
 } from './trading.js';
-import { impliedVol, greeks, optionMid, optionsValue, CONTRACT, YEAR } from './bs.js';
+import { impliedVol, greeks, optionMid, optionsValue, CONTRACT, YEAR, gamesBefore as gamesBeforeExp, gameMove } from './bs.js';
 import { syncLeague, hasLive } from './sync.js';
 import { setProxy, netStats, api } from './api.js';
 import { loadState, saveState, persist, idbDel } from './store.js';
@@ -25,7 +25,7 @@ const ui = {
   range: '1D', homeRange: '1D', newsLeague: 'all', actFilter: 'all',
   detail: null, chain: null, order: null, scrub: false, lastScroll: 0, seenInbox: 0,
 };
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -146,12 +146,15 @@ function nextGame(a) {
     .sort((x, y) => x.date - y.date)[0] || null;
 }
 
+// Games before an option expiry: exact where the schedule is known, estimated beyond it.
 function gamesBefore(a, exp) {
   if (a.kind === 'fund') return null;
-  const teamId = a.kind === 'team' ? a.rid : a.teamId;
-  const list = state.schedule?.[a.league];
-  if (!list?.length) return null;
-  return list.filter((g) => g.date < exp && g.date > Date.now() && g.teams.some((t) => t.id === teamId)).length;
+  return gamesBeforeExp(state, a, exp);
+}
+function gamesLabel(g) {
+  if (!g) return '';
+  const n = g.estimated >= 0.5 ? Math.round(g.total) : g.known;
+  return `${g.estimated >= 0.5 ? '~' : ''}${n} game${n === 1 ? '' : 's'}`;
 }
 
 // Model "scout rating": blend of form, momentum, news and injuries.
@@ -324,7 +327,7 @@ function marketItems() {
     hurt: (a) => -breakdown(state, a, now).fair,
     mvp: (a) => -(a.kind === 'player' ? formZ(a) : a.rec?.gp ? a.rec.w / (a.rec.w + a.rec.l || 1) * 2 : -9),
     div: (a) => -dividendYield(state, a, now),
-    vol: (a) => -impliedVol(a, now),
+    vol: (a) => -impliedVol(a, now, state),
     streak: (a) => -a.rec.streak,
     cheap: (a) => -a.price,
   }[ui.sort] || ((a) => -change(a, now));
@@ -337,7 +340,7 @@ const SORTS = [['movers', 'Top gainers'], ['losers', 'Top losers'], ['price', 'M
 function marketNote(a) {
   const now = Date.now();
   if (ui.sort === 'div') return `${subLine(a)} <span class="up">${(dividendYield(state, a, now) * 100).toFixed(1)}% yield</span>`;
-  if (ui.sort === 'vol') return `${subLine(a)} <span>IV ${Math.round(impliedVol(a, now) * 100)}%</span>`;
+  if (ui.sort === 'vol') return `${subLine(a)} <span>IV ${Math.round(impliedVol(a, now, state) * 100)}%</span>`;
   if (a.kind === 'fund') return `${subLine(a)}`;
   return '';
 }
@@ -476,7 +479,7 @@ function renderAccount() {
       </div></details>
       <details><summary>Options</summary><div class="prose">
         <p>Each contract covers <b>100 shares</b>. A <b>call</b> pays off if the price finishes above the strike; a <b>put</b> if it finishes below. Contracts expire Fridays at 4pm New York time and settle in cash automatically.</p>
-        <p>Premiums come from the Black-Scholes model using each asset's volatility (higher for injured players and during live games). You can buy to open and sell to close any time before expiry. The most you can lose is what you paid.</p>
+        <p>Prices mostly jump when a game's box score comes in, so premiums are built from <b>game risk</b>: every game before expiry counts as a possible move sized from that player's or team's own recent games, plus a little for news and injuries. Premiums rise into game day and drop once the game is played. You can buy to open and sell to close any time before expiry. The most you can lose is what you paid.</p>
       </div></details>
       <details><summary>Orders</summary><div class="prose">
         <p><b>Market</b> orders fill now, in shares or dollars (fractional shares). <b>Limit</b> orders fill only at your price or better. <b>Stop</b> orders become market orders once the price crosses your stop, so they work as a stop-loss. <b>Recurring</b> buys invest a fixed amount daily or weekly. Orders are checked every few seconds while the app is open, and when you reopen it.</p>
@@ -663,7 +666,7 @@ function keyStats(a) {
     out.push(['Market cap', cap >= 1e9 ? `$${(cap / 1e9).toFixed(2)}B` : `$${(cap / 1e6).toFixed(1)}M`]);
   }
   out.push(['Day range', range(DAY)], ['All-time range', range(3650 * DAY)], ['Dividend yield', y > 0 ? `${(y * 100).toFixed(2)}%` : '—'],
-    ['Implied volatility', `${Math.round(impliedVol(a, now) * 100)}%`], ['1W change', fmtPct(change(a, now, 7 * DAY))]);
+    ['Implied volatility', `${Math.round(impliedVol(a, now, state) * 100)}%`], ['1W change', fmtPct(change(a, now, 7 * DAY))]);
   if (a.kind === 'player') out.push(['Form percentile', a.perf.ema != null ? `${Math.round(normCdf(formZ(a)) * 100)}th` : '—']);
   if (a.kind === 'team') out.push(['Record', recText(a)]);
   return out;
@@ -766,15 +769,15 @@ function renderChain() {
   el.classList.toggle('acc-down', change(a, now) < 0);
   el.innerHTML = `<div class="sheet-inner">
     <div class="row between"><button class="icon-btn" data-act="chainback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <div class="small muted">${esc(a.ticker)} ${money(S)} · IV ${Math.round(impliedVol(a, now) * 100)}%</div></div>
+      <div class="small muted">${esc(a.ticker)} ${money(S)} · IV ${Math.round(impliedVol(a, now, state) * 100)}%</div></div>
     <h1 style="margin-top:12px">${esc(a.ticker)} options</h1>
     <div class="small muted" style="margin-top:4px">${esc(a.name)} · 1 contract = ${CONTRACT} shares · cash-settled at expiry</div>
     <div class="chips exp-chips" style="margin-top:12px">${exps.map((e) => {
       const n = gamesBefore(a, e);
-      return `<button class="chip ${e === c.exp ? 'on' : ''}" data-exp="${e}">${fmtExp(e)}${n != null ? `<small>${n} game${n === 1 ? '' : 's'}</small>` : `<small>${Math.round((e - now) / DAY)}d</small>`}</button>`;
+      return `<button class="chip ${e === c.exp ? 'on' : ''}" data-exp="${e}">${fmtExp(e)}${n ? `<small>${gamesLabel(n)}</small>` : `<small>${Math.round((e - now) / DAY)}d</small>`}</button>`;
     }).join('')}</div>
     <div class="seg" style="margin-top:10px">${[['call', 'Calls · bet it rises'], ['put', 'Puts · bet it falls']].map(([k, n]) => `<button data-otype="${k}" class="${c.type === k ? 'on' : ''}">${n}</button>`).join('')}</div>
-    ${g != null ? `<p class="tiny muted" style="margin:8px 2px 0">${g} scheduled game${g === 1 ? '' : 's'} before this expiry${g ? ' — each one can move the price.' : '.'}</p>` : ''}
+    ${g ? `<p class="tiny muted" style="margin:8px 2px 0">${g.total > 0.05 ? `${gamesLabel(g)} before this expiry. Each game is priced in as a possible move of about ±${(gameMove(a, now) * 100).toFixed(1)}% (based on ${esc(a.ticker)}'s recent games), so premiums rise into game day and drop once it's played.` : 'No games before this expiry, so these options are cheap: only news and injuries can move the price.'}</p>` : ''}
     <div class="list" style="margin-top:10px">
       <div class="opt-row" style="padding:8px 14px"><span class="tiny muted">STRIKE · BREAKEVEN</span><span></span><span class="tiny muted" style="min-width:78px;text-align:center">PRICE</span></div>
       ${order.map((r, i) => {
@@ -960,7 +963,8 @@ function updateOptionOrder() {
   const rows = o.side === 'buy' ? [
     ['Premium', `${money(q.ask)} × 100`], ['Total cost', money(total)], ['Max loss', money(total)],
     ['Breakeven at expiry', `${money(q.breakeven)} (${fmtPct(q.toBreakeven, 1)})`], ['Chance of profit (model)', `${Math.round(pop * 100)}%`],
-    ['Delta · Theta/day', `${q.delta.toFixed(2)} · ${money(q.theta * CONTRACT * Math.max(qty, 1))}`], ['Implied volatility', `${Math.round(q.iv * 100)}%`],
+    ...(a.kind !== 'fund' ? [['Game risk', q.games.total > 0.05 ? `${gamesLabel(q.games)} · ${Math.round(q.gameShare * 100)}% of premium` : 'No games before expiry']] : []),
+    ['Delta · decay next 24h', `${q.delta.toFixed(2)} · ${signMoney(q.theta * CONTRACT * Math.max(qty, 1))}`], ['Implied volatility', `${Math.round(q.iv * 100)}%`],
   ] : [
     ['Bid', `${money(q.bid)} × 100`], ['Est. proceeds', money(total)],
     ['Your cost', held ? money((held.cost / held.qty) * qty) : '—'],
