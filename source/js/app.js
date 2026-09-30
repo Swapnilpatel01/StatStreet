@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, recomputeStats, START_CASH, dividendYield, fmtQty, SPREAD,
+  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -25,7 +25,7 @@ const ui = {
   range: '1D', homeRange: '1D', newsLeague: 'all', actFilter: 'all',
   detail: null, chain: null, order: null, scrub: false, lastScroll: 0, seenInbox: 0,
 };
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -184,7 +184,7 @@ const COLLECTIONS = [
 function renderHome() {
   const now = Date.now();
   const nw = netWorth(state, now);
-  const ref = nwAt(now - RANGES[ui.homeRange]) ?? START_CASH;
+  const ref = nwAt(now - RANGES[ui.homeRange]) ?? state.startCash;
   const ch = nw - ref;
   const bench = state.assets['fund:SS500'];
   const benchCh = bench ? change(bench, now, RANGES[ui.homeRange]) : null;
@@ -244,7 +244,7 @@ function renderHome() {
 
     <h2>Stocks</h2>
     ${stocks.length ? `<div class="list">${stocks.map(({ a, h }) => positionRow(a, h)).join('')}</div>`
-      : `<div class="card empty">You don't own any players or teams yet. You start with ${money(START_CASH)} of play money.
+      : `<div class="card empty">You don't own any players or teams yet. You start with ${money(state.startCash)} of play money.
       <button class="more" data-tab="market">Browse the market →</button></div>`}
 
     ${funds.length ? `<h2>Index funds</h2><div class="list">${funds.map(({ a, h }) => positionRow(a, h)).join('')}</div>` : ''}
@@ -422,12 +422,12 @@ function activityRow(i) {
 
 function renderAccount() {
   const nw = netWorth(state);
-  const pl = nw - START_CASH;
+  const pl = nw - state.startCash;
   const inbox = state.inbox.slice(0, 15);
   $('#view').innerHTML = `
     ${topbar('<h1>Account</h1>')}
     <div class="grid3">
-      <div class="stat"><div class="k">All-time return</div><div class="v ${cls(pl)}">${fmtPct(pl / START_CASH)}</div></div>
+      <div class="stat"><div class="k">All-time return</div><div class="v ${cls(pl)}">${fmtPct(pl / state.startCash)}</div></div>
       <div class="stat"><div class="k">Dividends</div><div class="v up">${money(state.divTotal || 0)}</div></div>
       <div class="stat"><div class="k">Trades</div><div class="v">${state.txns.length}</div></div>
     </div>
@@ -490,7 +490,9 @@ function renderAccount() {
     <div class="btn-row"><button class="btn ghost" data-act="export">Export</button><label class="btn ghost">Import<input type="file" id="importfile" accept="application/json" hidden></label></div>`}
 
     <h2>Reset</h2>
-    <div class="btn-row"><button class="btn danger" data-act="resetpf">Reset portfolio</button><button class="btn danger" data-act="resetall">Reset everything</button></div>
+    <div class="small muted" style="margin-bottom:8px">Starting balance for a fresh portfolio</div>
+    <div class="seg" style="margin-bottom:10px">${START_OPTIONS.map((v) => `<button data-startcash="${v}" class="${state.settings.startCash === v ? 'on' : ''}">${money(v).replace('.00', '')}</button>`).join('')}</div>
+    <div class="btn-row"><button class="btn danger" data-act="resetpf">Reset to ${money(state.settings.startCash).replace('.00', '')}</button><button class="btn danger" data-act="resetall">Reset everything</button></div>
     <p class="tiny faint" style="margin-top:18px;text-align:center">StatStreet version ${APP_VERSION} · Play money only. Not affiliated with ESPN, the NBA, NFL or MLB.</p>
     <p class="tiny faint" style="text-align:center" id="diag">${screenDiag()}</p>`;
   if (ui.scrollTo) { const el = document.getElementById(ui.scrollTo); ui.scrollTo = null; if (el) el.scrollIntoView(); }
@@ -1096,7 +1098,8 @@ function render() {
 // Re-render whatever is on top, without jumping scroll or interrupting a gesture.
 function softRefresh() {
   if (ui.order) { refreshBadge(); return; }
-  if (Date.now() - ui.lastScroll < 900) { setTimeout(softRefresh, 900); return; }
+  // Never swap out content under a finger: the rest of the gesture would be lost.
+  if (ui.touching || Date.now() - ui.lastScroll < 900) { clearTimeout(softRefresh.t); softRefresh.t = setTimeout(softRefresh, 900); return; }
   if (ui.chain) renderChain();
   else if (ui.detail) renderDetail();
   else if (!(ui.tab === 'market' && document.activeElement?.id === 'q')) {
@@ -1125,7 +1128,7 @@ function updateNumbers() {
   });
   const nwEl = $('[data-nw]');
   if (nwEl) {
-    const nw = netWorth(state, now); const ref = nwAt(now - RANGES[ui.homeRange]) ?? START_CASH; const ch = nw - ref;
+    const nw = netWorth(state, now); const ref = nwAt(now - RANGES[ui.homeRange]) ?? state.startCash; const ch = nw - ref;
     nwEl.textContent = money(nw);
     const c = $('[data-nwc]');
     c.className = `change-line ${cls(ch)}`;
@@ -1133,7 +1136,7 @@ function updateNumbers() {
   }
   if (ui.detail && !ui.chain) {
     updateDetailHeader();
-    if (!ui.scrub && ui.range === '1D') drawDetailChart(); // live line
+    if (!ui.scrub && !ui.touching && ui.range === '1D') drawDetailChart(); // live line
   }
   if (ui.order && ui.order.mode !== 'alert' && document.activeElement?.id !== 'qtyin' && document.activeElement?.id !== 'oprice') updateOrder();
 }
@@ -1180,6 +1183,7 @@ document.addEventListener('click', async (e) => {
   if (d.idx) { ui.tab = 'market'; ui.league = d.idx; ui.sort = 'price'; render(); return; }
   if (d.nleague) { ui.newsLeague = d.nleague; renderNews(); return; }
   if (d.actf) { ui.actFilter = d.actf; renderAccount(); return; }
+  if (d.startcash) { state.settings.startCash = Number(d.startcash); dirty = true; const y = view().scrollTop; renderAccount(); view().scrollTop = y; return; }
   if (d.range) { ui.range = d.range; renderDetail(); return; }
   if (d.hrange) { ui.homeRange = d.hrange; renderHome(); return; }
   if (d.exp) { ui.chain.exp = Number(d.exp); renderChain(); return; }
@@ -1274,8 +1278,9 @@ document.addEventListener('click', async (e) => {
     case 'export': exportData(); break;
     case 'resetpf':
       if (armed(el, 'Tap again to reset portfolio')) {
-        Object.assign(state, { cash: START_CASH, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [] });
-        ui.seenInbox = 0; dirty = true; save(); render(); toast('Portfolio reset');
+        const start = state.settings.startCash;
+        Object.assign(state, { cash: start, startCash: start, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [] });
+        ui.seenInbox = 0; dirty = true; save(); render(); toast(`Portfolio reset to ${money(start)}`);
       }
       break;
     case 'resetall':
@@ -1335,6 +1340,9 @@ window.addEventListener('popstate', (e) => {
 $('#trade').addEventListener('click', (e) => { if (e.target.id === 'trade') closeOrder(); });
 for (const id of ['sheet', 'chain']) $(`#${id}`).addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
 $('#view').addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
+// Track whether a finger is down, so background refreshes wait until the gesture ends.
+document.addEventListener('touchstart', () => { ui.touching = true; }, { passive: true, capture: true });
+for (const t of ['touchend', 'touchcancel']) document.addEventListener(t, (e) => { if (!e.touches.length) { ui.touching = false; ui.lastScroll = Date.now(); } }, { passive: true, capture: true });
 
 // Native gestures: swipe the order sheet down to close it, swipe from the left edge to go back.
 dismissable($('#panel'), {

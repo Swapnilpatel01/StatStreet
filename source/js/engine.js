@@ -7,7 +7,8 @@ import {
 } from './scoring.js';
 import { optionsValue } from './bs.js';
 
-export const START_CASH = 10000;
+export const START_CASH = 100;
+export const START_OPTIONS = [100, 1000, 10000];
 export const SPREAD = 0.0035;           // half-spread charged on each trade
 const P0 = 30;                           // price of a perfectly average player
 const TEAM_P0 = 60;                      // price of a .500 team
@@ -23,15 +24,15 @@ export const TEAM_DIV = { nba: 0.0025, nfl: 0.015, mlb: 0.0012 };
 export const PLAYER_DIV = { nba: 0.0015, nfl: 0.012, mlb: 0.0008 };
 export const MILESTONE_DIV = 0.01;
 
-export function newState() {
+export function newState(startCash = START_CASH) {
   return {
-    v: 1, created: Date.now(),
-    cash: START_CASH, holdings: {}, txns: [], watch: [],
+    v: 1, created: Date.now(), startCash,
+    cash: startCash, holdings: {}, txns: [], watch: [],
     assets: {}, stats: {}, mood: { nba: 0, nfl: 0, mlb: 0 },
     games: {}, liveGames: {}, newsSeen: {}, news: [], sync: {},
     nw: [], lastTick: 0,
     options: {}, orders: [], alerts: [], recurring: [], divs: [], divTotal: 0, inbox: [], schedule: {},
-    settings: { proxy: '', leagues: { nba: true, nfl: true, mlb: true }, drip: false },
+    settings: { proxy: '', leagues: { nba: true, nfl: true, mlb: true }, drip: false, startCash, startCashV: 1 },
   };
 }
 
@@ -40,7 +41,16 @@ export function migrate(state) {
   const d = newState();
   for (const k of ['options', 'orders', 'alerts', 'recurring', 'divs', 'inbox', 'schedule', 'watch', 'txns', 'nw']) state[k] ??= d[k];
   state.divTotal ??= 0;
+  state.startCash ??= 10000; // portfolios created before the $100 default started with $10,000
+  const firstMigration = !state.settings?.startCashV;
   state.settings = { ...d.settings, ...(state.settings || {}) };
+  if (firstMigration) {
+    // Switch to the new $100 default, but only if the portfolio was never used.
+    const untouched = !state.txns?.length && !Object.keys(state.holdings || {}).length && !Object.keys(state.options || {}).length
+      && !state.orders?.length && !state.recurring?.length && Math.abs((state.cash ?? 0) - state.startCash) < 0.005;
+    state.settings.startCash = START_CASH;
+    if (untouched) { state.cash = START_CASH; state.startCash = START_CASH; state.nw = []; }
+  }
   state.settings.leagues = { ...d.settings.leagues, ...(state.settings.leagues || {}) };
   for (const h of Object.values(state.holdings || {})) h.since ??= 0;
   return state;

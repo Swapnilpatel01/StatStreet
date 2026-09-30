@@ -42,6 +42,12 @@ with sync_playwright() as p:
     page.goto(f'http://127.0.0.1:{srv.server_address[1]}/index.html')
     page.wait_for_selector('#boot[hidden]', state='attached', timeout=60000); page.wait_for_timeout(600)
 
+    # --- new installs start with $100; switch to $10,000 via Account for the bigger trades below
+    assert '$100.00' in page.text_content('[data-nw]'), page.text_content('[data-nw]')
+    page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(200)
+    page.click('[data-startcash="10000"]'); page.click('[data-act=resetpf]'); page.click('[data-act=resetpf]'); page.wait_for_timeout(300)
+    print('reset:', toast(page)); assert '10,000' in toast(page)
+
     # --- funds exist
     page.click('#tabbar [data-tab=market]'); page.click('[data-kind=fund]'); page.wait_for_timeout(200)
     nf = page.locator('#mlist .item').count(); print('funds listed:', nf); assert nf >= 3
@@ -113,7 +119,7 @@ with sync_playwright() as p:
     page.click('#chain [data-strike] >> nth=6'); page.wait_for_timeout(300)
     page.screenshot(path=f'{OUT}/7-option-order.png')
     slide(page); t = toast(page); print('toast:', t); assert t.startswith('Bought 1')
-    page.click('[data-act=chainback]'); page.wait_for_timeout(300)
+    page.click('[data-act=chainback]'); page.wait_for_function("document.querySelector('#chain').hidden"); page.wait_for_timeout(200)
     assert page.locator('#sheet [data-optpos]').count() == 1
 
     # --- edge swipe back closes the player page

@@ -10,7 +10,7 @@ const t = (name, fn) => { fn(); passed++; console.log('ok -', name); };
 const now = Date.parse('2026-10-01T04:00:00Z');
 
 function build() {
-  const st = E.newState();
+  const st = E.newState(10000);
   [['1', 'BOS', 50, 20], ['2', 'WAS', 15, 55], ['3', 'MIA', 35, 35]].forEach(([id, abbr, w, l]) =>
     E.upsertTeam(st, 'nba', { id, abbr, name: abbr, short: abbr, w, l, t: 0, gp: w + l, diff: (w - l) * 8, streak: 1, playoffPct: null }));
   const mk = (id, name, gs, teamId) => ({ id, name, pos: 'G', teamId, teamAbbr: '', img: '', gp: 60, gs, line: {} });

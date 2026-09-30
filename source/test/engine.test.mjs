@@ -79,7 +79,7 @@ t('MLB box score handles hitters and pitchers', () => {
 // ---------- engine ----------
 
 function buildNBA() {
-  const st = E.newState();
+  const st = E.newState(10000);
   const teams = [
     { id: '1', abbr: 'BOS', name: 'Boston', short: 'Celtics', w: 50, l: 20, t: 0, gp: 70, diff: 560, streak: 3, playoffPct: 99 },
     { id: '2', abbr: 'WAS', name: 'Washington', short: 'Wizards', w: 15, l: 55, t: 0, gp: 70, diff: -700, streak: -4, playoffPct: 0 },
@@ -201,7 +201,7 @@ t('history stays capped and sorted', () => {
 });
 
 t('off-season prior regresses to .500', () => {
-  const st = E.newState();
+  const st = E.newState(10000);
   E.upsertTeam(st, 'nba', { id: '1', abbr: 'OKC', name: 'OKC', w: 68, l: 14, gp: 82, diff: 1000, streak: 5, prior: true });
   E.upsertTeam(st, 'nba', { id: '2', abbr: 'UTA', name: 'UTA', w: 17, l: 65, gp: 82, diff: -1000, streak: -5, prior: true });
   E.repriceLeague(st, 'nba', now);
