@@ -14,6 +14,7 @@ import { syncLeague, hasLive } from './sync.js';
 import { setProxy, netStats, api } from './api.js';
 import { loadState, saveState, persist, idbDel } from './store.js';
 import { lineChart, sparkline, payoffChart } from './chart.js';
+import { haptic, slideOut, dismissable, pullToRefresh } from './gestures.js';
 import { fmtMoney, fmtPct, timeAgo, DAY, HOUR, clamp, mean } from './util.js';
 
 // ---------- state ----------
@@ -41,6 +42,7 @@ const fmtDate = (t, o = { month: 'short', day: 'numeric' }) => new Date(t).toLoc
 const fmtExp = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
 const fmtDateTime = (t) => new Date(t).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const overlayOpen = () => !!(ui.detail || ui.chain || ui.order);
+const view = () => $('#view');
 
 // ---------- small render helpers ----------
 
@@ -493,19 +495,9 @@ function renderAccount() {
 
 // ---------- overlays: scroll lock ----------
 
-let lockY = 0;
-function lockBody() {
-  if (document.body.classList.contains('locked')) return;
-  lockY = window.scrollY;
-  document.body.style.top = `-${lockY}px`;
-  document.body.classList.add('locked');
-}
-function unlockBody() {
-  if (overlayOpen() || !document.body.classList.contains('locked')) return;
-  document.body.classList.remove('locked');
-  document.body.style.top = '';
-  window.scrollTo(0, lockY);
-}
+// Screens scroll inside their own containers, so nothing needs locking; kept as hooks.
+function lockBody() {}
+function unlockBody() {}
 
 // ---------- asset detail ----------
 
@@ -524,12 +516,15 @@ function openDetail(id) {
   if (!wasOpen) { sheet.classList.remove('enter'); void sheet.offsetWidth; sheet.classList.add('enter'); }
 }
 
-function closeDetail() {
+function closeDetail({ animate = true } = {}) {
   ui.detail = null;
-  $('#sheet').hidden = true; $('#sheet').innerHTML = '';
-  $('#tradebar').hidden = true;
-  unlockBody();
-  render();
+  const sheet = $('#sheet'); const bar = $('#tradebar');
+  const finish = () => {
+    if (ui.detail) return; // reopened meanwhile
+    sheet.hidden = true; sheet.innerHTML = ''; bar.hidden = true;
+    const y = view().scrollTop; render(); view().scrollTop = y;
+  };
+  if (animate && !sheet.hidden) slideOut(sheet, 'x', finish, [bar]); else finish();
 }
 
 function renderDetail({ keepScroll = true } = {}) {
@@ -625,7 +620,7 @@ function renderDetail({ keepScroll = true } = {}) {
   bar.hidden = !!ui.chain;
   bar.className = `trade-bar ${ch < 0 ? 'acc-down' : ''}`;
   bar.style.setProperty('--acc', `var(--${ch < 0 ? 'down' : 'up'})`);
-  bar.innerHTML = `<button class="btn opt" data-act="chain">Options</button>
+  bar.innerHTML = `<button class="btn opt" data-act="chain" aria-label="Options"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16"/><path d="M7 15l4-5 3 3 5-6"/><circle cx="19" cy="7" r="1.5"/></svg></button>
     <button class="btn sell" data-act="sell" ${h ? '' : 'disabled'}>Sell</button>
     <button class="btn buy" data-act="buy">Buy</button>`;
   drawDetailChart();
@@ -738,10 +733,15 @@ function openChain() {
   el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
 }
 
-function closeChain(silent = false) {
+function closeChain(silent = false, { animate = !silent } = {}) {
   ui.chain = null;
-  $('#chain').hidden = true; $('#chain').innerHTML = '';
-  if (ui.detail && !silent) renderDetail();
+  const el = $('#chain');
+  const finish = () => {
+    if (ui.chain) return;
+    el.hidden = true; el.innerHTML = '';
+    if (ui.detail && !silent) renderDetail();
+  };
+  if (animate && !el.hidden) slideOut(el, 'x', finish); else finish();
 }
 
 function renderChain() {
@@ -803,9 +803,11 @@ function openOrder(o) {
   panel.classList.remove('enter'); void panel.offsetWidth; panel.classList.add('enter');
 }
 
-function closeOrder() {
+function closeOrder({ animate = true } = {}) {
   ui.order = null;
-  $('#trade').hidden = true; $('#panel').innerHTML = '';
+  const wrap = $('#trade'); const panel = $('#panel');
+  const finish = () => { if (ui.order) return; wrap.hidden = true; panel.innerHTML = ''; };
+  if (animate && !wrap.hidden) slideOut(panel, 'y', finish); else finish();
 }
 
 function stockOrderDefaults(side) {
@@ -1023,6 +1025,7 @@ function submitOrder() {
         runAutomation(state);
       }
     }
+    haptic();
     closeOrder();
     dirty = true; save();
     ui.seenInbox = state.inbox.length;
@@ -1091,7 +1094,7 @@ function softRefresh() {
   if (ui.chain) renderChain();
   else if (ui.detail) renderDetail();
   else if (!(ui.tab === 'market' && document.activeElement?.id === 'q')) {
-    const y = window.scrollY; render(); window.scrollTo(0, y);
+    const y = view().scrollTop; render(); view().scrollTop = y;
   } else refreshBadge();
 }
 
@@ -1144,9 +1147,10 @@ document.addEventListener('click', async (e) => {
   const d = el.dataset;
   if (el.disabled) return;
   if (d.tab) {
+    if (d.tab === ui.tab && !overlayOpen()) { view().scrollTo({ top: 0, behavior: 'smooth' }); return; }
     ui.tab = d.tab; ui.limit = 60;
     if (ui.order) closeOrder(); if (ui.chain) closeChain(true); if (ui.detail) { ui.detail = null; $('#sheet').hidden = true; $('#tradebar').hidden = true; unlockBody(); }
-    render(); window.scrollTo(0, 0); return;
+    render(); view().scrollTop = 0; return;
   }
   if (d.cancelorder) { e.stopPropagation(); cancelOrder(state, d.cancelorder); dirty = true; toast('Order canceled'); softRefresh(); return; }
   if (d.cancelrec) { cancelRecurring(state, d.cancelrec); dirty = true; toast('Recurring buy stopped'); renderAccount(); return; }
@@ -1165,7 +1169,7 @@ document.addEventListener('click', async (e) => {
   if (d.coll) {
     ui.tab = 'market'; ui.q = ''; ui.league = 'all'; ui.limit = 60;
     if (d.coll === 'funds') { ui.kind = 'fund'; ui.sort = 'price'; } else { ui.sort = d.coll; ui.kind = d.coll === 'streak' ? 'team' : d.coll === 'mvp' || d.coll === 'hurt' ? 'player' : ui.kind === 'fund' ? 'player' : ui.kind; }
-    render(); window.scrollTo(0, 0); return;
+    render(); view().scrollTop = 0; return;
   }
   if (d.idx) { ui.tab = 'market'; ui.league = d.idx; ui.sort = 'price'; render(); return; }
   if (d.nleague) { ui.newsLeague = d.nleague; renderNews(); return; }
@@ -1240,7 +1244,7 @@ document.addEventListener('click', async (e) => {
     case 'watch': {
       const i = state.watch.indexOf(ui.detail);
       if (i >= 0) state.watch.splice(i, 1); else state.watch.unshift(ui.detail);
-      dirty = true; renderDetail(); toast(i >= 0 ? 'Removed from watchlist' : 'Added to watchlist'); break;
+      haptic(); dirty = true; renderDetail(); toast(i >= 0 ? 'Removed from watchlist' : 'Added to watchlist'); break;
     }
     case 'alert': openAlert(); break;
     case 'setalert': {
@@ -1314,16 +1318,36 @@ document.addEventListener('change', async (e) => {
 });
 
 window.addEventListener('popstate', (e) => {
-  if (ui.order) { closeOrder(); }
-  if (ui.chain && !e.state?.chain) { closeChain(); return; }
+  const animate = !ui.noAnim; ui.noAnim = false;
+  if (ui.order) { closeOrder({ animate }); }
+  if (ui.chain && !e.state?.chain) { closeChain(false, { animate }); return; }
   const id = e.state?.sheet;
   if (id && state.assets[id]) { if (ui.detail !== id) { ui.detail = id; renderDetail({ keepScroll: false }); $('#sheet').scrollTop = 0; } }
-  else if (ui.detail) closeDetail();
+  else if (ui.detail) closeDetail({ animate });
 });
 
 $('#trade').addEventListener('click', (e) => { if (e.target.id === 'trade') closeOrder(); });
 for (const id of ['sheet', 'chain']) $(`#${id}`).addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
-window.addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
+$('#view').addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
+
+// Native gestures: swipe the order sheet down to close it, swipe from the left edge to go back.
+dismissable($('#panel'), {
+  axis: 'y', backdrop: $('#trade'),
+  canStart: (e) => !e.target.closest('.slider') && $('#panel').scrollTop <= 0,
+  onDismiss: () => closeOrder({ animate: false }),
+});
+dismissable($('#sheet'), {
+  axis: 'x', extra: () => [$('#tradebar')],
+  onDismiss: () => { if (history.state?.sheet) { ui.noAnim = true; history.back(); } else closeDetail({ animate: false }); },
+});
+dismissable($('#chain'), {
+  axis: 'x',
+  onDismiss: () => { if (history.state?.chain) { ui.noAnim = true; history.back(); } else closeChain(false, { animate: false }); },
+});
+pullToRefresh($('#view'), $('#ptr'), {
+  enabled: () => !overlayOpen() && ui.tab !== 'account',
+  onRefresh: async () => { if (STATIC) { toast('Prices use a data snapshot in this version'); return; } await runSync({ manual: true }); },
+});
 
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {

@@ -79,6 +79,7 @@ export function lineChart(el, flat, from, { onScrub, height = 190 } = {}) {
   svg.addEventListener('touchstart', (e) => {
     const tp = e.touches[0]; sx = tp.clientX; sy = tp.clientY; mode = null;
     clearTimeout(hold);
+    if (sx < 26) { mode = 'scroll'; return; } // left edge belongs to the swipe-back gesture
     hold = setTimeout(() => { if (!mode) { mode = 'scrub'; move(sx); } }, 280);
   }, { passive: true });
   svg.addEventListener('touchmove', (e) => {

@@ -23,6 +23,12 @@ def slide(page):
 
 def toast(page): return page.evaluate("document.querySelector('#toast').textContent")
 
+def drag(cdp, page, x, y, dx, dy, steps=12):
+    cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y}]})
+    for i in range(1, steps + 1):
+        cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': x + dx * i / steps, 'y': y + dy * i / steps}]}); page.wait_for_timeout(16)
+    cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []}); page.wait_for_timeout(450)
+
 errors = []
 srv = serve()
 with sync_playwright() as p:
@@ -54,10 +60,25 @@ with sync_playwright() as p:
     cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
     page.wait_for_timeout(500)
     st = page.evaluate("document.querySelector('#sheet').scrollTop"); print('sheet scrollTop after swipe on chart:', st); assert st > 100
-    body_locked = page.evaluate("document.body.classList.contains('locked')"); assert body_locked
     y0 = st; page.wait_for_timeout(4500)  # a price tick must not move the scroll position
     st2 = page.evaluate("document.querySelector('#sheet').scrollTop"); print('scrollTop after tick:', st2); assert abs(st2 - y0) < 2
     page.screenshot(path=f'{OUT}/3-detail-scrolled.png')
+
+    # --- compact bottom bar, page itself never scrolls
+    bar_h = page.locator('#tradebar').bounding_box()['height']; print('trade bar height:', bar_h); assert bar_h <= 60
+    assert page.evaluate("document.scrollingElement.scrollHeight <= innerHeight + 1")
+
+    # --- swipe down closes the buy sheet
+    page.click('#tradebar [data-act=buy]'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(400)
+    pb = page.locator('#panel .grabber').bounding_box()
+    drag(cdp, page, int(pb['x'] + pb['width'] / 2), int(pb['y'] + 5), 0, 420)
+    closed = page.evaluate("document.querySelector('#trade').hidden"); print('buy sheet closed by swipe down:', closed); assert closed
+    # a small drag snaps back instead
+    page.click('#tradebar [data-act=buy]'); page.wait_for_timeout(400)
+    pb = page.locator('#panel .grabber').bounding_box()
+    drag(cdp, page, int(pb['x'] + pb['width'] / 2), int(pb['y'] + 5), 0, 40)
+    assert not page.evaluate("document.querySelector('#trade').hidden"), 'small drag should not close'
+    page.click('[data-act=tcancel]'); page.wait_for_timeout(400)
 
     # --- order panel: stable across taps and ticks (no rebuild / re-animation)
     page.click('#tradebar [data-act=buy]'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
@@ -95,8 +116,11 @@ with sync_playwright() as p:
     page.click('[data-act=chainback]'); page.wait_for_timeout(300)
     assert page.locator('#sheet [data-optpos]').count() == 1
 
+    # --- edge swipe back closes the player page
+    drag(cdp, page, 8, 400, 330, 0)
+    print('detail closed by edge swipe:', page.evaluate("document.querySelector('#sheet').hidden")); assert page.evaluate("document.querySelector('#sheet').hidden")
+
     # --- index fund buy
-    page.click('[data-act=back]'); page.wait_for_timeout(300)
     page.click('#tabbar [data-tab=market]'); page.fill('#q', 'SS500'); page.wait_for_timeout(200)
     page.click('#mlist .item >> nth=0'); page.wait_for_timeout(400)
     page.screenshot(path=f'{OUT}/8-fund.png')
@@ -105,7 +129,9 @@ with sync_playwright() as p:
 
     # --- home & account
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(400)
-    page.screenshot(path=f'{OUT}/9-home.png', full_page=True)
+    drag(cdp, page, 200, 150, 0, 260); page.wait_for_timeout(1500)
+    print('pull to refresh:', toast(page)); assert 'up to date' in toast(page) or 'priced in' in toast(page)
+    page.screenshot(path=f'{OUT}/9-home.png')
     assert page.locator('text=Open orders').count() == 1 and page.locator('#view [data-optpos]').count() == 1
     page.click('#view [data-cancelorder]'); page.wait_for_timeout(200); assert 'canceled' in toast(page)
     page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
