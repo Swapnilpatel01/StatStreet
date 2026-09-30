@@ -1464,7 +1464,22 @@ function afterLoad() {
 
 // ---------- boot ----------
 
+// Belt-and-braces for the iOS 26 installed-app viewport bug: if the reported height is
+// short of the physical screen by about a status bar, size the page to the screen.
+function fitScreen() {
+  const root = document.documentElement;
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  if (!standalone) { root.style.height = ''; return; }
+  const portrait = matchMedia('(orientation: portrait)').matches;
+  const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  const gap = full - innerHeight;
+  root.style.height = gap > 0 && gap <= 80 ? `${full}px` : '';
+}
+
 async function main() {
+  fitScreen();
+  addEventListener('resize', fitScreen);
+  addEventListener('orientationchange', () => setTimeout(fitScreen, 300));
   state = (await loadState()) || newState();
   afterLoad();
   if (!STATIC && 'serviceWorker' in navigator) {
