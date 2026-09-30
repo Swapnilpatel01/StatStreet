@@ -5,6 +5,7 @@ import { clamp, gauss, mean, std, median, decay, HOUR, DAY, tickerFrom } from '.
 import {
   LEAGUES, posGroup, posMultiplier, gameScore, lineText, milestone, injuryFactor, sentimentScore,
 } from './scoring.js';
+import { optionsValue } from './bs.js';
 
 export const START_CASH = 10000;
 export const SPREAD = 0.0035;           // half-spread charged on each trade
@@ -16,6 +17,12 @@ const IMPACT_HALF_LIFE = 4 * HOUR;
 const NOISE_TAU = 3 * HOUR;
 const HIST_CAP = 420;
 
+// Dividends, as a fraction of share price.
+// Teams pay per win; players pay for above-average games (per standard deviation above their position's average).
+export const TEAM_DIV = { nba: 0.0025, nfl: 0.015, mlb: 0.0012 };
+export const PLAYER_DIV = { nba: 0.0015, nfl: 0.012, mlb: 0.0008 };
+export const MILESTONE_DIV = 0.01;
+
 export function newState() {
   return {
     v: 1, created: Date.now(),
@@ -23,8 +30,25 @@ export function newState() {
     assets: {}, stats: {}, mood: { nba: 0, nfl: 0, mlb: 0 },
     games: {}, liveGames: {}, newsSeen: {}, news: [], sync: {},
     nw: [], lastTick: 0,
-    settings: { proxy: '', leagues: { nba: true, nfl: true, mlb: true } },
+    options: {}, orders: [], alerts: [], recurring: [], divs: [], divTotal: 0, inbox: [], schedule: {},
+    settings: { proxy: '', leagues: { nba: true, nfl: true, mlb: true }, drip: false },
   };
+}
+
+// Fill in anything an older saved state is missing.
+export function migrate(state) {
+  const d = newState();
+  for (const k of ['options', 'orders', 'alerts', 'recurring', 'divs', 'inbox', 'schedule', 'watch', 'txns', 'nw']) state[k] ??= d[k];
+  state.divTotal ??= 0;
+  state.settings = { ...d.settings, ...(state.settings || {}) };
+  state.settings.leagues = { ...d.settings.leagues, ...(state.settings.leagues || {}) };
+  for (const h of Object.values(state.holdings || {})) h.since ??= 0;
+  return state;
+}
+
+export function notify(state, kind, text, id = null, t = Date.now()) {
+  state.inbox.unshift({ t, kind, text, id, seen: false });
+  if (state.inbox.length > 150) state.inbox.length = 150;
 }
 
 // ---------- asset helpers ----------
@@ -220,7 +244,17 @@ export function fairOnly(state, a) {
   return a.kind === 'team' ? teamFair(state, a) : playerFair(state, a);
 }
 
+export function fundNav(state, a) {
+  let v = 0;
+  for (const [id, sh] of Object.entries(a.cons || {})) v += (state.assets[id]?.price || 0) * sh;
+  return v;
+}
+
 export function breakdown(state, a, now = Date.now()) {
+  if (a.kind === 'fund') {
+    const fair = fundNav(state, a); const imp = impact(a, now);
+    return { fair, inj: 1, senti: 0, mood: 0, imp, live: 0, target: Math.max(0.5, fair * (1 + imp)) };
+  }
   const fair = fairOnly(state, a);
   const inj = a.kind === 'player' ? (a.injury?.factor ?? 1) : teamInjuryDrag(state, a);
   const senti = sentiment(a, now);
@@ -268,6 +302,7 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
     const won = side.score > opp.score || side.winner;
     const tie = side.score === opp.score && !side.winner && !opp.winner;
     const text = `${won ? 'W' : tie ? 'T' : 'L'} ${side.score}-${opp.score} ${side.home ? 'vs' : '@'} ${opp.abbr}`;
+    if (won) payDividend(state, a, a.price * TEAM_DIV[league], `Win ${side.score}-${opp.score} ${side.home ? 'vs' : '@'} ${opp.abbr}`, at, game.date);
     withEvent(state, a, now, at, 'game', text, () => {
       a.rec.gp += 1; a.rec.diff += side.score - opp.score;
       if (won) a.rec.w += 1; else if (tie) a.rec.t += 1; else a.rec.l += 1;
@@ -291,7 +326,13 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       if (a.perf.last.length > 10) a.perf.last.length = 10;
       a.live = null;
     }, { force: gs !== 0 });
+    if (!game.preseason) {
+      const st = state.stats[league]?.[posGroup(league, a.pos)];
+      const z = st && st.sd > 0 ? (gs - st.mu) / st.sd : 0;
+      if (z > 0.25) payDividend(state, a, a.price * PLAYER_DIV[league] * clamp(z, 0, 3), `Performance: ${lineText(league, p.line)}`, at, game.date);
+    }
     const m = game.preseason ? null : milestone(league, p.line);
+    if (m) payDividend(state, a, a.price * MILESTONE_DIV, `Special dividend: ${m}`, at, game.date);
     if (m) {
       withEvent(state, a, now, at, 'milestone', m, () => {
         a.shocks.push({ t: at, v: 0.05 });
@@ -300,6 +341,58 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
   }
   state.games[game.id] = { final: true, t: game.date, league };
   delete state.liveGames[game.id];
+}
+
+// Pay a per-share dividend to everyone who owned the asset (or a fund holding it)
+// before the game started. DRIP reinvests at the current price, no spread.
+export function payDividend(state, a, perShare, reason, at, gameDate) {
+  if (!(perShare > 0)) return;
+  perShare = Math.round(perShare * 10000) / 10000;
+  a.divHist ||= [];
+  a.divHist.unshift({ t: at, ps: perShare, reason });
+  if (a.divHist.length > 40) a.divHist.length = 40;
+  const credit = (holdId, qtyEquiv, via) => {
+    const pos = state.holdings[holdId];
+    const amt = Math.round(qtyEquiv * perShare * 100) / 100;
+    if (!(amt > 0)) return;
+    const target = state.assets[holdId];
+    let drip = false;
+    if (state.settings?.drip && target?.price > 0) {
+      pos.qty = Math.round((pos.qty + amt / target.price) * 1e6) / 1e6;
+      pos.cost = Math.round((pos.cost + amt) * 100) / 100;
+      drip = true;
+    } else {
+      state.cash = Math.round((state.cash + amt) * 100) / 100;
+    }
+    state.divTotal = Math.round(((state.divTotal || 0) + amt) * 100) / 100;
+    state.divs.unshift({ t: at, id: holdId, ticker: target?.ticker || a.ticker, from: a.ticker, ps: perShare, amt, reason, drip, via });
+    if (state.divs.length > 400) state.divs.length = 400;
+    notify(state, 'div', `${target?.ticker || a.ticker} paid you ${'$' + amt.toFixed(2)}${via ? ` (via ${a.ticker})` : ''}${drip ? ' · reinvested' : ''}`, holdId, at);
+  };
+  const own = state.holdings[a.id];
+  if (own && (own.since || 0) < gameDate) credit(a.id, own.qty, null);
+  for (const f of Object.values(state.assets)) {
+    if (f.kind !== 'fund' || !f.cons?.[a.id]) continue;
+    const fp = state.holdings[f.id];
+    if (fp && (fp.since || 0) < gameDate) credit(f.id, fp.qty * f.cons[a.id], a.ticker);
+  }
+}
+
+// Estimated forward yield: average dividend per game over recent games, times a season.
+const SEASON_GAMES = { nba: 82, nfl: 17, mlb: 162 };
+export function dividendYield(state, a, now = Date.now()) {
+  if (a.kind === 'fund') {
+    let perYear = 0;
+    for (const [id, sh] of Object.entries(a.cons || {})) {
+      const c = state.assets[id]; if (c) perYear += dividendYield(state, c, now) * c.price * sh;
+    }
+    return a.price ? perYear / a.price : 0;
+  }
+  const hist = (a.divHist || []).filter((d) => now - d.t < 45 * DAY && !/^Special/.test(d.reason));
+  const games = a.kind === 'team' ? (a.form || []).length : (a.perf?.last || []).length;
+  if (!games || !a.price) return 0;
+  const perGame = hist.reduce((s, d) => s + d.ps, 0) / Math.max(games, hist.length);
+  return (perGame * SEASON_GAMES[a.league]) / a.price;
 }
 
 // Undo the effect of games we are about to replay, so a fresh install gets
@@ -436,10 +529,12 @@ export function tick(state, now = Date.now()) {
   const e = Math.exp(-dt / NOISE_TAU);
   const liveTeams = new Set();
   for (const g of Object.values(state.liveGames)) for (const t of g.teams) liveTeams.add(tid(g.league, t.id));
-  for (const a of Object.values(state.assets)) {
+  const all = Object.values(state.assets);
+  // Funds last, so their NAV uses this tick's component prices.
+  for (const a of [...all.filter((x) => x.kind !== 'fund'), ...all.filter((x) => x.kind === 'fund')]) {
     const live = !!a.live || liveTeams.has(a.id);
-    const sigma = (a.kind === 'team' ? 0.004 : 0.008) * (live ? 2.5 : 1);
-    a.n = (a.n || 0) * e + sigma * Math.sqrt(1 - e * e) * gauss();
+    const sigma = a.kind === 'fund' ? 0 : (a.kind === 'team' ? 0.004 : 0.008) * (live ? 2.5 : 1);
+    a.n = sigma ? (a.n || 0) * e + sigma * Math.sqrt(1 - e * e) * gauss() : 0;
     const t = targetPrice(state, a, now);
     a.target = t;
     const p = Math.round(t * Math.exp(a.n) * 100) / 100;
@@ -484,9 +579,11 @@ export function previewTrade(state, id, side, qty, now = Date.now()) {
 export function trade(state, id, side, qty, now = Date.now()) {
   const a = state.assets[id];
   if (!a) throw new Error('Unknown asset');
-  qty = Math.floor(qty);
-  if (!(qty > 0)) throw new Error('Enter a quantity of at least 1 share');
-  const pos = state.holdings[id] || { qty: 0, cost: 0 };
+  qty = Math.round(qty * 1e6) / 1e6;
+  const pos = state.holdings[id] || { qty: 0, cost: 0, since: now };
+  if (side === 'sell' && qty > pos.qty && qty - pos.qty < 1e-5) qty = pos.qty; // "sell all" rounding
+  if (!(qty > 0)) throw new Error('Enter an amount to trade');
+  if (qty * a.price < 1 && !(side === 'sell' && qty === pos.qty)) throw new Error('Minimum order is $1');
   const pv = previewTrade(state, id, side, qty, now);
   const total = pv.total;
   if (side === 'buy') {
@@ -494,15 +591,15 @@ export function trade(state, id, side, qty, now = Date.now()) {
     state.cash = round2(state.cash - total);
     pos.qty += qty; pos.cost = round2(pos.cost + total);
   } else {
-    if (qty > pos.qty) throw new Error(`You only own ${pos.qty} share${pos.qty === 1 ? '' : 's'}`);
+    if (qty > pos.qty + 1e-9) throw new Error(`You only own ${fmtQty(pos.qty)} share${pos.qty === 1 ? '' : 's'}`);
     const avg = pos.qty ? pos.cost / pos.qty : 0;
     state.cash = round2(state.cash + total);
-    pos.cost = round2(pos.cost - avg * qty); pos.qty -= qty;
+    pos.cost = round2(pos.cost - avg * qty); pos.qty = Math.round((pos.qty - qty) * 1e6) / 1e6;
   }
-  if (pos.qty > 0) state.holdings[id] = pos; else delete state.holdings[id];
+  if (pos.qty > 1e-6) state.holdings[id] = pos; else delete state.holdings[id];
   a.imp = { v: pv.next, t: now };
   setPrice(state, a, now);
-  const tx = { t: now, id, ticker: a.ticker, name: a.name, side, qty, price: pv.fill, total };
+  const tx = { t: now, id, ticker: a.ticker, name: a.name, side, qty, price: pv.fill, total, kind: 'stock' };
   state.txns.unshift(tx);
   if (state.txns.length > 500) state.txns.length = 500;
   return tx;
@@ -514,11 +611,13 @@ export function holdingsValue(state) {
   return v;
 }
 
-export const netWorth = (state) => state.cash + holdingsValue(state);
+export const netWorth = (state, now = Date.now()) => state.cash + holdingsValue(state) + optionsValue(state, now);
+
+export const fmtQty = (q) => (Math.abs(q - Math.round(q)) < 1e-6 ? String(Math.round(q)) : q.toFixed(q < 1 ? 4 : 3).replace(/0+$/, ''));
 
 // League index: equal-weight average of the 50 most valuable assets, rebased to 1000.
 export function leagueIndex(state, league, now = Date.now()) {
-  const list = Object.values(state.assets).filter((a) => a.league === league && a.hist.length);
+  const list = Object.values(state.assets).filter((a) => a.league === league && a.kind !== 'fund' && a.hist.length);
   if (!list.length) return null;
   const top = list.sort((x, y) => y.price - x.price).slice(0, 50);
   const cur = mean(top.map((a) => a.price));

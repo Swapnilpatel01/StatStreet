@@ -4,6 +4,15 @@ A stock market for NBA, NFL and MLB players and teams. Prices move with real box
 
 **Live app:** https://swapnilpatel01.github.io/StatStreet/ — open in Safari and tap Share → Add to Home Screen.
 
+## Features
+
+- **Players and teams as stocks**, priced from real box scores, standings, injuries and ESPN headlines, with live-game moves.
+- **Dividends**: teams pay after wins; players pay after above-average games, plus a special dividend for milestone games. You must own shares before tip-off. Optional automatic reinvestment.
+- **Index funds**: StatStreet 500, MVP 10, NBA/NFL/MLB Stars, Quarterback Index, All Teams and Hot Hand Momentum. They rebalance weekly and pass through dividends.
+- **Options**: calls and puts with weekly Friday expiries, Black-Scholes pricing, breakeven, chance of profit, Greeks, a payoff chart and automatic cash settlement.
+- **Orders**: market orders in dollars (fractional shares) or shares, limit, stop-loss and recurring buys, with slide-to-confirm.
+- **Robinhood-style extras**: price alerts, notifications, watchlist, portfolio allocation, performance vs the StatStreet 500, key stats, scout ratings, upcoming games and Discover collections.
+
 ## What's in this repo
 
 - Root (`index.html`, `sw.js`, `manifest.webmanifest`, icons): the ready-to-serve app that GitHub Pages hosts. `index.html` is a single bundled file built from `source/`.
@@ -55,6 +64,7 @@ Every asset page has a **"Why it's moving"** log and a **price breakdown** so yo
 ```
 cd source
 node test/engine.test.mjs        # pricing engine unit tests
+node test/features.test.mjs      # dividends, funds, options, orders
 python3 test/browser_test.py     # headless browser test with mocked ESPN data (needs Playwright)
 ```
 

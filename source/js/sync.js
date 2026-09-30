@@ -106,9 +106,22 @@ async function firstRun(state, league, progress, now) {
 
   await liveGames(state, league, events, now);
   await newsAndInjuries(state, league, now, true);
+  await loadSchedule(state, league, now);
   repriceLeague(state, league, now);
   const s = state.sync[league];
   Object.assign(s, { seeded: true, scoreboard: now, standings: now });
+}
+
+// Upcoming games for the next few days (shown as "next game" and before option expiries).
+async function loadSchedule(state, league, now) {
+  const s = state.sync[league];
+  if (now - (s.schedule || 0) < 30 * MIN) return;
+  try {
+    const events = await loadScoreboards(league, now, now + 4 * DAY);
+    state.schedule[league] = events.filter((e) => e.state === 'pre' && e.date > now - HOUR).slice(0, 120)
+      .map((e) => ({ id: e.id, date: e.date, name: e.name, preseason: e.preseason, teams: e.teams.map((t) => ({ id: t.id, abbr: t.abbr, home: t.home })) }));
+    s.schedule = now;
+  } catch { /* optional */ }
 }
 
 async function liveGames(state, league, events, now) {
@@ -148,6 +161,7 @@ async function refresh(state, league, progress, now, { liveOnly = false } = {}) 
     // Standings after games so a just-finished game isn't counted twice.
     try { await loadStandings(state, league); s.standings = now; } catch { /* keep last */ }
     await newsAndInjuries(state, league, now, false);
+    await loadSchedule(state, league, now);
     s.scoreboard = now;
   }
   clearStaleLive(state, now);
