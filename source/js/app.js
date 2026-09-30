@@ -25,6 +25,7 @@ const ui = {
   range: '1D', homeRange: '1D', newsLeague: 'all', actFilter: 'all',
   detail: null, chain: null, order: null, scrub: false, lastScroll: 0, seenInbox: 0,
 };
+const APP_VERSION = 5;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -487,7 +488,8 @@ function renderAccount() {
 
     <h2>Reset</h2>
     <div class="btn-row"><button class="btn danger" data-act="resetpf">Reset portfolio</button><button class="btn danger" data-act="resetall">Reset everything</button></div>
-    <p class="tiny faint" style="margin-top:18px;text-align:center">Play money only. Not affiliated with ESPN, the NBA, NFL or MLB.</p>`;
+    <p class="tiny faint" style="margin-top:18px;text-align:center">StatStreet version ${APP_VERSION} · Play money only. Not affiliated with ESPN, the NBA, NFL or MLB.</p>
+    <p class="tiny faint" style="text-align:center" id="diag">${screenDiag()}</p>`;
   if (ui.scrollTo) { const el = document.getElementById(ui.scrollTo); ui.scrollTo = null; if (el) el.scrollIntoView(); }
   for (const n of state.inbox) n.seen = true;
   dirty = true;
@@ -1463,6 +1465,19 @@ function afterLoad() {
 }
 
 // ---------- boot ----------
+
+// One-line layout readout (helps diagnose iOS viewport quirks from a screenshot).
+function screenDiag() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)';
+  document.body.append(probe);
+  const cs = getComputedStyle(probe);
+  const ins = `${parseFloat(cs.paddingTop)}/${parseFloat(cs.paddingBottom)}`;
+  probe.remove();
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const tb = $('#tabbar').getBoundingClientRect();
+  return `screen ${screen.width}×${screen.height} · window ${innerWidth}×${innerHeight} · page ${Math.round(document.body.getBoundingClientRect().height)} · bar ${Math.round(tb.bottom)} · insets ${ins} · ${standalone ? 'installed' : 'browser'}`;
+}
 
 // Belt-and-braces for the iOS 26 installed-app viewport bug: if the reported height is
 // short of the physical screen by about a status bar, size the page to the screen.
