@@ -32,6 +32,8 @@ export function newState(startCash = START_CASH) {
     games: {}, liveGames: {}, newsSeen: {}, news: [], sync: {},
     nw: [], lastTick: 0,
     options: {}, orders: [], alerts: [], recurring: [], divs: [], divTotal: 0, inbox: [], schedule: {},
+    picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, daily: { last: '', streak: 0, best: 0 },
+    collection: {}, trophies: {}, results: [], startedAt: Date.now(),
     settings: { proxy: '', leagues: { nba: true, nfl: true, mlb: true }, drip: false, startCash, startCashV: 1 },
   };
 }
@@ -39,7 +41,9 @@ export function newState(startCash = START_CASH) {
 // Fill in anything an older saved state is missing.
 export function migrate(state) {
   const d = newState();
-  for (const k of ['options', 'orders', 'alerts', 'recurring', 'divs', 'inbox', 'schedule', 'watch', 'txns', 'nw']) state[k] ??= d[k];
+  for (const k of ['options', 'orders', 'alerts', 'recurring', 'divs', 'inbox', 'schedule', 'watch', 'txns', 'nw',
+    'picks', 'pickStats', 'daily', 'collection', 'trophies', 'results']) state[k] ??= d[k];
+  state.startedAt ??= state.nw?.[0] || state.created || Date.now();
   state.divTotal ??= 0;
   state.startCash ??= 10000; // portfolios created before the $100 default started with $10,000
   const firstMigration = !state.settings?.startCashV;
@@ -351,6 +355,45 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
   }
   state.games[game.id] = { final: true, t: game.date, league };
   delete state.liveGames[game.id];
+  recordResult(state, league, game);
+  settlePick(state, game, at);
+}
+
+// Keep recent final scores for the Games tab.
+function recordResult(state, league, game) {
+  if (!state.results || game.teams.length < 2) return;
+  if (state.results.some((r) => r.id === game.id)) return;
+  const home = game.teams.find((t) => t.home) || game.teams[0];
+  const away = game.teams.find((t) => t !== home);
+  state.results.unshift({
+    id: game.id, league, date: game.date, preseason: !!game.preseason, name: `${away.abbr} @ ${home.abbr}`,
+    teams: [away, home].map((t) => ({ id: t.id, abbr: t.abbr, score: t.score, winner: !!t.winner || t.score > (t === home ? away : home).score })),
+  });
+  state.results.sort((x, y) => y.date - x.date);
+  if (state.results.length > 80) state.results.length = 80;
+}
+
+// Pick'em: pay out a correct pick (streak bonus up to 2x), record a miss.
+export const pickStreakMult = (streak) => Math.min(2, 1 + 0.1 * streak);
+function settlePick(state, game, at) {
+  const pk = state.picks?.[game.id];
+  if (!pk || pk.done) return;
+  const winner = game.teams.find((t) => t.winner) || [...game.teams].sort((x, y) => y.score - x.score)[0];
+  const tie = game.teams.length === 2 && game.teams[0].score === game.teams[1].score && !game.teams.some((t) => t.winner);
+  pk.done = true;
+  const st = state.pickStats;
+  if (tie) { pk.result = 'push'; notify(state, 'pick', `${pk.name} ended in a tie — pick returned`, null, at); return; }
+  pk.result = winner.id === pk.teamId ? 'won' : 'lost';
+  if (pk.result === 'won') {
+    const pay = Math.round(pk.reward * pickStreakMult(st.streak) * 100) / 100;
+    pk.paid = pay;
+    st.w++; st.streak++; st.best = Math.max(st.best, st.streak); st.won = Math.round((st.won + pay) * 100) / 100;
+    state.cash = Math.round((state.cash + pay) * 100) / 100;
+    notify(state, 'pick', `Pick'em win: ${pk.abbr} beat ${pk.opp} · +$${pay.toFixed(2)}${st.streak > 1 ? ` (${st.streak} in a row)` : ''}`, null, at);
+  } else {
+    st.l++; st.streak = 0;
+    notify(state, 'pick', `Pick'em miss: ${pk.abbr} lost to ${pk.opp}`, null, at);
+  }
 }
 
 // Pay a per-share dividend to everyone who owned the asset (or a fund holding it)

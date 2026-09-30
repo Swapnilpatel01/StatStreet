@@ -16,6 +16,13 @@ import { loadState, saveState, persist, idbDel } from './store.js';
 import { lineChart, sparkline, payoffChart } from './chart.js';
 import { haptic, slideOut, dismissable, pullToRefresh } from './gestures.js';
 import { fmtMoney, fmtPct, timeAgo, DAY, HOUR, clamp, mean } from './util.js';
+import {
+  rarity, cardLevel, RARITY, dailyStatus, claimDaily, DAILY_REWARDS, winProb, pickReward, upcomingPickGames, makePick, clearPick,
+  pickPayout, leaderboard, TROPHIES, runSocial, gamePlayers,
+} from './social.js';
+import { pickStreakMult } from './engine.js';
+import { squarify, heatColor } from './heatmap.js';
+import { portfolioCard, assetCard, shareCanvas } from './sharecard.js';
 
 // ---------- state ----------
 
@@ -23,9 +30,10 @@ let state;
 const ui = {
   tab: 'home', league: 'all', kind: 'player', sort: 'movers', q: '', limit: 60,
   range: '1D', homeRange: '1D', newsLeague: 'all', actFilter: 'all',
-  detail: null, chain: null, order: null, scrub: false, lastScroll: 0, seenInbox: 0,
+  detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
+  mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -42,7 +50,7 @@ const assetsList = () => Object.values(state.assets).filter((a) => leagueOn(a) &
 const fmtDate = (t, o = { month: 'short', day: 'numeric' }) => new Date(t).toLocaleDateString([], o);
 const fmtExp = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
 const fmtDateTime = (t) => new Date(t).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-const overlayOpen = () => !!(ui.detail || ui.chain || ui.order);
+const overlayOpen = () => !!(ui.detail || ui.chain || ui.order || ui.game);
 const view = () => $('#view');
 
 // ---------- small render helpers ----------
@@ -219,7 +227,7 @@ function renderHome() {
 
   $('#view').innerHTML = `
     ${topbar('<div class="brand">Stat<b>Street</b></div>')}
-    <div class="muted small">Net worth</div>
+    <div class="row between"><div class="muted small">Net worth</div><button class="share-btn" data-act="sharepf" aria-label="Share"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>Share</button></div>
     <div class="big-value" data-nw>${money(nw)}</div>
     <div class="change-line ${cls(ch)}" data-nwc>${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} (${fmtPct(ref ? ch / ref : 0)}) <span class="muted">${rangeLabel(ui.homeRange)}</span></div>
     ${benchCh != null ? `<div class="vs">StatStreet 500 <b class="${cls(benchCh)}">${fmtPct(benchCh)}</b> ${rangeLabel(ui.homeRange)}</div>` : ''}
@@ -233,10 +241,13 @@ function renderHome() {
     ${holdings.length || opts.length ? `<div class="alloc">${parts.map(([, v, c]) => `<i style="width:${(v / tot) * 100}%;background:${c}"></i>`).join('')}</div>
     <div class="legend">${parts.map(([n, v, c]) => { const pc = (v / tot) * 100; return `<span style="--c:${c}">${n} ${pc > 0 && pc < 1 ? '<1' : Math.round(pc)}%</span>`; }).join('')}</div>` : ''}
 
-    ${live.length ? `<h3>Live now</h3><div class="live-strip">${live.map(([, g]) => `
-      <div class="game">${lgTag(g.league)} <span class="tag live">LIVE</span>
+    ${(() => { const dly = dailyStatus(state, now); return dly.claimed ? '' : `<button class="card promo" data-tab="games"><span class="e">🎁</span><div class="grow"><div class="name">Daily reward ready</div>
+      <div class="tiny muted">${dly.nextStreak > 1 ? `Day ${dly.nextStreak} of your streak` : 'Start a streak'} · tap to claim ${money(dly.reward)}</div></div><span class="muted">›</span></button>`; })()}
+
+    ${live.length ? `<h3>Live now</h3><div class="live-strip">${live.map(([id, g]) => `
+      <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
         ${g.teams.map((t) => `<div class="t"><span>${esc(t.abbr)}</span><span>${t.score}</span></div>`).join('')}
-        <div class="tiny muted">${esc(g.detail)}</div></div>`).join('')}</div>` : ''}
+        <div class="tiny muted">${esc(g.detail)}</div></button>`).join('')}</div>` : ''}
 
     ${state.orders.length ? `<h2>Open orders</h2><div class="list">${state.orders.map(orderRow).join('')}</div>` : ''}
 
@@ -252,7 +263,7 @@ function renderHome() {
     ${watch.length ? `<h2>Watchlist</h2><div class="list">${watch.map((a) => assetRow(a, { right: 'spark' })).join('')}</div>` : ''}
 
     ${games.length ? `<h2>${myGames.length ? 'Your upcoming games' : 'Upcoming games'}</h2><div class="list">${games.map((g) => `
-      <div class="item">${lgTag(g.lg)}<div class="grow"><div class="name">${esc(g.name)}</div><div class="sub">${fmtDateTime(g.date)}${g.preseason ? ' · preseason' : ''}</div></div></div>`).join('')}</div>` : ''}
+      <button class="item" data-game="${g.lg}|${g.id}">${lgTag(g.lg)}<div class="grow"><div class="name">${esc(g.name)}</div><div class="sub">${fmtDateTime(g.date)}${g.preseason ? ' · preseason' : ''}</div></div>${state.picks[g.id] ? `<span class="pk">Picked ${esc(state.picks[g.id].abbr)}</span>` : '<span class="muted">›</span>'}</button>`).join('')}</div>` : ''}
 
     <h2>Discover</h2>
     <div class="collections">${COLLECTIONS.map((c) => `<button class="coll" data-coll="${c.key}"><div class="e">${c.e}</div><div class="t">${c.t}</div><div class="d">${c.d}</div></button>`).join('')}
@@ -353,10 +364,12 @@ function renderMarket(keepFocus = false) {
     <div class="seg" style="margin-top:10px">${['all', ...enabledLeagues()].map((l) => `<button data-league="${l}" class="${ui.league === l ? 'on' : ''}">${l === 'all' ? 'All' : LEAGUES[l].name}</button>`).join('')}</div>
     <div class="seg" style="margin-top:8px">${[['player', 'Players'], ['team', 'Teams'], ['fund', 'Index funds']].map(([k, n]) => `<button data-kind="${k}" class="${ui.kind === k ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div class="chips" style="margin-top:10px">${SORTS.map(([k, n]) => `<button class="chip ${ui.sort === k ? 'on' : ''}" data-sort="${k}">${n}</button>`).join('')}</div>
-    <div class="list" style="margin-top:8px" id="mlist">
+    <div class="row between" style="margin-top:8px"><span class="tiny muted">${ui.mview === 'heat' ? 'Tile size = share price · color = today\'s move' : ''}</span>
+      <div class="seg mini">${[['list', 'List'], ['heat', 'Heatmap']].map(([k, n]) => `<button data-mview="${k}" class="${ui.mview === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+    <div id="mlist" style="margin-top:8px">${ui.mview === 'heat' && items.length ? heatmapHTML(items) : `<div class="list">
       ${items.slice(0, ui.limit).map((a) => assetRow(a, { note: marketNote(a) })).join('') || `<div class="empty">${emptyMarketText()}</div>`}
       ${items.length > ui.limit ? `<button class="more" data-act="more">Show more (${items.length - ui.limit} left)</button>` : ''}
-    </div>
+    </div>`}</div>
     <p class="tiny faint" style="text-align:center;margin-top:12px">${items.length} listed · prices move with real games, injuries and news</p>`;
   if (keepFocus && $('#mlist')) {
     const tmp = document.createElement('div'); tmp.innerHTML = html;
@@ -434,7 +447,7 @@ function renderAccount() {
 
     <h2 id="notifications">Notifications</h2>
     <div class="list">${inbox.map((n) => `<button class="inbox-item ${n.seen ? '' : 'new'}" ${n.id ? `data-open="${esc(n.id)}"` : ''} style="width:100%;text-align:left">
-      <span class="ic">${{ div: '💵', order: '🧾', option: '🎟️', alert: '🔔' }[n.kind] || '•'}</span>
+      <span class="ic">${{ div: '💵', order: '🧾', option: '🎟️', alert: '🔔', card: '🃏', trophy: '🏆', pick: '🎯' }[n.kind] || '•'}</span>
       <div class="grow">${esc(n.text)}<div class="tiny faint">${timeAgo(n.t)}</div></div></button>`).join('')
       || '<div class="empty">Fills, dividends, option expiries and price alerts show up here.</div>'}</div>
 
@@ -500,6 +513,256 @@ function renderAccount() {
   dirty = true;
 }
 
+// ---------- Games tab (Real-style): daily reward, Pick'em, live games, leaderboard, cards, trophies ----------
+
+const teamAsset = (lg, id) => state.assets[`${lg}:t:${id}`];
+const rarRank = (r) => RARITY.findIndex((x) => x.key === r?.key);
+
+function rarChip(a) {
+  const r = rarity(state, a);
+  if (!r) return '';
+  const lv = cardLevel(state, a.id);
+  return `<span class="rar ${r.key}" style="--rc:${r.color}">${r.name}${lv ? ` · Lv ${lv}` : ''}</span>`;
+}
+
+function miniCard(a) {
+  const r = rarity(state, a);
+  const lv = cardLevel(state, a.id);
+  return `<button class="pcard ${r.key}" style="--rc:${r.color}" data-open="${a.id}"><div class="in">
+    ${avatar(a)}<div class="pc-name ellipsis">${esc(a.kind === 'team' ? a.ticker : a.name.split(' ').slice(-1)[0])}</div>
+    <div class="pc-rar">${r.name}</div>${lv ? `<div class="pc-lv">Lv ${lv}</div>` : ''}</div></button>`;
+}
+
+function dailyCard() {
+  const d = dailyStatus(state);
+  const done = d.claimed ? d.streak : d.nextStreak - 1; // days already banked in the current run
+  const pivot = d.claimed ? done : done + 1;
+  const week = Math.floor(Math.max(0, pivot - 1) / 7) * 7;
+  const dots = DAILY_REWARDS.map((_, i) => {
+    const day = week + i + 1;
+    const amt = DAILY_REWARDS[Math.min(day, 7) - 1];
+    const cl = day <= done ? 'got' : !d.claimed && day === done + 1 ? 'next' : '';
+    return `<div class="dd ${cl}"><div class="c">${day <= done ? '✓' : '$' + amt}</div><div class="tiny faint">Day ${day}</div></div>`;
+  }).join('');
+  const midnight = new Date(); midnight.setHours(24, 0, 0, 0);
+  const hrs = Math.max(0, (midnight - Date.now()) / HOUR);
+  return `<div class="card daily">
+    <div class="row between"><div><div class="name">Daily reward</div><div class="tiny muted">${d.streak ? `🔥 ${d.streak}-day streak` : 'Open the app every day to build a streak'}</div></div>
+    ${d.claimed ? `<div class="tiny muted" style="text-align:right">Next in ${hrs < 1 ? Math.round(hrs * 60) + 'm' : Math.floor(hrs) + 'h'}</div>`
+      : `<button class="btn buy small" data-act="claim">Claim $${d.reward}</button>`}</div>
+    <div class="dots">${dots}</div></div>`;
+}
+
+function pickButton(g, t, other) {
+  const p = winProb(state, g.league, t.id, other.id, !!t.home, !!g.preseason);
+  const pk = state.picks[g.id];
+  const on = pk && pk.teamId === t.id;
+  const ta = teamAsset(g.league, t.id);
+  const reward = pickReward(p);
+  return `<button class="pick-btn ${on ? 'on' : ''} ${pk && !on ? 'off' : ''}" data-pick="${g.league}|${g.id}" data-team="${t.id}">
+    ${ta ? avatar(ta) : ''}<div class="grow"><div class="name">${esc(t.abbr)}</div><div class="tiny muted">${Math.round(p * 100)}% win</div></div>
+    <div class="pay">${on ? '✓ ' : ''}+$${(on ? pickPayout(state, pk) : Math.round(reward * pickStreakMult(state.pickStats.streak) * 100) / 100).toFixed(2)}</div></button>`;
+}
+
+function pickGame(g) {
+  const away = g.teams.find((t) => !t.home) || g.teams[0];
+  const home = g.teams.find((t) => t !== away);
+  return `<div class="pick-game">
+    <div class="pg-head">${lgTag(g.league)}<span class="tiny muted">${fmtDateTime(g.date)}${g.preseason ? ' · preseason' : ''}</span>
+      <button class="tiny link" data-game="${g.league}|${g.id}">Preview ›</button></div>
+    <div class="pg-teams">${pickButton(g, away, home)}<span class="at">@</span>${pickButton(g, home, away)}</div></div>`;
+}
+
+function resultRow(r) {
+  const pk = state.picks[r.id];
+  const badge = pk?.result === 'won' ? `<span class="pk won">+${money(pk.paid || 0)}</span>` : pk?.result === 'lost' ? '<span class="pk lost">Miss</span>'
+    : pk?.result === 'push' ? '<span class="pk">Push</span>' : '';
+  return `<button class="item" data-game="${r.league}|${r.id}">${lgTag(r.league)}
+    <div class="grow score-line">${r.teams.map((t) => `<span class="${t.winner ? '' : 'muted'}"><b>${esc(t.abbr)}</b> ${t.score}</span>`).join('<span class="faint">·</span>')}</div>
+    ${badge}<span class="tiny faint">${fmtDate(r.date)}</span></button>`;
+}
+
+function renderGames() {
+  const now = Date.now();
+  const lgs = enabledLeagues();
+  const lgOk = (lg) => lgs.includes(lg) && (ui.gamesLeague === 'all' || ui.gamesLeague === lg);
+  const live = Object.entries(state.liveGames).filter(([, g]) => lgOk(g.league));
+  const upcoming = upcomingPickGames(state, now, lgs).filter((g) => lgOk(g.league));
+  const limit = ui.pickLimit || 8;
+  const results = (state.results || []).filter((r) => lgOk(r.league)).slice(0, 8);
+  const ps = state.pickStats;
+  const openPicks = Object.values(state.picks).filter((p) => !p.done).length;
+  const board = leaderboard(state, now);
+  const cards = Object.keys(state.collection).map((id) => state.assets[id]).filter((a) => a && a.kind !== 'fund')
+    .sort((x, y) => rarRank(rarity(state, x)) - rarRank(rarity(state, y)) || cardLevel(state, y.id) - cardLevel(state, x.id));
+  const got = Object.keys(state.trophies).length;
+  const days = Math.max(0, Math.floor((now - state.startedAt) / DAY));
+
+  $('#view').innerHTML = `
+    ${topbar('<h1>Games</h1>')}
+    ${dailyCard()}
+
+    <div class="grid3" style="margin-top:10px">
+      <div class="stat"><div class="k">Pick'em record</div><div class="v">${ps.w}-${ps.l}</div></div>
+      <div class="stat"><div class="k">Win streak</div><div class="v">${ps.streak ? `🔥 ${ps.streak}` : '0'}</div></div>
+      <div class="stat"><div class="k">Winnings</div><div class="v up">${money(ps.won || 0)}</div></div>
+    </div>
+
+    <div class="chips" style="margin-top:14px">${['all', ...lgs].map((l) => `<button class="chip ${ui.gamesLeague === l ? 'on' : ''}" data-gleague="${l}">${l === 'all' ? 'All leagues' : LEAGUES[l].name}</button>`).join('')}</div>
+
+    ${live.length ? `<h2>Live now</h2><div class="live-strip">${live.map(([id, g]) => `
+      <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
+        ${g.teams.map((t) => `<div class="t"><span>${esc(t.abbr)}</span><span>${t.score}</span></div>`).join('')}
+        <div class="tiny muted">${esc(g.detail)}</div></button>`).join('')}</div>` : ''}
+
+    <h2>Pick'em</h2>
+    <p class="small muted" style="margin:-4px 0 10px">Pick winners for free. Underdogs pay more, and every win in a row adds 10% (up to 2x).${openPicks ? ` You have ${openPicks} open pick${openPicks > 1 ? 's' : ''}.` : ''}${ps.streak ? ` Next win pays <b class="up">${pickStreakMult(ps.streak).toFixed(1)}x</b>.` : ''}</p>
+    ${upcoming.length ? upcoming.slice(0, limit).map(pickGame).join('') + (upcoming.length > limit ? `<button class="more" data-act="morepicks">More games (${upcoming.length - limit})</button>` : '')
+      : '<div class="card empty">No upcoming games in the next 3 days. Check back soon.</div>'}
+
+    ${results.length ? `<h2>Recent results</h2><div class="list">${results.map(resultRow).join('')}</div>` : ''}
+
+    <h2>Leaderboard</h2>
+    <p class="small muted" style="margin:-4px 0 10px">Your return vs. strategy bots since you started ${days ? `${days} day${days > 1 ? 's' : ''} ago` : 'today'}.</p>
+    <div class="list">${board.map((r, i) => `<div class="item lb ${r.you ? 'you' : ''}"><div class="rank">${i + 1}</div>
+      <div class="grow"><div class="name">${esc(r.name)}</div><div class="sub ellipsis">${esc(r.style)}</div></div>
+      <div class="price ${cls(r.ret)}">${fmtPct(r.ret)}</div></div>`).join('')}</div>
+
+    <h2>Your cards <span class="faint small">${cards.length}</span></h2>
+    <p class="small muted" style="margin:-4px 0 10px">Buy a player or team to collect their card. Rarity comes from where they rank in their league; levels grow with the most you've held.</p>
+    ${cards.length ? `<div class="card-grid">${cards.slice(0, ui.allCards ? 999 : 9).map(miniCard).join('')}</div>
+      ${cards.length > 9 && !ui.allCards ? `<button class="more" data-act="allcards">See all ${cards.length}</button>` : ''}`
+      : '<div class="card empty">No cards yet. Your first buy starts the collection.</div>'}
+
+    <h2>Trophies <span class="faint small">${got}/${TROPHIES.length}</span></h2>
+    <div class="trophies">${TROPHIES.map((t) => `<div class="trophy ${state.trophies[t.id] ? 'got' : ''}"><div class="ic">${t.icon}</div>
+      <div class="t">${esc(t.name)}</div><div class="d">${esc(t.desc)}</div></div>`).join('')}</div>`;
+}
+
+// ---------- Game Center ----------
+
+function findGame(league, id) {
+  const live = state.liveGames[id];
+  if (live) return { status: 'live', league, id, name: live.name, detail: live.detail, teams: live.teams };
+  const r = (state.results || []).find((x) => x.id === id);
+  if (r) return { status: 'final', league, id, name: r.name, date: r.date, teams: r.teams, preseason: r.preseason };
+  const s = (state.schedule?.[league] || []).find((x) => x.id === id);
+  if (s) return { status: 'pre', league, id, name: s.name, date: s.date, teams: s.teams, preseason: s.preseason };
+  return null;
+}
+
+function openGame(league, id, { push = true } = {}) {
+  if (!findGame(league, id)) { toast('Game details are no longer available'); return; }
+  ui.game = { league, id };
+  if (push) { try { history.pushState({ game: id, lg: league }, ''); } catch { /* */ } }
+  const el = $('#game');
+  el.style.zIndex = ui.detail ? '34' : ''; // above the player page when opened from it
+  renderGame();
+  el.scrollTop = 0;
+  el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
+}
+
+function closeGame({ animate = true } = {}) {
+  ui.game = null;
+  const el = $('#game');
+  const finish = () => { if (ui.game) return; el.hidden = true; el.innerHTML = ''; const y = view().scrollTop; render(); view().scrollTop = y; };
+  if (animate && !el.hidden) slideOut(el, 'x', finish); else finish();
+}
+
+function renderGame() {
+  const { league, id } = ui.game;
+  const g = findGame(league, id);
+  const el = $('#game');
+  if (!g) { el.hidden = true; return; }
+  const now = Date.now();
+  const away = g.teams.find((t) => !t.home) || g.teams[0];
+  const home = g.teams.find((t) => t !== away) || g.teams[1];
+  const teamIds = new Set(g.teams.map((t) => t.id));
+  let players;
+  if (g.status === 'pre') {
+    players = Object.values(state.assets).filter((a) => a.kind === 'player' && a.league === league && teamIds.has(a.teamId))
+      .sort((x, y) => y.price - x.price).slice(0, 12).map((a) => ({ a, text: '', live: false }));
+  } else {
+    players = gamePlayers(state, league, id).sort((x, y) => change(y.a, now) - change(x.a, now));
+  }
+  const status = g.status === 'live' ? `<span class="tag live">LIVE</span> <span class="small">${esc(g.detail || '')}</span>`
+    : g.status === 'final' ? `<span class="tag">FINAL</span> <span class="small muted">${fmtDateTime(g.date)}</span>`
+      : `<span class="small muted">${fmtDateTime(g.date)}${g.preseason ? ' · preseason' : ''}</span>`;
+  const col = (t) => {
+    const ta = teamAsset(league, t.id);
+    const tc = ta ? change(ta, now) : 0;
+    return `<button class="gc-team" ${ta ? `data-open="${ta.id}"` : ''}>${ta ? avatar(ta) : ''}
+      <div class="name">${esc(t.abbr)}</div>${ta ? `<div class="tiny muted">${recText(ta)}</div>` : ''}
+      ${g.status !== 'pre' ? `<div class="gc-score ${t.winner && g.status === 'final' ? 'win' : ''}">${t.score ?? ''}</div>` : ''}
+      ${ta ? `<div class="tiny ${cls(tc)}">${money(ta.price)} ${fmtPct(tc)}</div>` : ''}</button>`;
+  };
+  const pAway = winProb(state, league, away.id, home.id, false, !!g.preseason);
+  const pk = state.picks[id];
+  const up = upcomingPickGames(state, now, [league]).find((x) => x.id === id);
+  el.hidden = false;
+  el.innerHTML = `<div class="sheet-inner">
+    <div class="row between"><button class="icon-btn" data-act="gameback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="row" style="gap:6px">${lgTag(league)} ${status}</div><div style="width:38px"></div></div>
+    <div class="gc-head">${col(away)}<div class="gc-at">@</div>${col(home)}</div>
+    <div class="wp"><div class="tiny muted row between"><span>${esc(away.abbr)} ${Math.round(pAway * 100)}%</span><span>Win probability (from share prices)</span><span>${Math.round((1 - pAway) * 100)}% ${esc(home.abbr)}</span></div>
+      <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div></div>
+    ${up ? `<h3>Your pick</h3>${pickGame(up)}` : pk ? `<div class="card small" style="margin-top:12px">Your pick: <b>${esc(pk.abbr)}</b> · ${pk.result ? { won: `won <b class="up">+${money(pk.paid || 0)}</b>`, lost: '<span class="down">missed</span>', push: 'push', void: 'voided' }[pk.result] : 'locked — game in progress'}</div>` : ''}
+    <h3>${g.status === 'pre' ? 'Players to watch' : 'Player movers'}</h3>
+    <div class="list">${players.map(({ a, text, live }) => {
+      const h = state.holdings[a.id]; const c = change(a, now);
+      return `<button class="item" data-open="${a.id}">${avatar(a)}<div class="grow"><div class="name ellipsis">${esc(a.name)}${h ? ' <span class="tag own">Owned</span>' : ''}</div>
+        <div class="sub ellipsis">${esc(a.teamAbbr || '')} · ${g.status === 'pre' ? (a.injury ? `<span class="down">${esc(shortInj(a.injury.status))}</span>` : esc(a.pos || '')) : esc(text || '')}${live ? ' <span class="tag live">LIVE</span>' : ''}</div></div>
+        <div class="price-col"><div class="price" data-p="${a.id}">${money(a.price)}</div><div class="small ${cls(c)}" data-c="${a.id}" data-plain="1">${fmtPct(c)}</div></div></button>`;
+    }).join('') || `<div class="empty">${g.status === 'final' ? 'Box score not loaded for this game.' : 'No player data yet.'}</div>`}</div>
+  </div>`;
+}
+
+// ---------- market heatmap ----------
+
+function heatmapHTML(items) {
+  const W = Math.max(280, Math.min(640, (view().clientWidth || 360) - 32));
+  const H = Math.round(W * 1.25);
+  const now = Date.now();
+  const tiles = squarify(items.slice(0, 48).map((a) => ({ value: a.price * (a.kind === 'team' ? 5 : 1), a })), W, H);
+  return `<div class="heat" style="height:${H}px">${tiles.map((t) => {
+    const c = change(t.a, now);
+    const big = Math.min(t.w, t.h);
+    const fs = big > 90 ? 16 : big > 56 ? 13 : big > 36 ? 11 : 0;
+    return `<button class="tile" data-open="${t.a.id}" style="left:${(t.x / W) * 100}%;top:${(t.y / H) * 100}%;width:${(t.w / W) * 100}%;height:${(t.h / H) * 100}%;background:${heatColor(c)}">
+      ${fs ? `<b style="font-size:${fs}px">${esc(t.a.ticker)}</b><span style="font-size:${Math.max(10, fs - 3)}px">${fmtPct(c)}</span>` : ''}</button>`;
+  }).join('')}</div>`;
+}
+
+// ---------- share cards ----------
+
+async function sharePortfolio() {
+  const now = Date.now();
+  const nw = netWorth(state, now);
+  const bench = state.assets['fund:SS500'];
+  const holdings = Object.entries(state.holdings).map(([id, h]) => ({ a: state.assets[id], h })).filter((x) => x.a)
+    .sort((x, y) => y.a.price * y.h.qty - x.a.price * x.h.qty).slice(0, 3)
+    .map(({ a, h }) => ({ ticker: a.ticker, name: a.name, pct: a.price * h.qty / h.cost - 1 }));
+  const c = portfolioCard({
+    netWorth: nw, ret: nw / state.startCash - 1, bench: bench?.hist?.length ? bench.price / priceAt(bench, state.startedAt) - 1 : null,
+    holdings, picks: `${state.pickStats.w}-${state.pickStats.l}`, streak: state.pickStats.streak,
+    cards: Object.keys(state.collection).length, trophies: Object.keys(state.trophies).length,
+  });
+  const r = await shareCanvas(c, 'statstreet-portfolio', `My StatStreet portfolio is ${fmtPct(nw / state.startCash - 1)} all time`);
+  if (r === 'downloaded') toast('Image saved');
+}
+
+async function shareAsset(a) {
+  const r = rarity(state, a);
+  const want = ['Form percentile', 'Record', 'Market cap', 'Dividend yield', 'Holdings'];
+  const ks = keyStats(a).filter(([k]) => want.includes(k)).map(([k, v]) => [k.replace('Form percentile', 'Form'), v]).slice(0, 3);
+  const c = assetCard({
+    name: a.name, ticker: a.ticker, sub: a.kind === 'player' ? `${a.teamAbbr || ''} · ${a.pos || ''} · ${LEAGUES[a.league]?.name || ''}` : `${recText(a)} · ${LEAGUES[a.league]?.name || 'Index fund'}`,
+    price: a.price, change: change(a, Date.now(), 7 * DAY), rarity: r, level: cardLevel(state, a.id), stats: ks,
+  });
+  const res = await shareCanvas(c, `statstreet-${a.ticker}`, `${a.name} on StatStreet`);
+  if (res === 'downloaded') toast('Image saved');
+}
+
 // ---------- overlays: scroll lock ----------
 
 // Screens scroll inside their own containers, so nothing needs locking; kept as hooks.
@@ -513,6 +776,7 @@ function openDetail(id) {
   if (ui.order) closeOrder();
   if (ui.chain) closeChain(true);
   const wasOpen = !!ui.detail;
+  if (ui.game) $('#game').style.zIndex = ''; // the player page goes on top of the game
   ui.detail = id;
   ui.scrub = false;
   try { history.pushState({ sheet: id }, ''); } catch { /* sandboxed frame */ }
@@ -559,11 +823,12 @@ function renderDetail({ keepScroll = true } = {}) {
     <div class="row between">
       <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="icons-right">
+        <button class="icon-btn" data-act="shareasset" aria-label="Share"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></button>
         <button class="icon-btn ${alerting ? 'alerting' : ''}" data-act="alert" aria-label="Price alert"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
         <button class="icon-btn ${watching ? 'on' : ''}" data-act="watch" aria-label="Watchlist"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg></button>
       </div>
     </div>
-    <div class="hero">${avatar(a)}<div class="grow"><div class="name ellipsis" style="font-size:19px">${esc(a.name)}</div><div class="sub">${subLine(a)}</div></div></div>
+    <div class="hero">${avatar(a)}<div class="grow"><div class="name ellipsis" style="font-size:19px">${esc(a.name)}</div><div class="sub">${subLine(a)}</div>${a.kind !== 'fund' ? `<div style="margin-top:4px">${rarChip(a)}</div>` : ''}</div></div>
     <div class="big-value" id="dprice">${money(a.price)}</div>
     <div class="change-line ${cls(ch)}" id="dchg">${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(a.price - ref))} (${fmtPct(ch)}) <span class="muted">${rangeLabel(ui.range)}</span></div>
     <div class="chart-wrap" id="dchart"></div>
@@ -582,7 +847,8 @@ function renderDetail({ keepScroll = true } = {}) {
 
     ${a.live ? `<div class="card" style="margin-top:14px"><span class="tag live">LIVE</span> <b style="margin-left:6px">${esc(a.live.text)}</b></div>` : ''}
     ${a.injury ? `<div class="card" style="margin-top:14px"><span class="tag inj">${esc(a.injury.status)}</span> <span class="small" style="margin-left:6px">${esc(a.injury.detail || '')}</span></div>` : ''}
-    ${ng ? `<div class="card next-game" style="margin-top:14px"><div><div class="tiny muted">NEXT GAME</div><b>${esc(ng.name)}</b></div><div class="small muted" style="text-align:right">${fmtDateTime(ng.date)}</div></div>` : ''}
+    ${cardSection(a)}
+    ${ng ? `<div class="card next-game" data-game="${a.league}|${ng.id}" style="margin-top:14px"><div><div class="tiny muted">NEXT GAME</div><b>${esc(ng.name)}</b></div><div class="small muted" style="text-align:right">${fmtDateTime(ng.date)}</div></div>` : ''}
 
     ${a.kind === 'fund' ? fundSection(a) : ''}
 
@@ -649,6 +915,22 @@ function drawDetailChart() {
       $('#dchg').innerHTML = `${fmtPct(c)} <span class="muted">${new Date(pt.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>`;
     },
   });
+}
+
+// Collectible card progress on the detail page.
+function cardSection(a) {
+  if (a.kind === 'fund') return '';
+  const c = state.collection[a.id];
+  const r = rarity(state, a);
+  if (!c) return `<div class="card cardsec" style="--rc:${r.color};margin-top:14px"><div class="pcard-sm ${r.key}"></div><div class="grow"><div class="name">${r.name} card</div>
+    <div class="tiny muted">Buy any amount to add ${esc(a.kind === 'team' ? a.ticker : a.name)} to your collection.</div></div></div>`;
+  const lv = cardLevel(state, a.id);
+  const lo = 5 * 2 ** (lv - 1); const hi = 5 * 2 ** lv;
+  const frac = lv >= 10 ? 1 : clamp((c.peak - lo) / (hi - lo), 0, 1);
+  return `<div class="card cardsec" style="--rc:${r.color};margin-top:14px"><div class="pcard-sm ${r.key}"><b>${lv}</b></div><div class="grow">
+    <div class="row between"><div class="name">${r.name} card · Lv ${lv}</div><div class="tiny muted">since ${fmtDate(c.first)}</div></div>
+    <div class="lvbar"><i style="width:${frac * 100}%"></i></div>
+    <div class="tiny muted">${lv >= 10 ? 'Max level' : `Hold ${money(hi)} at once to reach Lv ${lv + 1} · best so far ${money(c.peak)}`}</div></div></div>`;
 }
 
 function keyStats(a) {
@@ -1035,6 +1317,12 @@ function submitOrder() {
     }
     haptic();
     closeOrder();
+    const n0 = state.inbox.length;
+    runSocial(state);
+    const fresh = state.inbox.slice(0, state.inbox.length - n0);
+    if (fresh.some((n) => n.kind === 'card' && /^New/.test(n.text))) msg += ' · 🃏 New card';
+    else if (fresh.some((n) => n.kind === 'card')) msg += ' · 🃏 Card leveled up';
+    if (fresh.some((n) => n.kind === 'trophy')) msg += ' · 🏆 Trophy';
     dirty = true; save();
     ui.seenInbox = state.inbox.length;
     toast(msg);
@@ -1087,11 +1375,18 @@ function openAlert() {
 
 // ---------- routing & events ----------
 
+function closeOverlays() {
+  if (ui.order) closeOrder(); if (ui.chain) closeChain(true);
+  if (ui.detail) { ui.detail = null; $('#sheet').hidden = true; $('#tradebar').hidden = true; unlockBody(); }
+  if (ui.game) { ui.game = null; $('#game').hidden = true; $('#game').innerHTML = ''; }
+}
+
 function render() {
   document.querySelectorAll('#tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === ui.tab));
   if (ui.tab === 'home') renderHome();
   else if (ui.tab === 'market') renderMarket();
   else if (ui.tab === 'news') renderNews();
+  else if (ui.tab === 'games') renderGames();
   else renderAccount();
 }
 
@@ -1102,6 +1397,7 @@ function softRefresh() {
   if (ui.touching || Date.now() - ui.lastScroll < 900) { clearTimeout(softRefresh.t); softRefresh.t = setTimeout(softRefresh, 900); return; }
   if (ui.chain) renderChain();
   else if (ui.detail) renderDetail();
+  else if (ui.game) renderGame();
   else if (!(ui.tab === 'market' && document.activeElement?.id === 'q')) {
     const y = view().scrollTop; render(); view().scrollTop = y;
   } else refreshBadge();
@@ -1151,14 +1447,14 @@ function announce() {
 }
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('button, [data-open], label, [data-optpos]');
+  const el = e.target.closest('button, [data-open], label, [data-optpos], [data-game]');
   if (!el) return;
   const d = el.dataset;
   if (el.disabled) return;
   if (d.tab) {
     if (d.tab === ui.tab && !overlayOpen()) { view().scrollTo({ top: 0, behavior: 'smooth' }); return; }
     ui.tab = d.tab; ui.limit = 60;
-    if (ui.order) closeOrder(); if (ui.chain) closeChain(true); if (ui.detail) { ui.detail = null; $('#sheet').hidden = true; $('#tradebar').hidden = true; unlockBody(); }
+    closeOverlays();
     render(); view().scrollTop = 0; return;
   }
   if (d.cancelorder) { e.stopPropagation(); cancelOrder(state, d.cancelorder); dirty = true; toast('Order canceled'); softRefresh(); return; }
@@ -1172,6 +1468,22 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (d.open) { e.preventDefault(); openDetail(d.open); return; }
+  if (d.pick) {
+    const [lg, gid] = d.pick.split('|');
+    const g = upcomingPickGames(state, Date.now(), [lg]).find((x) => x.id === gid);
+    if (!g) { toast('This game has started — picks are locked'); softRefresh(); return; }
+    try {
+      haptic();
+      if (state.picks[gid]?.teamId === d.team) { clearPick(state, gid); toast('Pick removed'); }
+      else { const pk = makePick(state, g, d.team); toast(`Picked ${pk.abbr} · win pays ${money(pickPayout(state, pk))}`); }
+      dirty = true;
+    } catch (err) { toast(err.message); }
+    if (ui.game) renderGame(); else { const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+    return;
+  }
+  if (d.game) { const [lg, gid] = d.game.split('|'); openGame(lg, gid); return; }
+  if (d.gleague) { ui.gamesLeague = d.gleague; ui.pickLimit = 8; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
+  if (d.mview) { ui.mview = d.mview; renderMarket(); return; }
   if (d.league) { ui.league = d.league; ui.limit = 60; renderMarket(); return; }
   if (d.kind) { ui.kind = d.kind; ui.limit = 60; if (d.kind === 'fund' && !['movers', 'losers', 'price', 'div'].includes(ui.sort)) ui.sort = 'price'; renderMarket(); return; }
   if (d.sort) { ui.sort = d.sort; ui.limit = 60; if (d.sort === 'streak') ui.kind = 'team'; renderMarket(); return; }
@@ -1266,7 +1578,21 @@ document.addEventListener('click', async (e) => {
     case 'sell': openOrder(stockOrderDefaults('sell')); break;
     case 'tcancel': closeOrder(); break;
     case 'more': ui.limit += 60; renderMarket(); break;
-    case 'inbox': ui.tab = 'account'; ui.scrollTo = 'notifications'; if (ui.order) closeOrder(); if (ui.chain) closeChain(true); if (ui.detail) { ui.detail = null; $('#sheet').hidden = true; $('#tradebar').hidden = true; unlockBody(); } render(); break;
+    case 'morepicks': { ui.pickLimit = (ui.pickLimit || 8) + 12; const y = view().scrollTop; renderGames(); view().scrollTop = y; break; }
+    case 'allcards': { ui.allCards = true; const y = view().scrollTop; renderGames(); view().scrollTop = y; break; }
+    case 'claim': {
+      try {
+        const r = claimDaily(state); haptic(); dirty = true; save();
+        toast(`+${money(r.reward)} daily reward · ${r.streak}-day streak`);
+        if (r.streak % 7 === 0) confetti();
+        runSocial(state); const y = view().scrollTop; render(); view().scrollTop = y;
+      } catch (err) { toast(err.message); }
+      break;
+    }
+    case 'gameback': if (history.state?.game) history.back(); else closeGame(); break;
+    case 'sharepf': sharePortfolio().catch((err) => toast(err.message)); break;
+    case 'shareasset': if (ui.detail) shareAsset(state.assets[ui.detail]).catch((err) => toast(err.message)); break;
+    case 'inbox': ui.tab = 'account'; ui.scrollTo = 'notifications'; closeOverlays(); render(); break;
     case 'refresh':
       if (STATIC) { toast('Prices use a data snapshot in this version'); break; }
       runSync({ manual: true }); break;
@@ -1279,7 +1605,8 @@ document.addEventListener('click', async (e) => {
     case 'resetpf':
       if (armed(el, 'Tap again to reset portfolio')) {
         const start = state.settings.startCash;
-        Object.assign(state, { cash: start, startCash: start, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [] });
+        Object.assign(state, { cash: start, startCash: start, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [],
+          picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, startedAt: Date.now() });
         ui.seenInbox = 0; dirty = true; save(); render(); toast(`Portfolio reset to ${money(start)}`);
       }
       break;
@@ -1333,12 +1660,19 @@ window.addEventListener('popstate', (e) => {
   if (ui.order) { closeOrder({ animate }); }
   if (ui.chain && !e.state?.chain) { closeChain(false, { animate }); return; }
   const id = e.state?.sheet;
-  if (id && state.assets[id]) { if (ui.detail !== id) { ui.detail = id; renderDetail({ keepScroll: false }); $('#sheet').scrollTop = 0; } }
-  else if (ui.detail) closeDetail({ animate });
+  if (id && state.assets[id]) {
+    if (ui.game) closeGame({ animate: false });
+    if (ui.detail !== id) { ui.detail = id; renderDetail({ keepScroll: false }); $('#sheet').scrollTop = 0; }
+    return;
+  }
+  if (ui.detail) closeDetail({ animate });
+  const gid = e.state?.game;
+  if (gid && (!ui.game || ui.game.id !== gid)) openGame(e.state.lg, gid, { push: false });
+  else if (!gid && ui.game) closeGame({ animate });
 });
 
 $('#trade').addEventListener('click', (e) => { if (e.target.id === 'trade') closeOrder(); });
-for (const id of ['sheet', 'chain']) $(`#${id}`).addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
+for (const id of ['sheet', 'chain', 'game']) $(`#${id}`).addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
 $('#view').addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
 // Track whether a finger is down, so background refreshes wait until the gesture ends.
 document.addEventListener('touchstart', () => { ui.touching = true; }, { passive: true, capture: true });
@@ -1353,6 +1687,10 @@ dismissable($('#panel'), {
 dismissable($('#sheet'), {
   axis: 'x', extra: () => [$('#tradebar')],
   onDismiss: () => { if (history.state?.sheet) { ui.noAnim = true; history.back(); } else closeDetail({ animate: false }); },
+});
+dismissable($('#game'), {
+  axis: 'x',
+  onDismiss: () => { if (history.state?.game) { ui.noAnim = true; history.back(); } else closeGame({ animate: false }); },
 });
 dismissable($('#chain'), {
   axis: 'x',
@@ -1418,6 +1756,7 @@ async function runSync({ manual = false, liveOnly = false } = {}) {
   }
   syncing = false;
   if (!liveOnly) ensureFunds(state, Date.now());
+  runSocial(state, Date.now());
   state.lastTick = state.lastTick || Date.now();
   dirty = true; await save();
   if (needsBoot) {
@@ -1516,7 +1855,7 @@ async function main() {
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded && !overlayOpen()) { reloaded = true; location.reload(); } });
   }
   tick(state, Date.now());
-  runAutomation(state, Date.now());
+  runAutomation(state, Date.now()); runSocial(state, Date.now());
   render();
   announce();
   runSync();
@@ -1527,6 +1866,7 @@ async function main() {
     const now = Date.now();
     tick(state, now);
     runAutomation(state, now);
+    runSocial(state, now);
     dirty = true;
     updateNumbers();
     announce();
@@ -1538,7 +1878,7 @@ async function main() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { save(); return; }
     tick(state, Date.now());
-    runAutomation(state, Date.now());
+    runAutomation(state, Date.now()); runSocial(state, Date.now());
     announce();
     const last = Math.max(0, ...enabledLeagues().map((l) => state.sync[l]?.scoreboard || 0));
     if (Date.now() - last > 5 * 60e3) runSync(); else softRefresh();

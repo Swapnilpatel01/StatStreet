@@ -48,6 +48,35 @@ with sync_playwright() as p:
     page.click('[data-startcash="10000"]'); page.click('[data-act=resetpf]'); page.click('[data-act=resetpf]'); page.wait_for_timeout(300)
     print('reset:', toast(page)); assert '10,000' in toast(page)
 
+    # --- Games tab: daily reward, Pick'em, Game Center
+    page.click('#tabbar [data-tab=games]'); page.wait_for_timeout(300)
+    page.screenshot(path=f'{OUT}/0a-games.png', full_page=True)
+    page.click('[data-act=claim]'); page.wait_for_timeout(200); print('daily:', toast(page)); assert 'daily reward' in toast(page)
+    assert page.locator('[data-act=claim]').count() == 0
+    npk = page.locator('.pick-btn').count(); print('pick buttons:', npk); assert npk >= 2
+    page.click('.pick-btn >> nth=0'); page.wait_for_timeout(200); print('pick:', toast(page)); assert toast(page).startswith('Picked')
+    assert page.locator('.pick-btn.on').count() == 1
+    page.click('.pg-head [data-game] >> nth=0'); page.wait_for_selector('#game:not([hidden])'); page.wait_for_timeout(400)
+    page.screenshot(path=f'{OUT}/0b-gamecenter.png')
+    assert page.locator('#game .pick-btn.on').count() == 1
+    page.click('#game .item[data-open] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
+    assert page.locator('#sheet .rar').count() == 1 and page.locator('#sheet .cardsec').count() == 1
+    page.go_back(); page.wait_for_function("document.querySelector('#sheet').hidden"); page.wait_for_timeout(300)
+    assert not page.evaluate("document.querySelector('#game').hidden"), 'back from player returns to the game'
+    page.click('[data-act=gameback]'); page.wait_for_function("document.querySelector('#game').hidden"); page.wait_for_timeout(300)
+    # live game opens the game center too
+    if page.locator('#view .game[data-game]').count():
+        page.click('#view .game[data-game] >> nth=0'); page.wait_for_selector('#game:not([hidden])'); page.wait_for_timeout(300)
+        print('live movers:', page.locator('#game .item[data-open]').count())
+        page.screenshot(path=f'{OUT}/0c-live.png')
+        drag(cdp0 := ctx.new_cdp_session(page), page, 8, 400, 330, 0)
+        assert page.evaluate("document.querySelector('#game').hidden"), 'edge swipe closes game center'
+    # heatmap
+    page.click('#tabbar [data-tab=market]'); page.click('[data-mview=heat]'); page.wait_for_timeout(200)
+    nt = page.locator('.heat .tile').count(); print('heat tiles:', nt); assert nt >= 5
+    page.screenshot(path=f'{OUT}/0d-heatmap.png')
+    page.click('[data-mview=list]'); page.wait_for_timeout(100)
+
     # --- funds exist
     page.click('#tabbar [data-tab=market]'); page.click('[data-kind=fund]'); page.wait_for_timeout(200)
     nf = page.locator('#mlist .item').count(); print('funds listed:', nf); assert nf >= 3
@@ -94,7 +123,7 @@ with sync_playwright() as p:
     assert page.evaluate("document.querySelector('#osum').dataset.mark") == 'x', 'panel was rebuilt'
     anim = page.evaluate("getComputedStyle(document.querySelector('#panel')).animationName"); print('panel animation after taps:', anim)
     page.screenshot(path=f'{OUT}/4-buy-dollars.png')
-    slide(page); t = toast(page); print('toast:', t); assert t.startswith('Bought')
+    slide(page); t = toast(page); print('toast:', t); assert t.startswith('Bought') and 'New card' in t
     confetti_ran = page.evaluate("document.querySelector('#confetti').width > 0"); print('confetti on first trade:', confetti_ran)
 
     # --- limit order
@@ -143,6 +172,18 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
     page.check('#drip', force=True) if False else page.click('label:has(#drip)')
     page.screenshot(path=f'{OUT}/10-account.png', full_page=True)
+    page.click('#tabbar [data-tab=games]'); page.wait_for_timeout(300)
+    nc = page.locator('.card-grid .pcard').count(); nt = page.locator('.trophy.got').count(); print('cards:', nc, 'trophies:', nt); assert nc >= 1 and nt >= 3
+    for i, head in enumerate(['Leaderboard', 'Your cards']):
+        page.evaluate("h => { const el = [...document.querySelectorAll('#view h2')].find(x => x.textContent.startsWith(h)); document.querySelector('#view').scrollTop = el.offsetTop - 60; }", head)
+        page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/11-games-{i}.png')
+    page.click('.card-grid .pcard >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
+    page.evaluate("document.querySelector('#sheet').scrollTop = document.querySelector('.cardsec').offsetTop - 300"); page.wait_for_timeout(200)
+    page.screenshot(path=f'{OUT}/11-card-detail.png')
+    page.click('[data-act=back]'); page.wait_for_timeout(400)
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    with page.expect_download() as dl: page.click('[data-act=sharepf]')
+    dl.value.save_as(f'{OUT}/12-share.png'); print('share image saved')
 
     # --- persistence
     page.wait_for_timeout(500); page.reload(); page.wait_for_timeout(1500)

@@ -86,7 +86,9 @@ def event_for(lg, date, idx, state):
     sb = r.randint(80, 130) if lg == 'nba' else r.randint(3, 35) if lg == 'nfl' else r.randint(0, 9)
     if sa == sb: sa += 1
     dt = datetime.datetime.strptime(date, '%Y%m%d').replace(hour=23, tzinfo=datetime.timezone.utc)
-    st = {'post': {'state': 'post', 'completed': True, 'shortDetail': 'Final'}, 'in': {'state': 'in', 'completed': False, 'shortDetail': '3rd Qtr 4:12'}}[state]
+    st = {'post': {'state': 'post', 'completed': True, 'shortDetail': 'Final'}, 'in': {'state': 'in', 'completed': False, 'shortDetail': '3rd Qtr 4:12'},
+          'pre': {'state': 'pre', 'completed': False, 'shortDetail': '7:00 PM'}}[state]
+    if state == 'pre': sa = sb = 0
     return {'id': eid, 'date': dt.strftime('%Y-%m-%dT%H:%MZ'), 'shortName': f'{b[1]} @ {a[1]}', 'season': {'type': 1 if lg == 'nba' else 2},
             'status': {'period': 3 if state == 'in' else 4, 'type': st},
             'competitions': [{'format': {'regulation': {'periods': 9 if lg == 'mlb' else 4}}, 'competitors': [
@@ -96,6 +98,7 @@ def event_for(lg, date, idx, state):
 
 def scoreboard(lg, qs):
     date = qs.get('dates', [TODAY_ET])[0]
+    if date > TODAY_ET: return {'events': [event_for(lg, date, 0, 'pre'), event_for(lg, date, 2, 'pre')]}
     evs = [event_for(lg, date, 0, 'post')]
     if date == TODAY_ET: evs.append(event_for(lg, date, 2, 'in'))
     return {'events': evs}
