@@ -1,0 +1,16 @@
+{
+  "name": "StatStreet — Sports Stock Market",
+  "short_name": "StatStreet",
+  "description": "Trade NBA, NFL and MLB players and teams like stocks. Prices move with real games, injuries and news.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
