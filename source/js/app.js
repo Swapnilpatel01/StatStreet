@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 22;
+const APP_VERSION = 23;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -196,7 +196,7 @@ const COLLECTIONS = [
   { key: 'div', e: '💵', t: 'Dividend payers', d: 'Highest estimated yield' },
   { key: 'streak', e: '🔥', t: 'Hot streaks', d: 'Teams on 3+ win runs' },
   { key: 'vol', e: '🎢', t: 'Most volatile', d: 'Big swings, pricey options' },
-  { key: 'cheap', e: '🏷️', t: 'Under $20', d: 'Low share prices' },
+  { key: 'cheap', e: '🏷️', t: 'Under $25', d: 'Low share prices' },
   { key: 'hurt', e: '🩹', t: 'Injury watch', d: 'Discounted by injuries' },
 ];
 
@@ -342,8 +342,11 @@ function marketItems() {
     div: (a) => dividendYield(state, a, now) > 0,
   };
   if (filters[ui.sort]) list = list.filter(filters[ui.sort]);
+  const band = PRICE_BANDS.find((x) => x[0] === (ui.price || 'any'));
+  if (band && band[0] !== 'any') list = list.filter((a) => a.price >= band[2] && a.price < band[3]);
   const key = {
     movers: (a) => -change(a, now),
+    trending: (a) => -trendInfo(a, now).score,
     losers: (a) => change(a, now),
     price: (a) => -a.price,
     live: (a) => -change(a, now),
@@ -359,25 +362,184 @@ function marketItems() {
   return list.map((a) => [key(a), a]).sort((x, y) => x[0] - y[0]).map((x) => x[1]);
 }
 
-const SORTS = [['movers', 'Top gainers'], ['losers', 'Top losers'], ['price', 'Most valuable'], ['mvp', 'MVP race'], ['div', 'Dividends'],
-  ['vol', 'Most volatile'], ['streak', 'Hot streaks'], ['live', 'Live'], ['news', 'In the news'], ['injured', 'Injured'], ['cheap', 'Under $20']];
+const SORTS = [['trending', 'Trending'], ['movers', 'Top gainers'], ['losers', 'Top losers'], ['price', 'Most valuable'], ['mvp', 'MVP race'], ['div', 'Dividends'],
+  ['vol', 'Most volatile'], ['streak', 'Hot streaks'], ['live', 'Live'], ['news', 'In the news'], ['injured', 'Injured']];
 
 function marketNote(a) {
   const now = Date.now();
+  if (ui.sort === 'trending' && a.kind !== 'fund') { const t = trendInfo(a); if (t.why) return `${lgTag(a.league)} <span class="ellipsis">${esc(t.why)}</span>`; }
   if (ui.sort === 'div') return `${subLine(a)} <span class="up">${(dividendYield(state, a, now) * 100).toFixed(1)}% yield</span>`;
   if (ui.sort === 'vol') return `${subLine(a)} <span>IV ${Math.round(impliedVol(a, now, state) * 100)}%</span>`;
   if (a.kind === 'fund') return `${subLine(a)}`;
   return '';
 }
 
+// ---------- trending & research ----------
+
+const PRICE_BANDS = [['any', 'Any price', 0, Infinity], ['u25', 'Under $25', 0, 25], ['25-100', '$25–100', 25, 100], ['100-500', '$100–500', 100, 500], ['500-1k', '$500–1K', 500, 1000], ['1k', '$1K+', 1000, Infinity]];
+
+// How much buzz a player has right now, and the main reason why.
+function trendInfo(a, now = Date.now()) {
+  const reasons = [];
+  const ch = change(a, now);
+  reasons.push([Math.abs(ch) * 120, `${ch >= 0 ? '▲' : '▼'} ${Math.abs(ch * 100).toFixed(1)}% today`]);
+  const news = state.news.filter((n) => (n.targets || []).includes(a.id) && now - n.published < 3 * DAY);
+  if (news.length) reasons.push([news.length * 2.2, `📰 ${news.length} headline${news.length > 1 ? 's' : ''}`]);
+  if (a.live) reasons.push([6, `🔴 Live: ${a.live.text}`]);
+  const g = a.perf?.last?.[0];
+  if (g && now - g.t < 2 * DAY) {
+    const st = state.stats[a.league]?.[posGroup(a.league, a.pos)];
+    const z = st?.sd ? (g.gs - st.mu) / st.sd : 0;
+    if (z > 1) reasons.push([z * 2.4, `🔥 ${g.text.replace(/ vs [A-Z]+.*$/, '')}`]);
+  }
+  const ev = (a.events || []).find((e) => e.kind === 'milestone' && now - e.t < 2 * DAY);
+  if (ev) reasons.push([5, `🏆 ${ev.text}`]);
+  if (a.injury && now - (a.injury.since || 0) < 2 * DAY) reasons.push([4, `🩹 ${a.injury.status}`]);
+  reasons.sort((x, y) => y[0] - x[0]);
+  return { score: reasons.reduce((s, r) => s + r[0], 0) * (0.6 + 0.4 * Math.min(2, a.fame || 1)), why: reasons[0]?.[1] || '' };
+}
+
+function trendingStrip() {
+  const now = Date.now();
+  const list = assetsList().filter((a) => a.kind === 'player' && (ui.league === 'all' || a.league === ui.league))
+    .map((a) => ({ a, t: trendInfo(a, now) })).sort((x, y) => y.t.score - x.t.score).slice(0, 10);
+  if (!list.length) return '';
+  return `<h3 style="margin-top:14px">🔥 Trending now</h3>
+    <div class="trend-strip">${list.map(({ a, t }, i) => { const c = change(a, now); return `<button class="trend" data-open="${a.id}">
+      <div class="row between"><span class="tiny faint">#${i + 1}</span>${lgTag(a.league)}</div>
+      <div class="row" style="gap:8px;margin-top:6px">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div>
+        <div class="small"><span data-p="${a.id}">${money(a.price)}</span> <span class="${cls(c)}">${fmtPct(c)}</span></div></div></div>
+      <div class="tiny muted ellipsis" style="margin-top:6px">${esc(t.why)}</div></button>`; }).join('')}</div>`;
+}
+
+// ---- research report on each player / team page ----
+const pctTxt2 = (x) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(0)}%`;
+
+function teamRanks(league) {
+  const teams = Object.values(state.assets).filter((t) => t.kind === 'team' && t.league === league && t.price > 0).sort((x, y) => y.price - x.price);
+  return { rank: new Map(teams.map((t, i) => [t.rid, i + 1])), n: teams.length };
+}
+
+function upcomingFor(a, days = 7) {
+  const now = Date.now();
+  const teamId = a.kind === 'team' ? a.rid : a.teamId;
+  const { rank, n } = teamRanks(a.league);
+  return (state.schedule?.[a.league] || []).filter((g) => g.date > now && g.date < now + days * DAY && g.teams.some((t) => t.id === teamId))
+    .sort((x, y) => x.date - y.date).map((g) => {
+      const opp = g.teams.find((t) => t.id !== teamId);
+      const home = g.teams.find((t) => t.id === teamId)?.home;
+      return { g, opp, home, rank: rank.get(opp?.id) || null, n };
+    });
+}
+
+function research(a) {
+  const now = Date.now();
+  const b = breakdown(state, a, now);
+  const bull = []; const bear = [];
+  const tiles = [];
+  // Value: price vs the model's value (difference = market hype and noise)
+  const gap = a.price / b.target - 1;
+  tiles.push(['Value', Math.abs(gap) < 0.02 ? 'Fair' : gap < 0 ? 'Below model' : 'Above model', `${pctTxt2(gap)} vs model value ${money(b.target)}`, gap < -0.02 ? 'up' : gap > 0.02 ? 'down' : '']);
+  if (gap < -0.03) bull.push(`Trading ${Math.round(-gap * 100)}% below its model value`); else if (gap > 0.03) bear.push(`Trading ${Math.round(gap * 100)}% above its model value (hype)`);
+  // Momentum
+  const w = change(a, now, 7 * DAY);
+  if (w > 0.08) bull.push(`Up ${Math.round(w * 100)}% this week`); else if (w < -0.08) bear.push(`Down ${Math.round(-w * 100)}% this week`);
+  // News
+  const news = state.news.filter((n) => (n.targets || []).includes(a.id) && now - n.published < 7 * DAY);
+  const senti = news.length ? mean(news.map((n) => n.score)) : 0;
+  if (news.length && senti > 0.15) bull.push(`Positive news flow (${news.length} headline${news.length > 1 ? 's' : ''} this week)`);
+  if (news.length && senti < -0.15) bear.push(`Negative headlines this week (${news.length})`);
+  // Schedule
+  const up = upcomingFor(a);
+  const tough = up.filter((x) => x.rank && x.rank <= Math.ceil(x.n / 4)).length;
+  const soft = up.filter((x) => x.rank && x.rank > x.n * 0.6).length;
+  tiles.push(['Schedule', up.length ? `${up.length} game${up.length > 1 ? 's' : ''} in 7 days` : 'No games soon',
+    up[0] ? `Next: ${up[0].home ? 'vs' : '@'} ${esc(up[0].opp?.abbr || '')}${up[0].rank ? ` (#${up[0].rank} of ${up[0].n})` : ''} ${fmtDate(up[0].g.date, { weekday: 'short' })}` : 'Prices move mostly on news until then', '']);
+  if (up.length >= 3) bull.push(`${up.length} games in the next week: more chances to move (and pay dividends)`);
+  if (!up.length) bear.push('No games in the next week: little to drive the price');
+  if (soft >= 2 && soft > tough) bull.push(`Soft schedule: ${soft} games against bottom-half teams`);
+  if (tough >= 2 && tough >= soft) bear.push(`Tough schedule: ${tough} games against top-quarter teams`);
+  // Risk
+  const iv = impliedVol(a, now, state);
+  tiles.push(['Risk', a.injury ? 'Injury' : iv > 0.9 ? 'High' : iv > 0.55 ? 'Medium' : 'Low', a.injury ? esc(a.injury.status) : `Implied volatility ${Math.round(iv * 100)}%`, a.injury || iv > 0.9 ? 'down' : '']);
+  if (a.injury) bear.push(`Injury: ${a.injury.status}${a.injury.detail ? ` (${a.injury.detail})` : ''}`);
+  const y = dividendYield(state, a, now);
+  if (y > 0.04) bull.push(`Pays well: about ${(y * 100).toFixed(1)}% a year in dividends`);
+  let peers = [];
+  if (a.kind === 'player') {
+    const reg = (a.perf.last || []).filter((g) => !/preseason/.test(g.text)).slice(0, 5);
+    const pre = !reg.length;
+    const last = pre ? (a.perf.last || []).slice(0, 5) : reg; // fall back to preseason games
+    const base = a.perf.season?.gs ?? a.perf.prior?.gs ?? a.perf.ema;
+    const recent = last.length ? mean(last.map((g) => g.gs)) : null;
+    const trend = recent != null && Math.abs(base) > 0.5 ? recent / base - 1 : null;
+    tiles.unshift(['Form', trend == null ? 'No recent games' : trend > 0.1 ? 'Heating up' : trend < -0.1 ? 'Cooling off' : 'Steady',
+      recent != null ? `Last ${last.length}${pre ? ' (preseason)' : ''}: ${recent.toFixed(1)} vs season ${base?.toFixed(1) ?? '—'}` : `Season avg ${base != null ? base.toFixed(1) : '—'}`, trend > 0.1 ? 'up' : trend < -0.1 ? 'down' : '']);
+    if (!pre && trend > 0.15) bull.push(`Hot form: last ${last.length} games ${Math.round(trend * 100)}% above his season average`);
+    if (!pre && trend < -0.15) bear.push(`Slumping: last ${last.length} games ${Math.round(-trend * 100)}% below his season average`);
+    if ((a.fame || 1) > 1.8) bear.push(`Star premium: about ${(a.fame).toFixed(1)}× priced in for his reputation`);
+    if (formZ(a) > 1.5 && (a.fame || 1) < 1.3) bull.push('Top-tier production without a star premium yet');
+    // Similar form, cheaper
+    const g = posGroup(a.league, a.pos);
+    const sd = state.stats[a.league]?.[g]?.sd || 1;
+    peers = assetsList().filter((x) => x.kind === 'player' && x.id !== a.id && x.league === a.league && posGroup(x.league, x.pos) === g && x.perf?.ema != null
+      && Math.abs(x.perf.ema - a.perf.ema) < sd * 0.35 && x.price < a.price * 0.85)
+      .sort((x, y) => Math.abs(x.perf.ema - a.perf.ema) - Math.abs(y.perf.ema - a.perf.ema)).slice(0, 3)
+      .map((x) => [x, `Similar form · ${Math.round((1 - x.price / a.price) * 100)}% cheaper`]);
+  } else {
+    const f = (a.form || []).slice(0, 10);
+    const wins = f.filter(Boolean).length;
+    const pct = a.rec.gp ? (a.rec.w + 0.5 * (a.rec.t || 0)) / a.rec.gp : null;
+    tiles.unshift(['Form', f.length ? `${wins}-${f.length - wins} last ${f.length}` : 'No games yet',
+      pct != null ? `${(pct * 1000).toFixed(0).padStart(3, '0').replace(/^/, '.')} this season${a.prior ? ` · .${Math.round(a.prior.pct * 1000).toString().padStart(3, '0')} last season` : ''}` : (a.prior ? `.${Math.round(a.prior.pct * 1000).toString().padStart(3, '0')} last season` : '—'),
+      f.length && wins / f.length >= 0.7 ? 'up' : f.length && wins / f.length <= 0.3 ? 'down' : '']);
+    if (f.length >= 5 && wins / f.length >= 0.7) bull.push(`Winning: ${wins} of the last ${f.length}`);
+    if (f.length >= 5 && wins / f.length <= 0.3) bear.push(`Losing: ${f.length - wins} of the last ${f.length}`);
+    const out = Object.values(state.assets).filter((x) => x.kind === 'player' && x.league === a.league && x.teamId === a.rid && x.injury && x.injury.factor < 0.9)
+      .sort((x, y) => y.price - x.price).slice(0, 3);
+    if (out.length) bear.push(`Missing ${out.map((x) => x.name).join(', ')} (injured)`);
+    if (a.rec.gp >= 5 && a.prior && pct - a.prior.pct > 0.12) bull.push('Well ahead of last season\'s pace');
+    if (a.rec.gp >= 5 && a.prior && pct - a.prior.pct < -0.12) bear.push('Well behind last season\'s pace');
+    const { rank } = teamRanks(a.league);
+    peers = Object.values(state.assets).filter((x) => x.kind === 'team' && x.league === a.league && x.id !== a.id && x.rec.gp && a.rec.gp
+      && Math.abs(x.rec.w / x.rec.gp - a.rec.w / a.rec.gp) < 0.06 && x.price < a.price * 0.9)
+      .slice(0, 3).map((x) => [x, `Similar record · ${Math.round((1 - x.price / a.price) * 100)}% cheaper · #${rank.get(x.rid)}`]);
+  }
+  const score = bull.length - bear.length + (scoutRating(a).buy - 50) / 25;
+  const outlook = score >= 1.5 ? ['up', 'Positive'] : score <= -1.5 ? ['down', 'Cautious'] : ['', 'Neutral'];
+  return { tiles, bull, bear, outlook, peers, up };
+}
+
+function researchSection(a) {
+  if (a.kind === 'fund') return '';
+  const r = research(a);
+  const sr = scoutRating(a);
+  return `<h3>Research</h3>
+    <div class="card research">
+      <div class="row between"><div><div class="tiny muted">OUTLOOK</div><div class="rs-verdict ${r.outlook[0]}">${r.outlook[1]}</div></div>
+        <div style="text-align:right"><div class="tiny muted">SCOUTS</div><div class="small"><b class="up">${sr.buy}% Buy</b> · <span class="muted">${sr.hold}% Hold</span> · <span class="down">${sr.sell}% Sell</span></div></div></div>
+      <div class="rating"><i style="width:${sr.buy}%;background:var(--up)"></i><i style="width:${sr.hold}%;background:var(--faint)"></i><i style="width:${sr.sell}%;background:var(--down)"></i></div>
+      <div class="rs-tiles">${r.tiles.map(([k, v, d, c]) => `<div><span>${k}</span><b class="${c}">${v}</b><small>${d}</small></div>`).join('')}</div>
+      <div class="rs-cases">
+        <div><div class="rs-label up">▲ Bull case</div>${r.bull.length ? `<ul>${r.bull.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p class="tiny muted">Nothing stands out right now.</p>'}</div>
+        <div><div class="rs-label down">▼ Bear case</div>${r.bear.length ? `<ul>${r.bear.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p class="tiny muted">No red flags right now.</p>'}</div>
+      </div>
+      ${r.up.length > 1 ? `<div class="rs-sched">${r.up.slice(0, 5).map((x) => `<span class="${x.rank && x.rank <= Math.ceil(x.n / 4) ? 'down' : x.rank && x.rank > x.n * 0.6 ? 'up' : ''}">${fmtDate(x.g.date, { weekday: 'short' })} ${x.home ? 'vs' : '@'} ${esc(x.opp?.abbr || '')}</span>`).join('')}</div>` : ''}
+      <p class="tiny faint" style="margin:10px 0 0">Model research from stats, schedule, news and prices. It's a game, not financial advice.</p>
+    </div>
+    ${r.peers.length ? `<h3>${a.kind === 'player' ? 'Cheaper alternatives' : 'Similar teams, lower price'}</h3><div class="list">${r.peers.map(([x, note]) => assetRow(x, { note })).join('')}</div>` : ''}`;
+}
+
 function renderMarket(keepFocus = false) {
   const items = marketItems();
   const html = `
-    ${topbar('<h1>Market</h1>')}
+    ${topbar('<h1>Stocks</h1>')}
     <input class="search" id="q" type="search" placeholder="Search players, teams, funds, tickers" value="${esc(ui.q)}" autocomplete="off" autocorrect="off">
     <div class="seg" style="margin-top:10px">${['all', ...enabledLeagues()].map((l) => `<button data-league="${l}" class="${ui.league === l ? 'on' : ''}">${l === 'all' ? 'All' : LEAGUES[l].name}</button>`).join('')}</div>
     <div class="seg" style="margin-top:8px">${[['player', 'Players'], ['team', 'Teams'], ['fund', 'Index funds']].map(([k, n]) => `<button data-kind="${k}" class="${ui.kind === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+    ${!ui.q.trim() && ui.kind === 'player' ? trendingStrip() : ''}
     <div class="chips" style="margin-top:10px">${SORTS.map(([k, n]) => `<button class="chip ${ui.sort === k ? 'on' : ''}" data-sort="${k}">${n}</button>`).join('')}</div>
+    <div class="chips price-chips" style="margin-top:6px">${PRICE_BANDS.map(([k, n]) => `<button class="chip ${(ui.price || 'any') === k ? 'on' : ''}" data-price="${k}">${n}</button>`).join('')}</div>
     <div class="row between" style="margin-top:8px"><span class="tiny muted">${ui.mview === 'heat' ? 'Tile size = share price · color = today\'s move' : ''}</span>
       <div class="seg mini">${[['list', 'List'], ['heat', 'Heatmap']].map(([k, n]) => `<button data-mview="${k}" class="${ui.mview === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
     <div id="mlist" style="margin-top:8px">${ui.mview === 'heat' && items.length ? heatmapHTML(items) : `<div class="list">
@@ -388,7 +550,7 @@ function renderMarket(keepFocus = false) {
   if (keepFocus && $('#mlist')) {
     const tmp = document.createElement('div'); tmp.innerHTML = html;
     $('#mlist').replaceWith(tmp.querySelector('#mlist'));
-    $('.chips').replaceWith(tmp.querySelector('.chips'));
+    document.querySelectorAll('#view .chips').forEach((el, i) => { const n = tmp.querySelectorAll('.chips')[i]; if (n) el.replaceWith(n); });
     return;
   }
   $('#view').innerHTML = html;
@@ -1394,13 +1556,7 @@ function renderDetail({ keepScroll = true } = {}) {
     <h3>Key stats</h3>
     <div class="stats-grid">${keyStats(a).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>
 
-    <h3>Scout rating</h3>
-    <div class="card">
-      <div class="row between"><div><div class="big-pct up">${r.buy}%</div><div class="tiny muted">of StatStreet scouts say Buy</div></div>
-      <div class="tiny faint" style="max-width:52%;text-align:right">Model rating from form, momentum, news and injuries</div></div>
-      <div class="rating"><i style="width:${r.buy}%;background:var(--up)"></i><i style="width:${r.hold}%;background:var(--faint)"></i><i style="width:${r.sell}%;background:var(--down)"></i></div>
-      <div class="rating-legend"><span class="up">Buy ${r.buy}%</span><span class="muted">Hold ${r.hold}%</span><span class="down">Sell ${r.sell}%</span></div>
-    </div>
+    ${researchSection(a)}
 
     <h3>Why it's moving</h3>
     <div class="list">${(a.events || []).slice(0, 10).map((e) => `<div class="driver">
@@ -2116,10 +2272,12 @@ document.addEventListener('click', async (e) => {
   if (d.mview) { ui.mview = d.mview; renderMarket(); return; }
   if (d.league) { ui.league = d.league; ui.limit = 60; renderMarket(); return; }
   if (d.kind) { ui.kind = d.kind; ui.limit = 60; if (d.kind === 'fund' && !['movers', 'losers', 'price', 'div'].includes(ui.sort)) ui.sort = 'price'; renderMarket(); return; }
+  if (d.price) { ui.price = d.price; ui.limit = 60; renderMarket(); return; }
   if (d.sort) { ui.sort = d.sort; ui.limit = 60; if (d.sort === 'streak') ui.kind = 'team'; renderMarket(); return; }
   if (d.coll) {
     ui.tab = 'market'; ui.q = ''; ui.league = 'all'; ui.limit = 60;
     if (d.coll === 'funds') { ui.kind = 'fund'; ui.sort = 'price'; } else { ui.sort = d.coll; ui.kind = d.coll === 'streak' ? 'team' : d.coll === 'mvp' || d.coll === 'hurt' ? 'player' : ui.kind === 'fund' ? 'player' : ui.kind; }
+    if (d.coll === 'cheap') { ui.sort = 'movers'; ui.price = 'u25'; ui.kind = 'player'; } else ui.price = 'any';
     render(); view().scrollTop = 0; return;
   }
   if (d.idx) { ui.tab = 'market'; ui.league = d.idx; ui.sort = 'price'; render(); return; }

@@ -114,9 +114,19 @@ with sync_playwright() as p:
     page.screenshot(path=f'{OUT}/1-funds.png')
 
     # --- player page: vertical swipe starting on the chart scrolls the sheet
-    page.click('[data-kind=player]'); page.fill('#q', 'Luka'); page.wait_for_timeout(200)
+    page.click('[data-kind=player]'); page.wait_for_timeout(200)
+    nt = page.locator('.trend').count(); print('trending cards:', nt); assert nt >= 3
+    page.screenshot(path=f'{OUT}/1b-stocks-trending.png')
+    page.click('[data-price="25-100"]'); page.wait_for_timeout(200)
+    prices = page.evaluate("[...document.querySelectorAll('#mlist .item .price')].map(e => parseFloat(e.textContent.replace(/[^0-9.]/g, '')))")
+    print('prices in $25-100 band:', prices); assert prices and all(25 <= p < 100 for p in prices)
+    page.click('[data-price="any"]'); page.wait_for_timeout(100)
+    page.fill('#q', 'Luka'); page.wait_for_timeout(200)
     page.click('#mlist .item >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
     page.screenshot(path=f'{OUT}/2-detail.png')
+    assert page.locator('#sheet .research').count() == 1 and page.locator('#sheet .rs-tiles > div').count() == 4
+    page.evaluate("document.querySelector('#sheet').scrollTop = document.querySelector('.research').offsetTop - 120"); page.wait_for_timeout(200)
+    page.screenshot(path=f'{OUT}/2b-research.png'); page.evaluate("document.querySelector('#sheet').scrollTop = 0"); page.wait_for_timeout(200)
     box = page.locator('#dchart svg').bounding_box()
     x, y = int(box['x'] + box['width'] / 2), int(box['y'] + box['height'] / 2)
     cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y, 'radiusX': 1, 'radiusY': 1}]})
