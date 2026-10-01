@@ -56,7 +56,7 @@ export function newState(startCash = START_CASH) {
     nw: [], lastTick: 0,
     options: {}, orders: [], alerts: [], recurring: [], divs: [], divTotal: 0, inbox: [], schedule: {},
     picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, daily: { last: '', streak: 0, best: 0 },
-    collection: {}, trophies: {}, results: [], startedAt: Date.now(),
+    collection: {}, trophies: {}, results: [], startedAt: Date.now(), contests: {}, props: [],
     settings: { proxy: '', leagues: { nba: true, nfl: true, mlb: true }, drip: false, startCash, startCashV: 1 },
   };
 }
@@ -65,7 +65,7 @@ export function newState(startCash = START_CASH) {
 export function migrate(state) {
   const d = newState();
   for (const k of ['options', 'orders', 'alerts', 'recurring', 'divs', 'inbox', 'schedule', 'watch', 'txns', 'nw',
-    'picks', 'pickStats', 'daily', 'collection', 'trophies', 'results']) state[k] ??= d[k];
+    'picks', 'pickStats', 'daily', 'collection', 'trophies', 'results', 'contests', 'props']) state[k] ??= d[k];
   state.startedAt ??= state.nw?.[0] || state.created || Date.now();
   state.divTotal ??= 0;
   state.startCash ??= 10000; // portfolios created before the $100 default started with $10,000
@@ -82,6 +82,21 @@ export function migrate(state) {
   for (const h of Object.values(state.holdings || {})) h.since ??= 0;
   return state;
 }
+
+// Other modules (contests, props) listen for final box scores here.
+export const gameHooks = [];
+
+// A card's level: from the most you've ever held at once ($5 = Lv 1, doubling per level),
+// or from pulling duplicates in packs, whichever is higher.
+export function cardLevel(state, id) {
+  const c = state.collection?.[id];
+  if (!c) return 0;
+  const held = c.peak > 0 ? 1 + Math.floor(Math.log2(Math.max(c.peak, 5) / 5)) : 0;
+  const pulled = c.pulls ? c.pulls : 0;
+  return clamp(Math.max(held, pulled, 1), 1, 10);
+}
+// Each card level above 1 adds 5% to the dividends that player or team pays you.
+export const cardDivBonus = (state, id) => Math.max(0, cardLevel(state, id) - 1) * 0.05;
 
 export function notify(state, kind, text, id = null, t = Date.now()) {
   state.inbox.unshift({ t, kind, text, id, seen: false });
@@ -226,6 +241,7 @@ function ensurePlayer(state, league, p) {
 export function seedPlayer(state, league, rec) {
   const a = ensurePlayer(state, league, rec);
   a.perf.season = { gs: rec.gs, gp: rec.gp };
+  if (rec.line) a.perf.avg = rec.line; // per-game averages, used for prop lines
   if (a.perf.ema == null) {
     a.perf.ema = rec.gs;
     a.perf.n = Math.min(rec.gp, 12);
@@ -466,7 +482,7 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       a.perf.ema = before == null ? mu + 0.35 * (gs - mu) : before + alpha * (gs - before);
       a.perf.init = MODEL_V;
       a.perf.n = Math.min(a.perf.n + 1, 20);
-      a.perf.last.unshift({ e: game.id, t: game.date, gs: Math.round(gs * 10) / 10, text, opp });
+      a.perf.last.unshift({ e: game.id, t: game.date, gs: Math.round(gs * 10) / 10, text, opp, line: p.line });
       if (a.perf.last.length > 10) a.perf.last.length = 10;
       a.live = null;
     }, { force: gs !== 0 });
@@ -486,6 +502,7 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
   delete state.liveGames[game.id];
   recordResult(state, league, game);
   settlePick(state, game, at);
+  for (const h of gameHooks) { try { h(state, league, game, at); } catch (e) { console.warn('game hook', e); } }
 }
 
 // Keep recent final scores for the Games tab.
@@ -509,7 +526,7 @@ function settlePick(state, game, at) {
   if (!pk || pk.done) return;
   const winner = game.teams.find((t) => t.winner) || [...game.teams].sort((x, y) => y.score - x.score)[0];
   const tie = game.teams.length === 2 && game.teams[0].score === game.teams[1].score && !game.teams.some((t) => t.winner);
-  pk.done = true;
+  pk.done = true; pk.settled = at;
   const st = state.pickStats;
   if (tie) { pk.result = 'push'; notify(state, 'pick', `${pk.name} ended in a tie — pick returned`, null, at); return; }
   pk.result = winner.id === pk.teamId ? 'won' : 'lost';
@@ -552,7 +569,7 @@ export function payDividend(state, a, perShare, reason, at, gameDate) {
     notify(state, 'div', `${target?.ticker || a.ticker} paid you ${'$' + amt.toFixed(2)}${via ? ` (via ${a.ticker})` : ''}${drip ? ' · reinvested' : ''}`, holdId, at);
   };
   const own = state.holdings[a.id];
-  if (own && (own.since || 0) < gameDate) credit(a.id, own.qty, null);
+  if (own && (own.since || 0) < gameDate) credit(a.id, own.qty * (1 + (state.collection?.[a.id] ? cardDivBonus(state, a.id) : 0)), null);
   for (const f of Object.values(state.assets)) {
     if (f.kind !== 'fund' || !f.cons?.[a.id]) continue;
     const fp = state.holdings[f.id];

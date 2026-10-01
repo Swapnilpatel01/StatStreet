@@ -104,3 +104,26 @@ export function timeAgo(ts, now = Date.now()) {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 }
+
+// Local-time calendar weeks (Monday 00:00 to the next Monday) for weekly games.
+export function weekStart(t) {
+  const d = new Date(t);
+  d.setHours(0, 0, 0, 0);
+  const dow = (d.getDay() + 6) % 7; // Monday = 0
+  d.setDate(d.getDate() - dow);
+  return d.getTime();
+}
+export function addDays(t, n) {
+  const d = new Date(t);
+  d.setDate(d.getDate() + n);
+  return d.getTime();
+}
+export const weekEnd = (t) => addDays(weekStart(t), 7);
+export const weekId = (t) => new Date(weekStart(t)).toLocaleDateString('en-CA');
+
+// Small deterministic random generator (same seed → same sequence).
+export function seeded(seed) {
+  let h = 2166136261;
+  for (const ch of String(seed)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return () => { h += 0x6D2B79F5; let x = h; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+}

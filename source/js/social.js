@@ -2,7 +2,8 @@
 // trophies and a leaderboard against strategy bots. Pure state logic.
 
 import { DAY, HOUR, clamp } from './util.js';
-import { notify, priceAt, netWorth, pickStreakMult, teamWinProb } from './engine.js';
+import { notify, priceAt, netWorth, pickStreakMult, teamWinProb, cardLevel } from './engine.js';
+import { addXP, addCoins } from './xp.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
@@ -38,12 +39,7 @@ export function rarity(state, a, now = Date.now()) {
 }
 export const resetRarityCache = () => { rankCache = { t: 0, map: new Map() }; };
 
-// Card level grows with the most you've ever held in that player/team: $5 = level 1, doubling per level.
-export function cardLevel(state, id) {
-  const c = state.collection?.[id];
-  if (!c) return 0;
-  return clamp(1 + Math.floor(Math.log2(Math.max(c.peak, 5) / 5)), 1, 10);
-}
+export { cardLevel };
 
 function updateCollection(state, now) {
   for (const [id, h] of Object.entries(state.holdings)) {
@@ -78,7 +74,10 @@ export function claimDaily(state, now = Date.now()) {
   if (s.claimed) throw new Error('Already claimed today — come back tomorrow');
   state.daily = { last: dayKey(now), streak: s.nextStreak, best: Math.max(state.daily.best || 0, s.nextStreak) };
   state.cash = round2(state.cash + s.reward);
-  return { reward: s.reward, streak: s.nextStreak };
+  addXP(state, 20, now);
+  const bonus = s.nextStreak % 7 === 0 ? 50 : 0; // a full week of check-ins pays coins too
+  if (bonus) addCoins(state, bonus);
+  return { reward: s.reward, streak: s.nextStreak, coins: bonus };
 }
 
 // ---------- Pick'em ----------
@@ -146,8 +145,10 @@ export const RIVALS = [
 ];
 
 export function leaderboard(state, now = Date.now()) {
-  const start = state.startedAt || now;
-  const rows = [{ name: 'You', you: true, ret: netWorth(state, now) / state.startCash - 1, style: 'Includes daily rewards and Pick\'em winnings' }];
+  // Measured over the current season.
+  const start = state.season?.start || state.startedAt || now;
+  const base = state.season?.nw0 || state.startCash;
+  const rows = [{ name: 'You', you: true, ret: netWorth(state, now) / base - 1, style: 'Includes daily rewards, Pick\'em, props and contests' }];
   for (const r of RIVALS) {
     const f = state.assets[`fund:${r.fund}`];
     if (!f?.hist?.length) continue;
@@ -182,7 +183,7 @@ function checkTrophies(state, now) {
     if (state.trophies[t.id]) continue;
     let ok = false;
     try { ok = t.check(state, now); } catch { ok = false; }
-    if (ok) { state.trophies[t.id] = now; notify(state, 'trophy', `Trophy unlocked: ${t.icon} ${t.name}`, null, now); }
+    if (ok) { state.trophies[t.id] = now; notify(state, 'trophy', `Trophy unlocked: ${t.icon} ${t.name} · +25 coins`, null, now); }
   }
 }
 

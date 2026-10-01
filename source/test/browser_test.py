@@ -54,6 +54,9 @@ with sync_playwright() as p:
     page.screenshot(path=f'{OUT}/0a-games.png', full_page=True)
     page.click('[data-act=claim]'); page.wait_for_timeout(200); print('daily:', toast(page)); assert 'daily reward' in toast(page)
     assert page.locator('[data-act=claim]').count() == 0
+    assert page.locator('.career .lvl').count() == 1 and page.locator('.goal').count() == 3, 'career header + 3 weekly goals'
+    page.screenshot(path=f'{OUT}/0a2-season.png', full_page=True)
+    page.click('[data-gtab=pickem]'); page.wait_for_timeout(200)
     npk = page.locator('.pick-btn').count(); print('pick buttons:', npk); assert npk >= 2
     page.click('.pick-btn >> nth=0'); page.wait_for_timeout(200); print('pick:', toast(page)); assert toast(page).startswith('Picked')
     assert page.locator('.pick-btn.on').count() == 1
@@ -75,6 +78,30 @@ with sync_playwright() as p:
         drag(cdp, page, 8, 400, 330, 0)
         print('events', page.evaluate("[_ev.slice(0,4), _ev.length, document.querySelector('#game').style.transform, history.state]"))
         assert page.evaluate("document.querySelector('#game').hidden"), 'edge swipe closes game center'
+    # contests: draft five players and enter
+    page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=contests]'); page.wait_for_timeout(200)
+    page.screenshot(path=f'{OUT}/0e-contests.png', full_page=True)
+    page.click('[data-draft] >> nth=0'); page.wait_for_selector('#draft:not([hidden])'); page.wait_for_timeout(400)
+    print('draft rows:', page.evaluate("[...document.querySelectorAll('#dlist .draft-row')].map(x => x.className + ' ' + x.querySelector('.sal').textContent).join(' | ')"), page.text_content('#dhead'))
+    for i in range(5):
+        page.click('#dlist .draft-row:not(.nofit):not(.on) >> nth=-1'); page.wait_for_timeout(60)
+    page.screenshot(path=f'{OUT}/0f-draft.png')
+    assert page.locator('#dlist .draft-row.on').count() == 5
+    page.click('[data-act=enterdraft]'); page.wait_for_function("document.querySelector('#draft').hidden"); page.wait_for_timeout(300)
+    print('contest:', toast(page)); assert "You're in" in toast(page)
+    assert page.locator('.contest .stand').count() == 1
+    page.screenshot(path=f'{OUT}/0g-contest-live.png', full_page=True)
+    page.click('[data-gtab=props]'); page.wait_for_timeout(200)
+    nprops = page.locator('.ou').count(); print('prop buttons:', nprops)
+    if nprops:
+        page.click('.ou >> nth=0'); page.wait_for_timeout(150)
+        page.click('[data-stake="1"]'); page.click('[data-act=placebet]'); page.wait_for_timeout(200)
+        print('prop:', toast(page)); assert toast(page).startswith('Bet placed')
+        page.screenshot(path=f'{OUT}/0h-props.png', full_page=True)
+    page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
+    page.screenshot(path=f'{OUT}/0i-locker.png', full_page=True)
+    assert page.locator('.pack').count() == 4 and page.locator('.theme').count() == 5
+
     # heatmap
     page.click('#tabbar [data-tab=market]'); page.click('[data-mview=heat]'); page.wait_for_timeout(200)
     nt = page.locator('.heat .tile').count(); print('heat tiles:', nt); assert nt >= 5
@@ -175,11 +202,23 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
     page.check('#drip', force=True) if False else page.click('label:has(#drip)')
     page.screenshot(path=f'{OUT}/10-account.png', full_page=True)
-    page.click('#tabbar [data-tab=games]'); page.wait_for_timeout(300)
-    nc = page.locator('.card-grid .pcard').count(); nt = page.locator('.trophy.got').count(); print('cards:', nc, 'trophies:', nt); assert nc >= 1 and nt >= 3
-    for i, head in enumerate(['Leaderboard', 'Your cards']):
+    page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=season]'); page.wait_for_timeout(300)
+    nt = page.locator('.trophy.got').count()
+    page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
+    nc = page.locator('.card-grid .pcard').count(); print('cards:', nc, 'trophies:', nt); assert nc >= 1 and nt >= 3
+    coins = int(re.sub(r'[^0-9]', '', page.text_content('.coins.big')))
+    print('coins earned so far:', coins)
+    if coins >= 100:
+        page.click('.pack.starter'); page.wait_for_selector('#packview:not([hidden])'); page.wait_for_timeout(300)
+        page.click('.pv-card >> nth=0'); page.wait_for_timeout(700)
+        page.screenshot(path=f'{OUT}/11-pack.png')
+        page.click('[data-act=packdone]'); page.click('[data-act=packdone]'); page.wait_for_timeout(200)
+        assert page.evaluate("document.querySelector('#packview').hidden")
+    page.click('[data-gtab=season]'); page.wait_for_timeout(200)
+    for i, head in enumerate(['Weekly goals', 'Leaderboard']):
         page.evaluate("h => { const el = [...document.querySelectorAll('#view h2')].find(x => x.textContent.startsWith(h)); document.querySelector('#view').scrollTop = el.offsetTop - 60; }", head)
         page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/11-games-{i}.png')
+    page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
     page.click('.card-grid .pcard >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
     page.evaluate("document.querySelector('#sheet').scrollTop = document.querySelector('.cardsec').offsetTop - 300"); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/11-card-detail.png')

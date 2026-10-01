@@ -21,6 +21,14 @@ import {
   pickPayout, leaderboard, TROPHIES, runSocial, gamePlayers,
 } from './social.js';
 import { pickStreakMult } from './engine.js';
+import { career, xpProgress, UNLOCKS } from './xp.js';
+import {
+  runCareer, TIERS, tierFor, nextTier, seasonReturn, seasonBalance, GOALS, PACKS, THEMES, TITLES, openPack, buyItem, equipItem, themeOf,
+} from './career.js';
+import {
+  CONTEST_TIERS, PAYOUT, LINEUP, availableContests, enterContest, standings, draftPool, salaryCap, salary, entryFee, ordinal,
+  propBoard, placeBet, MAX_LEGS, PROP_ODDS, potentialPayout,
+} from './contests.js';
 import { squarify, heatColor } from './heatmap.js';
 import { portfolioCard, assetCard, shareCanvas } from './sharecard.js';
 
@@ -33,7 +41,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 10;
+const APP_VERSION = 11;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -50,7 +58,7 @@ const assetsList = () => Object.values(state.assets).filter((a) => leagueOn(a) &
 const fmtDate = (t, o = { month: 'short', day: 'numeric' }) => new Date(t).toLocaleDateString([], o);
 const fmtExp = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
 const fmtDateTime = (t) => new Date(t).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-const overlayOpen = () => !!(ui.detail || ui.chain || ui.order || ui.game);
+const overlayOpen = () => !!(ui.detail || ui.chain || ui.order || ui.game || ui.draft);
 const view = () => $('#view');
 
 // ---------- small render helpers ----------
@@ -241,6 +249,7 @@ function renderHome() {
     ${holdings.length || opts.length ? `<div class="alloc">${parts.map(([, v, c]) => `<i style="width:${(v / tot) * 100}%;background:${c}"></i>`).join('')}</div>
     <div class="legend">${parts.map(([n, v, c]) => { const pc = (v / tot) * 100; return `<span style="--c:${c}">${n} ${pc > 0 && pc < 1 ? '<1' : Math.round(pc)}%</span>`; }).join('')}</div>` : ''}
 
+    ${state.season ? (() => { const r = seasonReturn(state, now); const tr = tierFor(r); return `<button class="season-strip" data-gtab="season" style="--tc:${tr.color};margin-top:12px"><span class="dot"></span>Season ${state.season.n} · <b>${tr.name}</b> · <span class="${cls(r)}">${pctTxt(r)}</span><span class="grow"></span><span class="muted">${daysLeft(state.season.end)} ›</span></button>`; })() : ''}
     ${(() => { const dly = dailyStatus(state, now); return dly.claimed ? '' : `<button class="card promo" data-tab="games"><span class="e">🎁</span><div class="grow"><div class="name">Daily reward ready</div>
       <div class="tiny muted">${dly.nextStreak > 1 ? `Day ${dly.nextStreak} of your streak` : 'Start a streak'} · tap to claim ${money(dly.reward)}</div></div><span class="muted">›</span></button>`; })()}
 
@@ -447,7 +456,7 @@ function renderAccount() {
 
     <h2 id="notifications">Notifications</h2>
     <div class="list">${inbox.map((n) => `<button class="inbox-item ${n.seen ? '' : 'new'}" ${n.id ? `data-open="${esc(n.id)}"` : ''} style="width:100%;text-align:left">
-      <span class="ic">${{ div: '💵', order: '🧾', option: '🎟️', alert: '🔔', card: '🃏', trophy: '🏆', pick: '🎯', info: '📈' }[n.kind] || '•'}</span>
+      <span class="ic">${{ div: '💵', order: '🧾', option: '🎟️', alert: '🔔', card: '🃏', trophy: '🏆', pick: '🎯', info: '📈', level: '⭐', goal: '✅', contest: '🏟️', prop: '🎲', season: '🏁' }[n.kind] || '•'}</span>
       <div class="grow">${esc(n.text)}<div class="tiny faint">${timeAgo(n.t)}</div></div></button>`).join('')
       || '<div class="empty">Fills, dividends, option expiries and price alerts show up here.</div>'}</div>
 
@@ -585,7 +594,233 @@ function resultRow(r) {
     ${badge}<span class="tiny faint">${fmtDate(r.date)}</span></button>`;
 }
 
+// ---------- Games tab: career header + Season / Contests / Props / Pick'em / Locker ----------
+
+const GTABS = [['season', 'Season'], ['contests', 'Contests'], ['props', 'Props'], ['pickem', "Pick'em"], ['locker', 'Locker']];
+const coinFmt = (n) => Math.round(n).toLocaleString();
+const daysLeft = (t) => { const d = (t - Date.now()) / DAY; return d >= 1 ? `${Math.ceil(d)} days left` : `${Math.max(1, Math.round(d * 24))}h left`; };
+const pctTxt = (x) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
+
+function tierBadge(tier, size = 44) {
+  return `<div class="tier-badge" style="--tc:${tier.color};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px">${tier.name[0]}</div>`;
+}
+
+function careerHeader() {
+  const p = xpProgress(state);
+  const c = career(state);
+  const s = state.season;
+  const ret = seasonReturn(state);
+  const tier = tierFor(ret);
+  return `<div class="career card">
+    <div class="lvl"><b>${p.level}</b><span>LEVEL</span></div>
+    <div class="grow">
+      <div class="row between"><div class="name ellipsis">${esc(c.title)}</div><button class="coins" data-gtab="locker">🪙 ${coinFmt(c.coins)}</button></div>
+      <div class="xpbar"><i style="width:${Math.round(p.frac * 100)}%"></i></div>
+      <div class="tiny muted row between"><span>${p.into} / ${p.need} XP</span><span>${UNLOCKS[p.level + 1] ? `Lv ${p.level + 1}: ${esc(UNLOCKS[p.level + 1])}` : ''}</span></div>
+    </div></div>
+    ${s ? `<button class="season-strip" data-gtab="season" style="--tc:${tier.color}"><span class="dot"></span>Season ${s.n} · <b>${tier.name}</b> · <span class="${cls(ret)}">${pctTxt(ret)}</span><span class="grow"></span><span class="muted">${daysLeft(s.end)}</span></button>` : ''}`;
+}
+
 function renderGames() {
+  ui.gtab ||= 'season';
+  const body = { season: gamesSeason, contests: gamesContests, props: gamesProps, pickem: gamesPickem, locker: gamesLocker }[ui.gtab]();
+  $('#view').innerHTML = `
+    ${topbar('<h1>Games</h1>')}
+    ${careerHeader()}
+    <div class="chips gtabs" style="margin-top:12px">${GTABS.map(([k, n]) => `<button class="chip ${ui.gtab === k ? 'on' : ''}" data-gtab="${k}">${n}</button>`).join('')}</div>
+    ${body}`;
+}
+
+// --- Season ---
+function gamesSeason() {
+  const now = Date.now();
+  const s = state.season;
+  const ret = seasonReturn(state, now);
+  const tier = tierFor(ret); const next = nextTier(ret);
+  const lo = Number.isFinite(tier.min) ? tier.min : Math.min(ret, -0.1);
+  const frac = next ? clamp((ret - lo) / (next.min - lo), 0, 1) : 1;
+  const w = state.week;
+  const board = leaderboard(state, now);
+  const c = career(state);
+  const got = Object.keys(state.trophies).length;
+  return `
+    <div class="card season-card" style="--tc:${tier.color};margin-top:12px">
+      <div class="row">${tierBadge(tier, 54)}<div class="grow"><div class="tiny muted">SEASON ${s.n} · ${daysLeft(s.end).toUpperCase()}</div>
+        <div class="name" style="font-size:20px">${tier.name}</div>
+        <div class="small"><span class="${cls(ret)}">${pctTxt(ret)}</span> <span class="muted">since ${fmtDate(s.start)}</span></div></div></div>
+      <div class="tierbar"><i style="width:${frac * 100}%"></i></div>
+      <div class="tiny muted">${next ? `${pctTxt(next.min - ret).replace('+', '')} more to reach <b style="color:${next.color}">${next.name}</b> (${next.coins} coins at season end)` : 'Top tier! Hold it to the end of the season.'}</div>
+      <div class="tiers">${TIERS.map((t) => `<div class="${t.key === tier.key ? 'on' : ''}" style="--tc:${t.color}"><i></i><span>${t.name}</span><small>${Number.isFinite(t.min) ? pctTxt(t.min).replace('.0', '') : '<0%'}</small></div>`).join('')}</div>
+      <div class="tiny faint" style="margin-top:8px">When the season ends you get coins and XP for your tier (+100 more if you top the leaderboard), then everyone restarts with a fresh bankroll: ${money(seasonBalance(state))} at your level.</div>
+    </div>
+
+    ${dailyCard()}
+
+    <h2>Weekly goals <span class="faint small">resets Monday</span></h2>
+    <div class="list">${w.goals.map((g) => { const def = GOALS.find((x) => x.key === g.key); return `<div class="item goal ${g.done ? 'done' : ''}">
+      <div class="check">${g.done ? '✓' : ''}</div><div class="grow"><div class="name">${esc(def.text)}</div><div class="sub">+${def.coins} coins · +${def.xp} XP</div></div></div>`; }).join('')}</div>
+
+    <h2>Leaderboard</h2>
+    <p class="small muted" style="margin:-4px 0 10px">This season's return vs. strategy bots.</p>
+    <div class="list">${board.map((r, i) => `<div class="item lb ${r.you ? 'you' : ''}"><div class="rank">${i + 1}</div>
+      <div class="grow"><div class="name">${r.you ? `You <span class="tag">${esc(c.title)}</span>` : esc(r.name)}</div><div class="sub ellipsis">${esc(r.style)}</div></div>
+      <div class="price ${cls(r.ret)}">${fmtPct(r.ret)}</div></div>`).join('')}</div>
+
+    ${c.seasons.length ? `<h2>Past seasons</h2><div class="list">${c.seasons.slice(0, 8).map((r) => { const t = TIERS.find((x) => x.key === r.tier); return `<div class="item">${tierBadge(t, 34)}
+      <div class="grow"><div class="name">Season ${r.n} · ${t.name}</div><div class="sub">${fmtDate(r.start)} – ${fmtDate(r.end)} · ${ordinal(r.rank)} of ${r.of}</div></div>
+      <div class="price-col"><div class="price ${cls(r.ret)}">${pctTxt(r.ret)}</div><div class="tiny muted">+${r.coins} 🪙</div></div></div>`; }).join('')}</div>` : ''}
+
+    <h2>Trophies <span class="faint small">${got}/${TROPHIES.length} · +25 coins each</span></h2>
+    <div class="trophies">${TROPHIES.map((t) => `<div class="trophy ${state.trophies[t.id] ? 'got' : ''}"><div class="ic">${t.icon}</div>
+      <div class="t">${esc(t.name)}</div><div class="d">${esc(t.desc)}</div></div>`).join('')}</div>`;
+}
+
+// --- Contests ---
+function gamesContests() {
+  const now = Date.now();
+  const lgs = enabledLeagues();
+  const avail = availableContests(state, now, lgs);
+  const mine = Object.values(state.contests || {}).sort((x, y) => y.entered - x.entered);
+  const live = mine.filter((c) => !c.done);
+  const past = mine.filter((c) => c.done).slice(0, 8);
+  const byLg = {};
+  for (const x of avail) (byLg[x.league] ||= []).push(x);
+  return `
+    <p class="small muted" style="margin:12px 0 10px">Draft 5 players under the salary cap and score their real game scores until Sunday night. You face 5 bots: <b>1st pays 3×</b> your entry, 2nd 1.8×, 3rd gets it back.</p>
+    ${live.length ? `<h2 style="margin-top:6px">Your contests</h2>${live.map(contestCard).join('')}` : ''}
+    <h2 style="margin-top:${live.length ? 26 : 6}px">This week</h2>
+    ${Object.keys(byLg).length ? Object.entries(byLg).map(([lg, list]) => `<div class="card contest-lg">
+      <div class="row between">${lgTag(lg)}<span class="tiny muted">Cap ${money(list[0].cap).replace('.00', '')} · ends Sun night</span></div>
+      ${list.map((x) => `<div class="ctier"><div class="grow"><div class="name">${x.tier.name}</div><div class="tiny muted">Entry ${money(x.fee)} · 1st wins ${money(x.fee * 3)}</div></div>
+        ${x.entered ? `<span class="pk">Entered</span>` : x.locked ? `<span class="pk">🔒 Lv ${x.tier.level}</span>` : `<button class="btn buy small" data-draft="${lg}|${x.tier.key}">Draft</button>`}</div>`).join('')}
+    </div>`).join('') : '<div class="card empty">Contests open Monday and close a few hours before the week ends.</div>'}
+    ${past.length ? `<h2>Results</h2><div class="list">${past.map((c) => `<div class="item">${lgTag(c.league)}<div class="grow"><div class="name">${CONTEST_TIERS.find((t) => t.key === c.tier)?.name} · ${ordinal(c.place)} of 6</div>
+      <div class="sub">Week of ${fmtDate(c.entered)} · ${c.pts.toFixed(1)} pts</div></div><div class="price ${c.payout > c.fee ? 'up' : c.payout ? '' : 'down'}">${c.payout ? '+' + money(c.payout) : '−' + money(c.fee)}</div></div>`).join('')}</div>` : ''}`;
+}
+
+function contestCard(c) {
+  const rows = standings(c);
+  const place = rows.findIndex((r) => r.you) + 1;
+  const tier = CONTEST_TIERS.find((t) => t.key === c.tier);
+  return `<div class="card contest">
+    <div class="row between"><div class="row" style="gap:6px">${lgTag(c.league)}<b>${tier.name}</b></div><span class="tiny muted">${daysLeft(c.end)}</span></div>
+    <div class="row between" style="margin-top:8px"><div><div class="big-pct">${ordinal(place)}</div><div class="tiny muted">of 6 · ${c.pts.toFixed(1)} pts</div></div>
+      <div class="tiny muted" style="text-align:right">If it ended now:<br><b class="${PAYOUT[place - 1] ? 'up' : 'down'}">${PAYOUT[place - 1] ? money(c.fee * PAYOUT[place - 1]) : 'no payout'}</b></div></div>
+    <div class="stand">${rows.map((r, i) => `<div class="${r.you ? 'you' : ''}"><span>${i + 1}. ${esc(r.name)}</span><b>${r.pts.toFixed(1)}</b></div>`).join('')}</div>
+    <div class="lineup">${c.lineup.map((id) => { const a = state.assets[id]; return a ? `<button data-open="${id}">${avatar(a)}<span class="ellipsis">${esc(a.name.split(' ').slice(-1)[0])}</span><b>${(c.ppts[id] || 0).toFixed(1)}</b></button>` : ''; }).join('')}</div>
+  </div>`;
+}
+
+// Draft sheet
+function openDraft(league, tier) {
+  ui.draft = { league, tier, picks: [], q: '' };
+  const el = $('#draft');
+  try { history.pushState({ draft: 1 }, ''); } catch { /* */ }
+  renderDraft();
+  el.scrollTop = 0;
+  el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
+}
+function closeDraft({ animate = true } = {}) {
+  ui.draft = null;
+  const el = $('#draft');
+  const finish = () => { if (ui.draft) return; el.hidden = true; el.innerHTML = ''; $('#dfoot').hidden = true; const y = view().scrollTop; render(); view().scrollTop = y; };
+  if (animate && !el.hidden) slideOut(el, 'x', finish, [$('#dfoot')]); else finish();
+}
+function renderDraft(keepList = false) {
+  const d = ui.draft; const el = $('#draft');
+  const tier = CONTEST_TIERS.find((t) => t.key === d.tier);
+  const cap = salaryCap(state, d.league);
+  const fee = entryFee(state, tier);
+  const pool = draftPool(state, d.league);
+  const used = d.picks.reduce((s, id) => s + salary(state.assets[id]), 0);
+  const left = cap - used;
+  const q = d.q.trim().toLowerCase();
+  const list = pool.filter((a) => !q || a.name.toLowerCase().includes(q) || (a.teamAbbr || '').toLowerCase() === q);
+  const slotsLeft = LINEUP - d.picks.length;
+  const cheapest = [...pool].filter((a) => !d.picks.includes(a.id)).map(salary).sort((x, y) => x - y);
+  const reserve = (n) => cheapest.slice(0, n).reduce((s, x) => s + x, 0);
+  const ng = (a) => nextGame(a);
+  const rowHTML = (a) => {
+    const on = d.picks.includes(a.id);
+    const fits = on || (slotsLeft > 0 && salary(a) + reserve(slotsLeft - 1) <= left);
+    const g = ng(a);
+    return `<button class="item draft-row ${on ? 'on' : ''} ${fits ? '' : 'nofit'}" data-dpick="${a.id}">${avatar(a)}
+      <div class="grow"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${esc(a.teamAbbr || '')} · ${esc(a.pos || '')} · avg ${a.perf.ema.toFixed(1)} pts${g ? ` · next ${fmtDate(g.date, { weekday: 'short' })}` : ''}</div></div>
+      <div class="sal">$${salary(a)}</div><div class="pickbox">${on ? '✓' : '+'}</div></button>`;
+  };
+  if (keepList && $('#dlist')) {
+    $('#dlist').innerHTML = list.map(rowHTML).join('') || '<div class="empty">No players match.</div>';
+    $('#dhead').innerHTML = draftHead();
+    $('#dfoot').innerHTML = draftFoot();
+    return;
+  }
+  function draftHead() {
+    return `<div class="capbar"><i style="width:${clamp(used / cap, 0, 1) * 100}%" class="${left < 0 ? 'over' : ''}"></i></div>
+      <div class="row between small"><span><b>${d.picks.length}/${LINEUP}</b> picked</span><span class="${left < 0 ? 'down' : 'muted'}">$${left.toLocaleString()} left of $${cap.toLocaleString()}</span></div>
+      <div class="picked">${d.picks.map((id) => { const a = state.assets[id]; return `<button data-dpick="${id}">${esc(a.name.split(' ').slice(-1)[0])} ✕</button>`; }).join('')}</div>`;
+  }
+  function draftFoot() {
+    return `<div class="err" id="derr">${esc(d.err || '')}</div><button class="btn buy" data-act="enterdraft" ${d.picks.length === LINEUP ? '' : 'disabled'}>Enter for ${money(fee)}</button>`;
+  }
+  el.hidden = false;
+  el.innerHTML = `<div class="sheet-inner">
+    <div class="row between"><button class="icon-btn" data-act="draftback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="row" style="gap:6px">${lgTag(d.league)}<b>${tier.name} contest</b></div><div style="width:38px"></div></div>
+    <p class="small muted" style="margin:10px 0">Pick ${LINEUP} players. Points are their real game scores from now until Sunday night, so players with more games this week score more.</p>
+    <div id="dhead">${draftHead()}</div>
+    <input class="search" id="dq" type="search" placeholder="Search players or team (e.g. LAL)" value="${esc(d.q)}" autocomplete="off" style="margin-top:10px">
+    <div class="list" id="dlist" style="margin-top:8px">${list.map(rowHTML).join('')}</div>
+  </div>`;
+  const foot = $('#dfoot'); foot.hidden = false; foot.innerHTML = draftFoot();
+}
+
+// --- Props ---
+function gamesProps() {
+  const now = Date.now();
+  const board = propBoard(state, now, enabledLeagues());
+  ui.slip ||= { legs: [], stake: '' };
+  const slip = ui.slip;
+  slip.legs = slip.legs.filter((l) => l.date > now);
+  const max = MAX_LEGS(state);
+  const bets = (state.props || []).slice(0, 25);
+  const open = bets.filter((b) => b.status === 'open');
+  const done = bets.filter((b) => b.status !== 'open').slice(0, 10);
+  const byGame = {};
+  for (const p of board) (byGame[p.gameId] ||= { name: p.game, date: p.date, league: p.league, list: [] }).list.push(p);
+  const stake = Number(slip.stake) || 0;
+  return `
+    <p class="small muted" style="margin:12px 0 10px">Over or under on tonight's real stat lines. A hit pays ${PROP_ODDS}× your stake${max > 1 ? `; parlays of up to ${max} picks multiply (2 picks ${(PROP_ODDS ** 2).toFixed(2)}×, 3 picks ${(PROP_ODDS ** 3).toFixed(2)}×)` : '; parlays unlock at level 4'}.</p>
+    ${slip.legs.length ? `<div class="card slip">
+      <div class="row between"><b>Bet slip</b><span class="tiny muted">${slip.legs.length} pick${slip.legs.length > 1 ? 's' : ''} · ${(PROP_ODDS ** slip.legs.length).toFixed(2)}×</span></div>
+      ${slip.legs.map((l, i) => `<div class="slip-leg"><div class="grow"><b>${esc(state.assets[l.assetId]?.name || '')}</b> <span class="muted">${l.side === 'over' ? 'Over' : 'Under'} ${l.line} ${esc(l.short)}</span></div><button class="x-btn" data-rmleg="${i}">✕</button></div>`).join('')}
+      <div class="row" style="margin-top:10px;gap:8px"><label class="price-field grow" style="margin:0"><span class="small muted">Stake $</span><input id="stake" inputmode="decimal" value="${esc(slip.stake)}" placeholder="0"></label>
+        ${[1, 5].map((v) => `<button class="chip" data-stake="${v}">$${v}</button>`).join('')}<button class="chip" data-stake="10%">10%</button></div>
+      <div class="row between small" style="margin-top:8px"><span class="muted">Pays</span><b class="up" id="slippay">${money(potentialPayout(stake, slip.legs.length))}</b></div>
+      <div class="err" id="slerr">${esc(slip.err || '')}</div>
+      <button class="btn buy" data-act="placebet">Place bet</button>
+    </div>` : ''}
+    ${open.length ? `<h2>Open bets</h2><div class="list">${open.map(betRow).join('')}</div>` : ''}
+    <h2>Tonight's props</h2>
+    ${Object.values(byGame).length ? Object.values(byGame).sort((x, y) => x.date - y.date).map((g) => `<div class="card props-game">
+      <div class="row between">${lgTag(g.league)}<span class="tiny muted">${esc(g.name)} · ${fmtDateTime(g.date)}</span></div>
+      ${g.list.map((p) => { const a = state.assets[p.assetId]; const sel = slip.legs.find((l) => l.assetId === p.assetId); return `<div class="prop-row">
+        <button class="grow row" data-open="${p.assetId}" style="gap:10px;text-align:left;min-width:0">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${esc(p.label)}</div></div></button>
+        <button class="ou ${sel?.side === 'over' ? 'on' : ''}" data-prop="${p.key}|over"><small>Over</small>${p.line}</button>
+        <button class="ou ${sel?.side === 'under' ? 'on' : ''}" data-prop="${p.key}|under"><small>Under</small>${p.line}</button></div>`; }).join('')}
+    </div>`).join('') : '<div class="card empty">No props right now — they open about a day before games.</div>'}
+    ${done.length ? `<h2>Settled</h2><div class="list">${done.map(betRow).join('')}</div>` : ''}`;
+}
+
+function betRow(b) {
+  const name = (l) => state.assets[l.assetId]?.ticker || '?';
+  const st = { open: ['', 'Open'], won: ['up', `Won ${money(b.payout)}`], lost: ['down', 'Lost'], void: ['', 'Void'] }[b.status];
+  return `<div class="item"><div class="grow"><div class="name">${b.legs.length > 1 ? `${b.legs.length}-pick parlay` : `${esc(name(b.legs[0]))} ${b.legs[0].side} ${b.legs[0].line}`}</div>
+    <div class="sub ellipsis">${b.legs.map((l) => `${esc(name(l))} ${l.side === 'over' ? 'o' : 'u'}${l.line} ${esc(l.short)}${l.actual != null ? ` (${l.actual})` : ''}${l.result === 'win' ? ' ✓' : l.result === 'loss' ? ' ✗' : ''}`).join(' · ')}</div></div>
+    <div class="price-col"><div class="price ${st[0]}">${st[1]}</div><div class="tiny muted">${money(b.stake)} stake</div></div></div>`;
+}
+
+// --- Pick'em (moved from the old Games tab) ---
+function gamesPickem() {
   const now = Date.now();
   const lgs = enabledLeagues();
   const lgOk = (lg) => lgs.includes(lg) && (ui.gamesLeague === 'all' || ui.gamesLeague === lg);
@@ -595,51 +830,91 @@ function renderGames() {
   const results = (state.results || []).filter((r) => lgOk(r.league)).slice(0, 8);
   const ps = state.pickStats;
   const openPicks = Object.values(state.picks).filter((p) => !p.done).length;
-  const board = leaderboard(state, now);
-  const cards = Object.keys(state.collection).map((id) => state.assets[id]).filter((a) => a && a.kind !== 'fund')
-    .sort((x, y) => rarRank(rarity(state, x)) - rarRank(rarity(state, y)) || cardLevel(state, y.id) - cardLevel(state, x.id));
-  const got = Object.keys(state.trophies).length;
-  const days = Math.max(0, Math.floor((now - state.startedAt) / DAY));
-
-  $('#view').innerHTML = `
-    ${topbar('<h1>Games</h1>')}
-    ${dailyCard()}
-
-    <div class="grid3" style="margin-top:10px">
-      <div class="stat"><div class="k">Pick'em record</div><div class="v">${ps.w}-${ps.l}</div></div>
+  return `
+    <div class="grid3" style="margin-top:12px">
+      <div class="stat"><div class="k">Record</div><div class="v">${ps.w}-${ps.l}</div></div>
       <div class="stat"><div class="k">Win streak</div><div class="v">${ps.streak ? `🔥 ${ps.streak}` : '0'}</div></div>
       <div class="stat"><div class="k">Winnings</div><div class="v up">${money(ps.won || 0)}</div></div>
     </div>
-
-    <div class="chips" style="margin-top:14px">${['all', ...lgs].map((l) => `<button class="chip ${ui.gamesLeague === l ? 'on' : ''}" data-gleague="${l}">${l === 'all' ? 'All leagues' : LEAGUES[l].name}</button>`).join('')}</div>
-
+    <div class="chips" style="margin-top:12px">${['all', ...lgs].map((l) => `<button class="chip ${ui.gamesLeague === l ? 'on' : ''}" data-gleague="${l}">${l === 'all' ? 'All leagues' : LEAGUES[l].name}</button>`).join('')}</div>
     ${live.length ? `<h2>Live now</h2><div class="live-strip">${live.map(([id, g]) => `
       <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
         ${g.teams.map((t) => `<div class="t"><span>${esc(t.abbr)}</span><span>${t.score}</span></div>`).join('')}
         <div class="tiny muted">${esc(g.detail)}</div></button>`).join('')}</div>` : ''}
-
-    <h2>Pick'em</h2>
-    <p class="small muted" style="margin:-4px 0 10px">Pick winners for free. Underdogs pay more, and every win in a row adds 10% (up to 2x).${openPicks ? ` You have ${openPicks} open pick${openPicks > 1 ? 's' : ''}.` : ''}${ps.streak ? ` Next win pays <b class="up">${pickStreakMult(ps.streak).toFixed(1)}x</b>.` : ''}</p>
+    <h2>Pick winners</h2>
+    <p class="small muted" style="margin:-4px 0 10px">Free to play. Underdogs pay more, and every win in a row adds 10% (up to 2x).${openPicks ? ` You have ${openPicks} open pick${openPicks > 1 ? 's' : ''}.` : ''}${ps.streak ? ` Next win pays <b class="up">${pickStreakMult(ps.streak).toFixed(1)}x</b>.` : ''}</p>
     ${upcoming.length ? upcoming.slice(0, limit).map(pickGame).join('') + (upcoming.length > limit ? `<button class="more" data-act="morepicks">More games (${upcoming.length - limit})</button>` : '')
       : '<div class="card empty">No upcoming games in the next 3 days. Check back soon.</div>'}
+    ${results.length ? `<h2>Recent results</h2><div class="list">${results.map(resultRow).join('')}</div>` : ''}`;
+}
 
-    ${results.length ? `<h2>Recent results</h2><div class="list">${results.map(resultRow).join('')}</div>` : ''}
-
-    <h2>Leaderboard</h2>
-    <p class="small muted" style="margin:-4px 0 10px">Your return vs. strategy bots since you started ${days ? `${days} day${days > 1 ? 's' : ''} ago` : 'today'}.</p>
-    <div class="list">${board.map((r, i) => `<div class="item lb ${r.you ? 'you' : ''}"><div class="rank">${i + 1}</div>
-      <div class="grow"><div class="name">${esc(r.name)}</div><div class="sub ellipsis">${esc(r.style)}</div></div>
-      <div class="price ${cls(r.ret)}">${fmtPct(r.ret)}</div></div>`).join('')}</div>
+// --- Locker: shop, cards, themes, titles ---
+function gamesLocker() {
+  const c = career(state);
+  const L = xpProgress(state).level;
+  const cards = Object.keys(state.collection).map((id) => state.assets[id]).filter((a) => a && a.kind !== 'fund')
+    .sort((x, y) => rarRank(rarity(state, x)) - rarRank(rarity(state, y)) || cardLevel(state, y.id) - cardLevel(state, x.id));
+  return `
+    <div class="row between" style="margin-top:14px"><h2 style="margin:0">Card packs</h2><span class="coins big">🪙 ${coinFmt(c.coins)}</span></div>
+    <p class="small muted" style="margin:6px 0 10px">Earn coins from season tiers, weekly goals, trophies, contests and level-ups. Duplicate cards level up, and every level above 1 adds <b>+5% to that player's dividends</b> for you.</p>
+    <div class="packs">${PACKS.map((p) => { const locked = L < p.level; return `<button class="pack ${p.key} ${locked ? 'locked' : ''}" data-pack="${p.key}">
+      <div class="pk-name">${p.name}</div><div class="tiny">${p.blurb}</div><div class="pk-cost">${locked ? `🔒 Level ${p.level}` : `🪙 ${p.cost}`}</div></button>`; }).join('')}</div>
 
     <h2>Your cards <span class="faint small">${cards.length}</span></h2>
-    <p class="small muted" style="margin:-4px 0 10px">Buy a player or team to collect their card. Rarity comes from where they rank in their league; levels grow with the most you've held.</p>
-    ${cards.length ? `<div class="card-grid">${cards.slice(0, ui.allCards ? 999 : 9).map(miniCard).join('')}</div>
-      ${cards.length > 9 && !ui.allCards ? `<button class="more" data-act="allcards">See all ${cards.length}</button>` : ''}`
-      : '<div class="card empty">No cards yet. Your first buy starts the collection.</div>'}
+    ${cards.length ? `<div class="card-grid">${cards.slice(0, ui.allCards ? 999 : 12).map(miniCard).join('')}</div>
+      ${cards.length > 12 && !ui.allCards ? `<button class="more" data-act="allcards">See all ${cards.length}</button>` : ''}`
+      : '<div class="card empty">No cards yet. Buy a player or open a pack.</div>'}
 
-    <h2>Trophies <span class="faint small">${got}/${TROPHIES.length}</span></h2>
-    <div class="trophies">${TROPHIES.map((t) => `<div class="trophy ${state.trophies[t.id] ? 'got' : ''}"><div class="ic">${t.icon}</div>
-      <div class="t">${esc(t.name)}</div><div class="d">${esc(t.desc)}</div></div>`).join('')}</div>`;
+    <h2>Themes</h2>
+    <div class="themes">${THEMES.map((t) => { const own = c.owned.themes.includes(t.key); const on = c.theme === t.key; const locked = L < t.level; return `<button class="theme ${on ? 'on' : ''}" data-theme="${t.key}" style="--ta:${t.accent};--tb:${t.bg || '#0b0d10'}">
+      <div class="sw"><i></i></div><div class="t">${t.name}</div><div class="tiny muted">${on ? 'In use' : own ? 'Tap to use' : locked ? `🔒 Lv ${t.level}` : `🪙 ${t.cost}`}</div></button>`; }).join('')}</div>
+
+    <h2>Titles</h2>
+    <p class="small muted" style="margin:-4px 0 10px">Shown on the leaderboard and your share card.</p>
+    <div class="list">${TITLES.map((t) => { const own = c.owned.titles.includes(t.key); const on = c.title === t.key; const locked = L < t.level; return `<div class="item">
+      <div class="grow"><div class="name">${esc(t.key)}</div><div class="sub">${locked ? `Unlocks at level ${t.level}` : own ? 'Owned' : `${t.cost} coins`}</div></div>
+      ${on ? '<span class="pk won">Equipped</span>' : own ? `<button class="btn ghost small" data-title="${esc(t.key)}">Use</button>` : locked ? '<span class="pk">🔒</span>' : `<button class="btn buy small" data-title="${esc(t.key)}">🪙 ${t.cost}</button>`}</div>`; }).join('')}</div>`;
+}
+
+// Pack opening: cards face down, tap to flip each, best card last.
+function showPack(cards, pack) {
+  const el = $('#packview');
+  ui.packView = { cards, flipped: 0 };
+  el.hidden = false;
+  el.innerHTML = `<div class="pv-inner"><div class="tiny muted">${esc(pack.name)}</div><h1 style="margin:4px 0 18px">Tap to reveal</h1>
+    <div class="pv-cards">${cards.map((c, i) => { const a = state.assets[c.id]; return `<button class="pv-card" data-flip="${i}" style="--rc:${c.rarity.color}">
+      <div class="pv-back">S</div>
+      <div class="pv-front ${c.rarity.key}">${avatar(a)}<div class="pc-name ellipsis">${esc(a.kind === 'team' ? a.ticker : a.name)}</div>
+        <div class="pc-rar">${c.rarity.name}</div><div class="tiny">${c.isNew ? 'NEW' : `Lv ${c.level}`}</div></div></button>`; }).join('')}</div>
+    <button class="btn ghost" data-act="packdone" style="margin-top:22px;max-width:320px;width:100%">Reveal all</button></div>`;
+}
+
+function showRecap(rec) {
+  const t = TIERS.find((x) => x.key === rec.tier);
+  const el = $('#recap');
+  el.hidden = false;
+  el.innerHTML = `<div class="recap-card" style="--tc:${t.color}">
+    <div class="tiny muted">SEASON ${rec.n} COMPLETE</div>
+    ${tierBadge(t, 96)}
+    <h1>${t.name}</h1>
+    <div class="big-value ${cls(rec.ret)}" style="margin:0">${pctTxt(rec.ret)}</div>
+    <div class="muted small">${ordinal(rec.rank)} of ${rec.of} on the leaderboard</div>
+    <div class="recap-rows">
+      <div><span>Coins earned</span><b>🪙 ${rec.coins}</b></div>
+      <div><span>Final value</span><b>${money(rec.nw)}</b></div>
+      ${rec.best ? `<div><span>Best holding</span><b>${esc(rec.best.name)} ${pctTxt(rec.best.ret)}</b></div>` : ''}
+      <div><span>New bankroll</span><b>${money(state.season.bal)}</b></div>
+    </div>
+    <button class="btn buy" data-act="recapdone">Start Season ${rec.n + 1}</button>
+  </div>`;
+}
+
+function applyTheme() {
+  const t = themeOf(state);
+  const r = document.documentElement.style;
+  r.setProperty('--accent', t.accent);
+  if (t.bg) r.setProperty('--bg', t.bg); else r.removeProperty('--bg');
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.bg || '#0b0d10');
 }
 
 // ---------- Game Center ----------
@@ -934,7 +1209,7 @@ function cardSection(a) {
   return `<div class="card cardsec" style="--rc:${r.color};margin-top:14px"><div class="pcard-sm ${r.key}"><b>${lv}</b></div><div class="grow">
     <div class="row between"><div class="name">${r.name} card · Lv ${lv}</div><div class="tiny muted">since ${fmtDate(c.first)}</div></div>
     <div class="lvbar"><i style="width:${frac * 100}%"></i></div>
-    <div class="tiny muted">${lv >= 10 ? 'Max level' : `Hold ${money(hi)} at once to reach Lv ${lv + 1} · best so far ${money(c.peak)}`}</div></div></div>`;
+    <div class="tiny muted">${lv > 1 ? `+${(lv - 1) * 5}% dividends from this card · ` : ''}${lv >= 10 ? 'Max level' : `Hold ${money(hi)} at once or pull a duplicate in a pack to reach Lv ${lv + 1}`}</div></div></div>`;
 }
 
 function keyStats(a) {
@@ -1322,11 +1597,13 @@ function submitOrder() {
     haptic();
     closeOrder();
     const n0 = state.inbox.length;
-    runSocial(state);
+    runSocial(state); runCareer(state);
     const fresh = state.inbox.slice(0, state.inbox.length - n0);
+    const lvl = fresh.find((n) => n.kind === 'level');
     if (fresh.some((n) => n.kind === 'card' && /^New/.test(n.text))) msg += ' · 🃏 New card';
     else if (fresh.some((n) => n.kind === 'card')) msg += ' · 🃏 Card leveled up';
     if (fresh.some((n) => n.kind === 'trophy')) msg += ' · 🏆 Trophy';
+    if (lvl) msg += ` · ⭐ ${lvl.text.split('!')[0]}`;
     dirty = true; save();
     ui.seenInbox = state.inbox.length;
     toast(msg);
@@ -1383,6 +1660,7 @@ function closeOverlays() {
   if (ui.order) closeOrder(); if (ui.chain) closeChain(true);
   if (ui.detail) { ui.detail = null; $('#sheet').hidden = true; $('#tradebar').hidden = true; unlockBody(); }
   if (ui.game) { ui.game = null; $('#game').hidden = true; $('#game').innerHTML = ''; }
+  if (ui.draft) { ui.draft = null; $('#draft').hidden = true; $('#draft').innerHTML = ''; $('#dfoot').hidden = true; }
 }
 
 function render() {
@@ -1402,6 +1680,8 @@ function softRefresh() {
   if (ui.chain) renderChain();
   else if (ui.detail) renderDetail();
   else if (ui.game) renderGame();
+  else if (ui.draft) refreshBadge();
+  else if (ui.tab === 'games' && ['stake', 'dq'].includes(document.activeElement?.id)) refreshBadge();
   else if (!(ui.tab === 'market' && document.activeElement?.id === 'q')) {
     const y = view().scrollTop; render(); view().scrollTop = y;
   } else refreshBadge();
@@ -1441,6 +1721,11 @@ function updateNumbers() {
   if (ui.order && ui.order.mode !== 'alert' && document.activeElement?.id !== 'qtyin' && document.activeElement?.id !== 'oprice') updateOrder();
 }
 
+function maybeRecap() {
+  const rec = career(state).recap;
+  if (rec && $('#recap').hidden && !ui.order) showRecap(rec);
+}
+
 // Toast new notifications (fills, dividends, expiries, alerts).
 function announce() {
   const fresh = state.inbox.slice(0, Math.max(0, state.inbox.length - ui.seenInbox)).filter((n) => !n.seen);
@@ -1451,7 +1736,7 @@ function announce() {
 }
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('button, [data-open], label, [data-optpos], [data-game]');
+  const el = e.target.closest('button, [data-open], label, [data-optpos], [data-game], [data-flip]');
   if (!el) return;
   const d = el.dataset;
   if (el.disabled) return;
@@ -1486,6 +1771,56 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (d.game) { const [lg, gid] = d.game.split('|'); openGame(lg, gid); return; }
+  if (d.gtab) { ui.gtab = d.gtab; if (ui.tab !== 'games') { ui.tab = 'games'; closeOverlays(); } render(); view().scrollTop = 0; return; }
+  if (d.draft) { const [lg, tier] = d.draft.split('|'); openDraft(lg, tier); return; }
+  if (d.dpick && ui.draft) {
+    const p = ui.draft.picks; const i = p.indexOf(d.dpick);
+    if (i >= 0) p.splice(i, 1); else if (p.length < LINEUP) p.push(d.dpick); else { toast(`Lineups have ${LINEUP} players — remove one first`); return; }
+    ui.draft.err = ''; haptic(); renderDraft(true); return;
+  }
+  if (d.prop) {
+    const cut = d.prop.lastIndexOf('|');
+    const key = d.prop.slice(0, cut); const side = d.prop.slice(cut + 1);
+    const p = propBoard(state, Date.now(), enabledLeagues()).find((x) => x.key === key);
+    if (!p) { toast('That line is closed'); return; }
+    const slip = (ui.slip ||= { legs: [], stake: '' });
+    const i = slip.legs.findIndex((l) => l.assetId === p.assetId);
+    if (i >= 0 && slip.legs[i].side === side) slip.legs.splice(i, 1);
+    else if (i >= 0) slip.legs[i] = { ...p, side };
+    else if (slip.legs.length >= MAX_LEGS(state)) { if (MAX_LEGS(state) === 1) slip.legs = [{ ...p, side }]; else { toast('Up to 3 picks per parlay'); return; } }
+    else slip.legs.push({ ...p, side });
+    slip.err = ''; haptic(); const y = view().scrollTop; renderGames(); view().scrollTop = y; return;
+  }
+  if (d.rmleg) { ui.slip.legs.splice(Number(d.rmleg), 1); const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
+  if (d.stake) {
+    ui.slip.stake = d.stake === '10%' ? (Math.floor(state.cash * 10) / 100).toFixed(2) : d.stake;
+    const inp = $('#stake'); if (inp) inp.value = ui.slip.stake; updateSlipPay(); return;
+  }
+  if (d.pack) {
+    const pack = PACKS.find((x) => x.key === d.pack);
+    try { const cards = openPack(state, d.pack); dirty = true; save(); haptic(); showPack(cards, pack); } catch (err) { toast(err.message); }
+    return;
+  }
+  if (d.flip != null && ui.packView) {
+    if (el.classList.contains('flipped')) return;
+    el.classList.add('flipped'); haptic();
+    const c = ui.packView.cards[Number(d.flip)];
+    if (['legendary', 'epic'].includes(c.rarity.key)) confetti();
+    if (!$('#packview').querySelectorAll('.pv-card:not(.flipped)').length) $('#packview [data-act=packdone]').textContent = 'Done';
+    return;
+  }
+  if (d.theme) {
+    const c = career(state);
+    try { if (c.owned.themes.includes(d.theme)) equipItem(state, 'theme', d.theme); else buyItem(state, 'theme', d.theme); applyTheme(); dirty = true; save(); haptic(); const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+    catch (err) { toast(err.message); }
+    return;
+  }
+  if (d.title) {
+    const c = career(state);
+    try { if (c.owned.titles.includes(d.title)) equipItem(state, 'title', d.title); else buyItem(state, 'title', d.title); dirty = true; save(); haptic(); toast(`Title: ${d.title}`); const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+    catch (err) { toast(err.message); }
+    return;
+  }
   if (d.gleague) { ui.gamesLeague = d.gleague; ui.pickLimit = 8; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
   if (d.mview) { ui.mview = d.mview; renderMarket(); return; }
   if (d.league) { ui.league = d.league; ui.limit = 60; renderMarket(); return; }
@@ -1594,6 +1929,33 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'gameback': if (history.state?.game) history.back(); else closeGame(); break;
+    case 'draftback': if (history.state?.draft) history.back(); else closeDraft(); break;
+    case 'enterdraft': {
+      const dr = ui.draft;
+      try {
+        const c = enterContest(state, { league: dr.league, tier: dr.tier, lineup: dr.picks });
+        dirty = true; save(); haptic(); confetti();
+        ui.gtab = 'contests';
+        if (history.state?.draft) history.back(); else closeDraft();
+        toast(`You're in! ${money(c.fee)} entry · good luck`);
+      } catch (err) { dr.err = err.message; renderDraft(true); }
+      break;
+    }
+    case 'placebet': {
+      const slip = ui.slip;
+      try {
+        const b = placeBet(state, slip.legs, slip.stake);
+        dirty = true; save(); haptic();
+        ui.slip = { legs: [], stake: '' };
+        toast(`Bet placed: ${money(b.stake)} to win ${money(potentialPayout(b.stake, b.legs.length))}`);
+        const y = view().scrollTop; renderGames(); view().scrollTop = y;
+      } catch (err) { slip.err = err.message; const e2 = $('#slerr'); if (e2) e2.textContent = err.message; }
+      break;
+    }
+    case 'packdone':
+      if (ui.packView && $('#packview').querySelectorAll('.pv-card:not(.flipped)').length) { $('#packview').querySelectorAll('.pv-card').forEach((x) => x.classList.add('flipped')); el.textContent = 'Done'; break; }
+      ui.packView = null; $('#packview').hidden = true; $('#packview').innerHTML = ''; { const y = view().scrollTop; render(); view().scrollTop = y; } break;
+    case 'recapdone': career(state).recap = null; dirty = true; save(); $('#recap').hidden = true; ui.tab = 'games'; ui.gtab = 'season'; closeOverlays(); render(); view().scrollTop = 0; break;
     case 'sharepf': sharePortfolio().catch((err) => toast(err.message)); break;
     case 'shareasset': if (ui.detail) shareAsset(state.assets[ui.detail]).catch((err) => toast(err.message)); break;
     case 'inbox': ui.tab = 'account'; ui.scrollTo = 'notifications'; closeOverlays(); render(); break;
@@ -1610,7 +1972,10 @@ document.addEventListener('click', async (e) => {
       if (armed(el, 'Tap again to reset portfolio')) {
         const start = state.settings.startCash;
         Object.assign(state, { cash: start, startCash: start, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [],
-          picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, startedAt: Date.now() });
+          picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, startedAt: Date.now(), contests: {}, props: [] });
+        // The season restarts from the new balance (same season number and end date).
+        if (state.season) Object.assign(state.season, { start: Date.now(), nw0: start, bal: start });
+        state.week = null; runCareer(state, Date.now());
         ui.seenInbox = 0; dirty = true; save(); render(); toast(`Portfolio reset to ${money(start)}`);
       }
       break;
@@ -1626,6 +1991,10 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+function updateSlipPay() {
+  const el = $('#slippay'); if (el && ui.slip) el.textContent = money(potentialPayout(Number(ui.slip.stake) || 0, ui.slip.legs.length));
+}
+
 function syncQtyInput() {
   const inp = $('#qtyin'); if (inp) inp.value = ui.order.amount;
   if (ui.order.mode === 'option') { const p = $('#payoff'); if (p) delete p.dataset.k; }
@@ -1635,6 +2004,8 @@ function syncQtyInput() {
 
 document.addEventListener('input', (e) => {
   if (e.target.id === 'q') { ui.q = e.target.value; ui.limit = 60; renderMarket(true); }
+  if (e.target.id === 'dq' && ui.draft) { ui.draft.q = e.target.value; renderDraft(true); }
+  if (e.target.id === 'stake' && ui.slip) { ui.slip.stake = e.target.value.replace(/[^0-9.]/g, ''); updateSlipPay(); }
   if (e.target.id === 'qtyin' && ui.order) {
     ui.order.amount = e.target.value.replace(ui.order.mode === 'option' ? /[^0-9]/g : /[^0-9.]/g, '');
     if (e.target.value !== ui.order.amount) e.target.value = ui.order.amount;
@@ -1664,6 +2035,7 @@ document.addEventListener('change', async (e) => {
 
 window.addEventListener('popstate', (e) => {
   const animate = !ui.noAnim; ui.noAnim = false;
+  if (ui.draft && !e.state?.draft) { closeDraft({ animate }); return; }
   if (ui.order) { closeOrder({ animate }); }
   if (ui.chain && !e.state?.chain) { closeChain(false, { animate }); return; }
   const id = e.state?.sheet;
@@ -1679,7 +2051,7 @@ window.addEventListener('popstate', (e) => {
 });
 
 $('#trade').addEventListener('click', (e) => { if (e.target.id === 'trade') closeOrder(); });
-for (const id of ['sheet', 'chain', 'game']) $(`#${id}`).addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
+for (const id of ['sheet', 'chain', 'game', 'draft']) $(`#${id}`).addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
 $('#view').addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
 // Track whether a finger is down, so background refreshes wait until the gesture ends.
 document.addEventListener('touchstart', () => { ui.touching = true; ui.interacted = true; }, { passive: true, capture: true });
@@ -1699,6 +2071,10 @@ const gameSwipe = {
   el: $('#game'),
   onDismiss: () => { if (history.state?.game) { ui.noAnim = true; history.back(); } else closeGame({ animate: false }); },
 };
+const draftSwipe = {
+  el: $('#draft'), extra: () => [$('#dfoot')],
+  onDismiss: () => { if (history.state?.draft) { ui.noAnim = true; history.back(); } else closeDraft({ animate: false }); },
+};
 const chainSwipe = {
   el: $('#chain'),
   onDismiss: () => { if (history.state?.chain) { ui.noAnim = true; history.back(); } else closeChain(false, { animate: false }); },
@@ -1706,6 +2082,7 @@ const chainSwipe = {
 // The top-most full-screen page, for swipe-back.
 function topPage() {
   if (ui.order) return null;
+  if (ui.draft) return draftSwipe;
   if (ui.chain) return chainSwipe;
   if (ui.game && (!ui.detail || $('#game').style.zIndex === '34')) return gameSwipe;
   if (ui.detail) return sheetSwipe;
@@ -1777,6 +2154,7 @@ async function runSync({ manual = false, liveOnly = false } = {}) {
   syncing = false;
   if (!liveOnly) ensureFunds(state, Date.now());
   runSocial(state, Date.now());
+  runCareer(state, Date.now());
   state.lastTick = state.lastTick || Date.now();
   dirty = true; await save();
   if (needsBoot) {
@@ -1928,9 +2306,11 @@ async function main() {
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded && !overlayOpen()) { reloaded = true; location.reload(); } });
   }
   tick(state, Date.now());
-  runAutomation(state, Date.now()); runSocial(state, Date.now());
+  runAutomation(state, Date.now()); runSocial(state, Date.now()); runCareer(state, Date.now());
+  applyTheme();
   render();
   announce();
+  maybeRecap();
   runSync();
 
   // The tape: prices wiggle around fair value every few seconds; orders, alerts and expiries are checked each tick.
@@ -1940,6 +2320,8 @@ async function main() {
     tick(state, now);
     runAutomation(state, now);
     runSocial(state, now);
+    runCareer(state, now);
+    maybeRecap();
     dirty = true;
     updateNumbers();
     announce();
@@ -1952,7 +2334,7 @@ async function main() {
     if (document.hidden) { save(); applyUpdate(); return; }
     checkForUpdate();
     tick(state, Date.now());
-    runAutomation(state, Date.now()); runSocial(state, Date.now());
+    runAutomation(state, Date.now()); runSocial(state, Date.now()); runCareer(state, Date.now());
     announce();
     const last = Math.max(0, ...enabledLeagues().map((l) => state.sync[l]?.scoreboard || 0));
     if (Date.now() - last > 60e3) runSync(); else softRefresh();

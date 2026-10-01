@@ -39,6 +39,7 @@ async function loadPriors(state, league, progress, playerSeason) {
   }
   s.priorV = MODEL_V;
   s.priorSeason = s.season;
+  s.avgV = 1;
 }
 
 function findSeason(json) {
@@ -205,6 +206,10 @@ export async function syncLeague(state, league, { progress = () => {}, now = Dat
   const r = await refresh(state, league, progress, now, { liveOnly });
   const s = state.sync[league];
   if (!liveOnly && (s.priorV !== MODEL_V || (s.season && s.priorSeason !== s.season))) await reseedSeason(state, league, now);
+  else if (!liveOnly && !s.avgV) {
+    // Per-stat season averages (for prop lines) weren't kept by older versions.
+    try { await loadSeasonStats(state, league, null); initForm(state, league); s.avgV = 1; } catch { /* next time */ }
+  }
   return r;
 }
 
