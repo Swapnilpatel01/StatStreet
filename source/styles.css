@@ -687,3 +687,5 @@ details .prose { padding: 12px 14px 4px; }
 /* v20: the play reads like a headline, in the app's own font */
 .mc-play { font-family: inherit; font-size: 12px; font-weight: 600; font-style: italic; line-height: 1.35; color: #e6eaee; letter-spacing: 0; padding: 7px 9px; }
 .mc.mini .mc-play { font-size: 11px; }
+/* v21: the play sits directly on the card */
+.mc-play { background: none; border: 0; border-radius: 0; padding: 0; margin-top: 10px; min-height: 0; color: #d7dce2; }
