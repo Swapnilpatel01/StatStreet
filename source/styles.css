@@ -544,3 +544,35 @@ details .prose { padding: 12px 14px 4px; }
 .packs { grid-auto-rows: 1fr; align-items: stretch; }
 .pack { height: 100%; vertical-align: top; }
 .season-card + .daily { margin-top: 12px; }
+
+/* ---------- v16: booster cards + market ---------- */
+.bbadge { flex: none; border-radius: 12px; display: grid; place-items: center; position: relative; overflow: hidden;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--rc) 55%, #111), #12161c 75%); border: 1.5px solid var(--rc);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--rc) 35%, transparent); }
+.bbadge.empty { width: 40px; height: 40px; border: 1.5px dashed var(--faint); background: none; box-shadow: none; color: var(--muted); font-size: 22px; font-weight: 700; }
+.bbadge.legendary::after, .bbadge.iconic::after, .bbadge.epic::after { content: ''; position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.35) 50%, transparent 65%); background-size: 250% 100%; animation: shine 3s ease-in-out infinite; }
+.bbadge.iconic { border-color: transparent; background: linear-gradient(#12161c, #12161c) padding-box, linear-gradient(120deg, #ff4fa3, #ffb800, #4cc9ff, #b36bff) border-box; }
+.dots-c { display: inline-flex; gap: 2px; }
+.dots-c i { width: 6px; height: 6px; border-radius: 2px; background: var(--card2); }
+.dots-c i.on { background: var(--accent); }
+.brow.sold { opacity: .45; }
+.bslot { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 14px; }
+.bslot.on { background: linear-gradient(120deg, color-mix(in srgb, var(--rc) 16%, var(--card)), var(--card) 70%); }
+.bhero { display: flex; gap: 14px; align-items: center; }
+.bpick { margin: 0; padding-left: 0; padding-right: 0; flex-wrap: wrap; overflow: visible; }
+.fuse { margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.qs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.qs div { background: var(--card); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.qs i { width: 18px; height: 6px; border-radius: 3px; background: var(--rc); }
+.qs span { color: var(--rc); font-weight: 700; }
+.pack.bstarter { background: linear-gradient(150deg, #1d5f4a, #0b1f19); }
+.pack.bpremium { background: linear-gradient(150deg, #2b5be0, #101a40); }
+.pack.belite { background: linear-gradient(150deg, #c03fd6, #2a0d3a); }
+.pack.biconic { background: linear-gradient(150deg, #ff4fa3, #ffb800 55%, #4cc9ff); color: #111; }
+.pv-front.iconic { border-color: transparent; background: linear-gradient(#1d232c, #0d1014) padding-box, linear-gradient(120deg, #ff4fa3, #ffb800, #4cc9ff, #b36bff) border-box; }
+.pv-front .tiny { font-size: 10px; text-align: center; line-height: 1.2; color: var(--muted); }
+.trade-panel .chip, .trade-panel .btn.ghost, .trade-panel .card { background: var(--card2); }
+.trade-panel .card .price-field, .trade-panel .card .seg { background: var(--bg); }
+.trade-panel .card .seg button.on { background: var(--card2); }
+.trade-panel .bpick .chip.on { border-color: var(--acc); color: var(--text); }

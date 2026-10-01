@@ -100,7 +100,7 @@ with sync_playwright() as p:
         page.screenshot(path=f'{OUT}/0h-props.png', full_page=True)
     page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/0i-locker.png', full_page=True)
-    assert page.locator('.pack').count() == 4 and page.locator('.theme').count() == 5
+    assert page.locator('.pack').count() == 8 and page.locator('.theme').count() == 5
 
     # heatmap
     page.click('#tabbar [data-tab=market]'); page.click('[data-mview=heat]'); page.wait_for_timeout(200)
@@ -232,6 +232,38 @@ with sync_playwright() as p:
     saved = page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
         return await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { const s = g.result; r({h: Object.keys(s.holdings).length, o: Object.keys(s.options).length, a: s.alerts.length, drip: s.settings.drip, funds: Object.keys(s.assets).filter(k => k.startsWith('fund:')).length}); }; }); })()""")
     print('saved after reload:', saved); assert saved['h'] == 2 and saved['o'] == 1 and saved['a'] == 1 and saved['drip'] and saved['funds'] >= 3
+
+    # --- booster cards: open a pack, boost a stock, buy from the market, auction one
+    page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
+        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
+        s.career.coins = 5000;
+        await new Promise(r => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(s, 'state'); t.oncomplete = r; }); })()""")
+    page.reload(); page.wait_for_timeout(2500)
+    page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
+    page.click('[data-bpack=bstarter]'); page.wait_for_selector('#packview:not([hidden])'); page.wait_for_timeout(200)
+    page.click('[data-act=packdone]'); page.wait_for_timeout(700)
+    page.screenshot(path=f'{OUT}/13-booster-pack.png')
+    page.click('[data-act=packdone]'); page.wait_for_timeout(200)
+    nb = page.locator('.brow[data-booster]').count(); print('boosters in locker:', nb); assert nb == 3
+    page.click('.brow[data-booster] >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
+    page.screenshot(path=f'{OUT}/14-booster-sheet.png')
+    page.click('[data-bequip] >> nth=0'); page.wait_for_timeout(300)
+    print('equip:', toast(page)); assert toast(page).startswith('Boosting')
+    page.click('[data-gtab=market]'); page.wait_for_timeout(200)
+    page.screenshot(path=f'{OUT}/15-market.png', full_page=True)
+    page.click('[data-buylist] >> nth=0'); page.wait_for_timeout(200); print('buy:', toast(page)); assert toast(page).startswith('Bought a')
+    page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
+    page.click('.brow[data-booster]:not(:has(.pk.won)) >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
+    page.click('[data-blen="1h"]'); page.fill('#bstart', '1'); page.click('[data-act=blist]'); page.wait_for_timeout(200)
+    print('auction:', toast(page)); assert toast(page).startswith('Listed')
+    page.click('[data-gtab=market]'); page.wait_for_timeout(200)
+    assert page.locator('text=Your auctions').count() == 1
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(200)
+    page.click('#view [data-open^="nba:p"] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(300)
+    print('player page booster slot:', page.locator('#sheet .bslot').count()); assert page.locator('#sheet .bslot').count() == 1
+    page.evaluate("document.querySelector('#sheet').scrollTop = document.querySelector('.bslot').offsetTop - 300"); page.wait_for_timeout(200)
+    page.screenshot(path=f'{OUT}/16-player-boost.png')
+    page.click('[data-act=back]'); page.wait_for_timeout(400)
 
     # --- an older save (old pricing model) upgrades at equal value
     page.wait_for_timeout(3000)

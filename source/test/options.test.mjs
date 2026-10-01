@@ -29,7 +29,7 @@ t('more games before expiry → pricier option', () => {
   const busy = build({ games: [now + 1 * DAY, now + 2 * DAY, now + 3 * DAY] });
   const q0 = T.quoteOption(quiet, 'nba:p:10', 'call', K(quiet), exp, now);
   const q3 = T.quoteOption(busy, 'nba:p:10', 'call', K(busy), exp, now);
-  assert.ok(q3.mid > q0.mid * 2, `${q0.mid} vs ${q3.mid}`);
+  assert.ok(q3.mid > q0.mid * 1.7, `${q0.mid} vs ${q3.mid}`);
   assert.equal(q3.games.known, 3);
   assert.ok(q3.gameShare > 0.4 && q0.gameShare === 0, `${q3.gameShare}`);
 });

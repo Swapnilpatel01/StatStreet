@@ -21,10 +21,15 @@ export const SPREAD = 0.0035;           // half-spread charged on each trade
 //   level (the surprise), so a star playing like a star doesn't drift up for free.
 // - Stars are much more expensive: price grows exponentially with performance.
 // - "Market hype" is a slow random walk on top, so prices are never a sure thing.
-export const MODEL_V = 2;
+export const MODEL_V = 2;   // how player form and last-season priors are estimated
+export const PRICE_V = 3;   // price levels: v3 made teams pricier and added the star premium
 const P0 = 30;                           // price of a perfectly average player
-const TEAM_P0 = 50;                      // price of a .500 team
-const Z_SLOPE = 0.75;                    // price multiple per standard deviation of performance (e^0.75 ≈ 2.1x)
+const TEAM_P0 = 1000;                    // price of a .500 team (teams are the blue chips)
+const Z_SLOPE_LG = { nba: 0.75, nfl: 0.75, mlb: 0.9 }; // price multiple per standard deviation of performance (e^0.75 ≈ 2.1x)
+const zSlope = (lg) => Z_SLOPE_LG[lg] ?? 0.75;
+// Star premium: the best players in each league (by their season-start level) cost up to
+// ~4x more on top of their stats, so household names are the expensive ones everywhere.
+export const starPremium = (pct) => 1 + 3 * Math.pow(clamp((pct - 0.9) / 0.1, 0, 1), 2.5);
 const Z_MIN = -3; const Z_MAX = 4.2;
 // Typical price move from a one-standard-deviation surprise in a single game.
 const TARGET_MOVE = { nba: 0.06, nfl: 0.09, mlb: 0.03 };
@@ -52,7 +57,7 @@ export const MILESTONE_DIV = 0.004;
 
 export function newState(startCash = START_CASH) {
   return {
-    v: 1, modelV: MODEL_V, histV: 2, created: Date.now(), startCash,
+    v: 1, modelV: PRICE_V, histV: 2, created: Date.now(), startCash,
     cash: startCash, holdings: {}, txns: [], watch: [],
     assets: {}, stats: {}, mood: { nba: 0, nfl: 0, mlb: 0 },
     games: {}, liveGames: {}, newsSeen: {}, news: [], sync: {},
@@ -108,6 +113,13 @@ export function migrate(state) {
 
 // Other modules (contests, props) listen for final box scores here.
 export const gameHooks = [];
+// Booster cards plug in here (see boosters.js).
+export const boostHooks = { divMult: null, afterGame: null };
+function boostAfterGame(state, a, pct, priceBefore, at, gameDate) {
+  const h = state.holdings[a.id];
+  if (!h || (h.since || 0) >= gameDate || !boostHooks.afterGame) return;
+  boostHooks.afterGame(state, a, pct, priceBefore, at);
+}
 
 // A card's level: from the most you've ever held at once ($5 = Lv 1, doubling per level),
 // or from pulling duplicates in packs, whichever is higher.
@@ -297,7 +309,7 @@ export function playerZ(state, a) {
 }
 
 function playerFair(state, a) {
-  return P0 * posMultiplier(a.league, a.pos) * Math.exp(Z_SLOPE * playerZ(state, a));
+  return P0 * posMultiplier(a.league, a.pos) * Math.exp(zSlope(a.league) * playerZ(state, a)) * (a.fame || 1);
 }
 
 // Per-game spread of game scores around a player's own level, by position group.
@@ -314,7 +326,7 @@ function learnNoise(state, league, group, diff) {
 // for less than steady ones, so every league's game moves prices by a similar amount.
 export function groupAlpha(state, league, group) {
   const sd = state.stats[league]?.[group]?.sd || 1;
-  return clamp(TARGET_MOVE[league] * sd / (Z_SLOPE * gameNoise(state, league, group)), 0.01, 0.35);
+  return clamp(TARGET_MOVE[league] * sd / (zSlope(league) * gameNoise(state, league, group)), 0.01, 0.35);
 }
 
 // Estimate each player's level from this season, last season and the position average.
@@ -371,6 +383,18 @@ export function recomputeStats(state, league) {
   const priors = Object.values(state.assets).filter((a) => a.league === league && a.kind === 'team' && a.prior).map((a) => a.prior.dpg);
   if (priors.length > 3) out.priorSd = Math.max(std(priors, mean(priors)), 0.1);
   state.stats[league] = out;
+  // Star premium from each player's season-start standing within his position group,
+  // ranked across the whole league. It only changes when the season is re-seeded.
+  const ranked = [];
+  for (const a of Object.values(state.assets)) {
+    if (a.league !== league || a.kind !== 'player') continue;
+    const lvl = a.perf?.lvl ?? (a.perf?.n >= 1 ? a.perf.ema : null);
+    const g = out[posGroup(league, a.pos)];
+    if (lvl == null || !g) { a.fame = 1; continue; }
+    ranked.push([a, (lvl - g.mu) / g.sd]);
+  }
+  ranked.sort((x, y) => x[1] - y[1]);
+  ranked.forEach(([a], i) => { a.fame = Math.round(starPremium((i + 0.5) / ranked.length) * 1000) / 1000; });
 }
 
 // ---------- price composition ----------
@@ -472,7 +496,8 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
     const text = `${won ? 'W' : tie ? 'T' : 'L'} ${side.score}-${opp.score} ${side.home ? 'vs' : '@'} ${opp.abbr}`;
     // Wins pay a dividend, bigger for upsets, so good and bad teams yield about the same on average.
     if (won) payDividend(state, a, a.price * TEAM_DIV[league] * 2 * (1 - pre[side.id]), `${pre[side.id] < 0.45 ? 'Upset win' : 'Win'} ${side.score}-${opp.score} ${side.home ? 'vs' : '@'} ${opp.abbr}`, at, game.date);
-    withEvent(state, a, now, at, 'game', text, () => {
+    const teamBefore = a.price;
+    const teamPct = withEvent(state, a, now, at, 'game', text, () => {
       a.rec.gp += 1; a.rec.diff += side.score - opp.score;
       if (won) a.rec.w += 1; else if (tie) a.rec.t += 1; else a.rec.l += 1;
       // During a replay the standings already carry the current streak.
@@ -480,6 +505,7 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       a.form = [won, ...(a.form || [])].slice(0, 10);
       a.liveBoost = 0;
     }, { force: true });
+    if (!backfill) boostAfterGame(state, a, teamPct, teamBefore, at, game.date);
   }
 
   for (const p of game.players) {
@@ -498,7 +524,8 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       const d = clamp(Math.abs(gs - before), 0, 4 * own) * 1.2533; // mean |x| → sd
       a.perf.gn = Math.sqrt(0.92 * own * own + 0.08 * d * d);
     }
-    withEvent(state, a, now, at, 'game', text, () => {
+    const playerBefore = a.price;
+    const playerPct = withEvent(state, a, now, at, 'game', text, () => {
       const alpha = groupAlpha(state, league, grp) * (game.preseason ? 1 / 3 : 1); // exhibition games count for less
       // A newcomer's first game is mostly luck: start him close to the position average.
       const mu = state.stats[league]?.[grp]?.mu ?? gs;
@@ -509,6 +536,7 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       if (a.perf.last.length > 10) a.perf.last.length = 10;
       a.live = null;
     }, { force: gs !== 0 });
+    if (!game.preseason && !backfill) boostAfterGame(state, a, playerPct, playerBefore, at, game.date);
     // Dividends reward beating your own usual level, so stars and role players yield about the same.
     if (!game.preseason && surprise > 0.3) {
       payDividend(state, a, a.price * PLAYER_DIV[league] * clamp(surprise, 0, 3), `Beat his average: ${lineText(league, p.line)}`, at, game.date);
@@ -592,7 +620,10 @@ export function payDividend(state, a, perShare, reason, at, gameDate) {
     notify(state, 'div', `${target?.ticker || a.ticker} paid you ${'$' + amt.toFixed(2)}${via ? ` (via ${a.ticker})` : ''}${drip ? ' · reinvested' : ''}`, holdId, at);
   };
   const own = state.holdings[a.id];
-  if (own && (own.since || 0) < gameDate) credit(a.id, own.qty * (1 + (state.collection?.[a.id] ? cardDivBonus(state, a.id) : 0)), null);
+  if (own && (own.since || 0) < gameDate) {
+    const mult = (1 + (state.collection?.[a.id] ? cardDivBonus(state, a.id) : 0)) * (boostHooks.divMult ? boostHooks.divMult(state, a.id) : 1);
+    credit(a.id, own.qty * mult, null);
+  }
   for (const f of Object.values(state.assets)) {
     if (f.kind !== 'fund' || !f.cons?.[a.id]) continue;
     const fp = state.holdings[f.id];
@@ -826,18 +857,21 @@ export function resetHistory(state, now = Date.now()) {
 
 // One-time move of an older save to the current pricing model.
 export function upgradeModel(state, now = Date.now()) {
-  if ((state.modelV || 1) >= MODEL_V) return false;
+  const v = state.modelV || 1;
+  if (v >= PRICE_V) return false;
   const had = Object.keys(state.holdings).length || Object.keys(state.options || {}).length;
   withRebase(state, now, () => {
     for (const lg of Object.keys(LEAGUES)) {
-      for (const a of Object.values(state.assets)) if (a.league === lg && a.kind === 'team' && a.rec.prior) a.rec = { w: 0, l: 0, t: 0, gp: 0, diff: 0, streak: 0, playoffPct: null };
-      initForm(state, lg, { all: true });
+      if (v < 2) {
+        for (const a of Object.values(state.assets)) if (a.league === lg && a.kind === 'team' && a.rec.prior) a.rec = { w: 0, l: 0, t: 0, gp: 0, diff: 0, streak: 0, playoffPct: null };
+        initForm(state, lg, { all: true });
+      }
       recomputeStats(state, lg); rebuildInjuryCache(state, lg);
       for (const a of Object.values(state.assets)) if (a.league === lg) setPrice(state, a, now, { record: false });
     }
   });
-  state.modelV = MODEL_V;
-  if (had) notify(state, 'info', 'New pricing: stars and top teams now cost more. Your shares were converted at equal value, so your balance is unchanged.', null, now);
+  state.modelV = PRICE_V;
+  if (had) notify(state, 'info', 'New pricing: teams and star players now cost much more. Your shares were converted at equal value, so your balance is unchanged.', null, now);
   return true;
 }
 

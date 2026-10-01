@@ -10,6 +10,7 @@ import { netWorth, priceAt, notify, cardLevel } from './engine.js';
 import { career, addXP, addCoins, spendCoins, level, hasLevel } from './xp.js';
 import { leaderboard, rarity, RARITY, TROPHIES } from './social.js';
 import { runContests } from './contests.js';
+import { runMarket } from './boosters.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
@@ -155,6 +156,7 @@ export function runCareer(state, now = Date.now()) {
   career(state);
   ensureSeason(state, now);
   runContests(state, now);
+  runMarket(state, now);
   if (now >= state.season.end) endSeason(state, now);
   ensureWeek(state, now);
   scanActivity(state, now);

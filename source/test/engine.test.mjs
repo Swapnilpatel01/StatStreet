@@ -100,12 +100,12 @@ t('prices order by performance and team quality', () => {
   const st = buildNBA();
   const star = st.assets['nba:p:10'].price, starter = st.assets['nba:p:11'].price, role = st.assets['nba:p:12'].price;
   assert.ok(star > starter && starter > role, `${star} ${starter} ${role}`);
-  assert.ok(star > 200 && star < 1500, `star price ${star}`);
+  assert.ok(star > 500 && star < 6000, `star price ${star}`);
   assert.ok(star / role > 15, `stars cost far more than role players: ${star} vs ${role}`);
   assert.ok(role > 5, `role price ${role}`);
   const bos = st.assets['nba:t:1'].price, was = st.assets['nba:t:2'].price, mia = st.assets['nba:t:3'].price;
   assert.ok(bos > mia && mia > was, `${bos} ${mia} ${was}`);
-  assert.ok(Math.abs(mia - 50) < 12, `mia ${mia}`);
+  assert.ok(Math.abs(mia - 1000) < 250, `mia ${mia}`);
   assert.ok(bos / was > 4, `good teams cost far more: ${bos} vs ${was}`);
 });
 
@@ -211,12 +211,12 @@ t('last season sets the starting price, regressed toward .500', () => {
   E.setTeamPrior(st, 'nba', { id: '3', w: 41, l: 41, gp: 82, diff: 0 });
   E.repriceLeague(st, 'nba', now);
   const okc = st.assets['nba:t:1'].price, uta = st.assets['nba:t:2'].price;
-  assert.ok(okc > 120 && uta < 25, `${okc} ${uta}`);
+  assert.ok(okc > 2400 && uta < 500, `${okc} ${uta}`);
   // A champion that starts 0-3 is still priced as a good team
   E.upsertTeam(st, 'nba', { id: '1', abbr: 'OKC', name: 'OKC', w: 0, l: 3, gp: 3, diff: -15, streak: -3 });
   E.repriceLeague(st, 'nba', now);
   assert.equal(st.assets['nba:t:1'].rec.gp, 3);
-  assert.ok(st.assets['nba:t:1'].price > 90, `${st.assets['nba:t:1'].price}`);
+  assert.ok(st.assets['nba:t:1'].price > 1800, `${st.assets['nba:t:1'].price}`);
   // Win chances follow price
   assert.ok(E.teamWinProb(st, 'nba', '1', '2', true) > 0.7);
 });
