@@ -684,3 +684,6 @@ details .prose { padding: 12px 14px 4px; }
 .mc.mini .mc-board { font-size: 9px; flex-direction: column; align-items: flex-start; gap: 1px; }
 .mc.mini .mc-foot { flex-direction: column; align-items: flex-start; gap: 2px; }
 .mc.mini .mc-foot .boost { max-width: 100%; display: block; }
+/* v20: the play reads like a headline, in the app's own font */
+.mc-play { font-family: inherit; font-size: 12px; font-weight: 600; font-style: italic; line-height: 1.35; color: #e6eaee; letter-spacing: 0; padding: 7px 9px; }
+.mc.mini .mc-play { font-size: 11px; }
