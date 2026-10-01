@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="build" content="dev">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <title>StatStreet</title>
   <meta name="description" content="A stock market for NBA, NFL and MLB players and teams, priced by real-life performance.">
@@ -51,10 +52,12 @@
   <section id="sheet" class="sheet" hidden></section>
   <div id="tradebar" class="trade-bar" hidden></div>
   <section id="chain" class="sheet" hidden></section>
+  <div id="edge" class="edge" hidden></div>
   <section id="trade" class="trade-sheet" hidden><div class="trade-panel" id="panel"></div></section>
   <canvas id="confetti" hidden></canvas>
   <div id="boot" class="boot" hidden></div>
   <div id="toast" class="toast"></div>
+  <button id="updbar" class="updbar" hidden>New version ready · tap to update</button>
 
   <script type="module" src="js/app.js"></script>
 </body>

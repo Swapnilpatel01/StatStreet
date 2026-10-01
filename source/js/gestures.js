@@ -110,3 +110,57 @@ export function pullToRefresh(scroller, indicator, { enabled = () => true, onRef
     pull = 0;
   });
 }
+
+// Swipe back from the left edge. The gesture lives on a thin strip along the edge,
+// so the scrolling page underneath never has a blocking (non-passive) touch listener,
+// which is what keeps iOS scrolling smooth. Taps on the strip pass through.
+export function edgeSwipe(strip, { target }) {
+  let sx = 0; let sy = 0; let t0 = 0; let active = null; let dist = 0; let cur = null;
+  const els = () => (cur ? [cur.el, ...(cur.extra?.() || [])].filter(Boolean) : []);
+  // Marks the strip as tappable, so browsers that "snap" a touch to the nearest button
+  // still deliver edge touches here.
+  strip.addEventListener('click', () => {});
+  strip.addEventListener('touchstart', (e) => {
+    active = null; dist = 0; cur = target();
+    const t = e.touches[0]; sx = t.clientX; sy = t.clientY; t0 = performance.now();
+  }, { passive: true });
+  strip.addEventListener('touchmove', (e) => {
+    if (!cur || active === false) return;
+    const t = e.touches[0]; const dx = t.clientX - sx; const dy = t.clientY - sy;
+    if (active === null) {
+      if (dx > 6 && dx > Math.abs(dy)) active = true;
+      else if (Math.abs(dx) > 6 || Math.abs(dy) > 6) { active = false; return; }
+      else return;
+    }
+    e.preventDefault();
+    dist = Math.max(0, dx);
+    for (const x of els()) { x.style.transition = 'none'; x.style.transform = `translateX(${dist}px)`; }
+  }, { passive: false });
+  const end = (e) => {
+    const wasActive = active; active = null;
+    if (!wasActive) {
+      // A tap (or a vertical flick) on the strip: hand it to whatever is underneath.
+      if (wasActive === null && e.type === 'touchend') {
+        const t = e.changedTouches[0];
+        strip.style.pointerEvents = 'none';
+        const under = document.elementFromPoint(t.clientX, t.clientY);
+        strip.style.pointerEvents = '';
+        under?.click?.();
+        e.preventDefault();
+      }
+      return;
+    }
+    const w = cur.el.offsetWidth || 1;
+    const v = dist / Math.max(1, performance.now() - t0);
+    if (dist > w * 0.3 || (v > 0.5 && dist > 40)) {
+      haptic();
+      const c = cur;
+      slideOut(c.el, 'x', () => c.onDismiss(), c.extra?.() || []);
+    } else {
+      for (const x of els()) { x.style.transition = EASE; x.style.transform = ''; }
+      setTimeout(() => { for (const x of els()) x.style.transition = ''; }, 250);
+    }
+  };
+  strip.addEventListener('touchend', end);
+  strip.addEventListener('touchcancel', end);
+}

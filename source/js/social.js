@@ -2,7 +2,7 @@
 // trophies and a leaderboard against strategy bots. Pure state logic.
 
 import { DAY, HOUR, clamp } from './util.js';
-import { notify, priceAt, netWorth, pickStreakMult } from './engine.js';
+import { notify, priceAt, netWorth, pickStreakMult, teamWinProb } from './engine.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
 
@@ -84,14 +84,10 @@ export function claimDaily(state, now = Date.now()) {
 // ---------- Pick'em ----------
 
 // Win probability from the two teams' share prices (stronger team = pricier), plus home edge.
-// Preseason games are close to coin flips (starters sit), so they're pulled toward 50%.
+// Win probability from the two teams' share prices (the engine's model), plus home edge.
+// Preseason games are pulled toward 50% since starters sit.
 export function winProb(state, league, teamId, oppId, home, preseason = false) {
-  const a = state.assets[`${league}:t:${teamId}`]; const b = state.assets[`${league}:t:${oppId}`];
-  if (!a || !b) return 0.5;
-  const k = 2.2;
-  let p = a.price ** k / (a.price ** k + b.price ** k);
-  if (preseason) p = 0.5 + (p - 0.5) * 0.4;
-  return clamp(p + (home ? 0.03 : -0.03), 0.08, 0.92);
+  return teamWinProb(state, league, teamId, oppId, !!home, preseason);
 }
 
 // Correct picks pay more for underdogs: $1 at even odds, from $0.55 up to $3.

@@ -1,7 +1,7 @@
 // Service worker: caches the app shell so StatStreet opens instantly and works
 // offline (with the last prices it saw). Live data always goes to the network.
 
-const VERSION = 'statstreet-v8';
+const VERSION = 'statstreet-v9';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/engine.js', 'js/scoring.js', 'js/sync.js', 'js/api.js', 'js/store.js', 'js/chart.js', 'js/util.js',
@@ -10,7 +10,8 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache so a new install never picks up a stale page.
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -24,14 +25,30 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
 
-  // The page itself: network first, so a new version shows up on the next open.
+  // The page itself: open instantly from the cache, then check for a newer version
+  // in the background. If there is one, cache it and tell the app so it can switch
+  // over right away (the app reloads itself if you haven't started using it yet).
+  // The app's own "is there a newer version?" check always goes to the network.
+  if (url.origin === location.origin && url.searchParams.has('fresh')) {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }));
+    return;
+  }
+
   if (url.origin === location.origin && (e.request.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('.html'))) {
-    e.respondWith(
-      fetch(e.request, { cache: 'no-store' }).then((res) => {
-        if (res.ok) caches.open(VERSION).then((c) => c.put(e.request, res.clone()));
+    e.respondWith((async () => {
+      const cache = await caches.open(VERSION);
+      const cached = await cache.match('index.html');
+      const network = fetch(url.origin + url.pathname.replace(/[^/]*$/, '') + 'index.html', { cache: 'no-store' }).then(async (res) => {
+        if (!res.ok) return null;
+        const text = await res.clone().text();
+        const old = cached ? await cached.clone().text() : null;
+        await cache.put('index.html', res.clone());
+        if (old != null && old !== text) notifyUpdate();
         return res;
-      }).catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html'))),
-    );
+      }).catch(() => null);
+      if (cached) { e.waitUntil(network); return cached; }
+      return (await network) || new Response('Offline', { status: 503 });
+    })());
     return;
   }
 
@@ -72,6 +89,11 @@ self.addEventListener('fetch', (e) => {
   }
   // Everything else (ESPN JSON feeds) goes straight to the network.
 });
+
+async function notifyUpdate() {
+  const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const c of list) c.postMessage({ type: 'update-ready' });
+}
 
 let puts = 0;
 async function trim(cache, max) {

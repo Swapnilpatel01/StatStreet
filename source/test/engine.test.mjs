@@ -100,11 +100,13 @@ t('prices order by performance and team quality', () => {
   const st = buildNBA();
   const star = st.assets['nba:p:10'].price, starter = st.assets['nba:p:11'].price, role = st.assets['nba:p:12'].price;
   assert.ok(star > starter && starter > role, `${star} ${starter} ${role}`);
-  assert.ok(star > 80 && star < 400, `star price ${star}`);
+  assert.ok(star > 200 && star < 1500, `star price ${star}`);
+  assert.ok(star / role > 15, `stars cost far more than role players: ${star} vs ${role}`);
   assert.ok(role > 5, `role price ${role}`);
   const bos = st.assets['nba:t:1'].price, was = st.assets['nba:t:2'].price, mia = st.assets['nba:t:3'].price;
   assert.ok(bos > mia && mia > was, `${bos} ${mia} ${was}`);
-  assert.ok(Math.abs(mia - 60) < 12, `mia ${mia}`);
+  assert.ok(Math.abs(mia - 50) < 12, `mia ${mia}`);
+  assert.ok(bos / was > 4, `good teams cost far more: ${bos} vs ${was}`);
 });
 
 t('a monster game moves the price up and logs a driver', () => {
@@ -184,8 +186,9 @@ t('tick keeps prices near target and records history', () => {
   const st = buildNBA();
   for (let i = 1; i <= 200; i++) E.tick(st, now - 2 * DAY + i * 15 * 60e3);
   for (const a of Object.values(st.assets)) {
-    const r = a.price / a.target;
-    assert.ok(r > 0.9 && r < 1.1, `${a.name} ${r}`);
+    const r = a.price / (a.target * Math.exp(a.h || 0));
+    assert.ok(r > 0.93 && r < 1.07, `${a.name} ${r}`);
+    assert.ok(Math.abs(a.h || 0) < 0.35, `hype ${a.h}`);
     assert.ok(a.hist.length >= 4);
     for (let i = 2; i < a.hist.length; i += 2) assert.ok(a.hist[i] >= a.hist[i - 2], 'history sorted');
   }
@@ -200,16 +203,52 @@ t('history stays capped and sorted', () => {
   for (let i = 2; i < a.hist.length; i += 2) assert.ok(a.hist[i] > a.hist[i - 2]);
 });
 
-t('off-season prior regresses to .500', () => {
+t('last season sets the starting price, regressed toward .500', () => {
   const st = E.newState(10000);
-  E.upsertTeam(st, 'nba', { id: '1', abbr: 'OKC', name: 'OKC', w: 68, l: 14, gp: 82, diff: 1000, streak: 5, prior: true });
-  E.upsertTeam(st, 'nba', { id: '2', abbr: 'UTA', name: 'UTA', w: 17, l: 65, gp: 82, diff: -1000, streak: -5, prior: true });
+  for (const [id, abbr] of [['1', 'OKC'], ['2', 'UTA'], ['3', 'MID']]) E.upsertTeam(st, 'nba', { id, abbr, name: abbr, w: 0, l: 0, gp: 0, diff: 0, streak: 0 });
+  E.setTeamPrior(st, 'nba', { id: '1', w: 68, l: 14, gp: 82, diff: 1000 });
+  E.setTeamPrior(st, 'nba', { id: '2', w: 17, l: 65, gp: 82, diff: -1000 });
+  E.setTeamPrior(st, 'nba', { id: '3', w: 41, l: 41, gp: 82, diff: 0 });
   E.repriceLeague(st, 'nba', now);
   const okc = st.assets['nba:t:1'].price, uta = st.assets['nba:t:2'].price;
-  assert.ok(okc > uta && okc < 150 && uta > 25, `${okc} ${uta}`);
-  // Real season standings replace the prior as soon as games are played
-  E.upsertTeam(st, 'nba', { id: '1', abbr: 'OKC', name: 'OKC', w: 0, l: 1, gp: 1, diff: -5, streak: -1 });
-  assert.equal(st.assets['nba:t:1'].rec.gp, 1);
+  assert.ok(okc > 120 && uta < 25, `${okc} ${uta}`);
+  // A champion that starts 0-3 is still priced as a good team
+  E.upsertTeam(st, 'nba', { id: '1', abbr: 'OKC', name: 'OKC', w: 0, l: 3, gp: 3, diff: -15, streak: -3 });
+  E.repriceLeague(st, 'nba', now);
+  assert.equal(st.assets['nba:t:1'].rec.gp, 3);
+  assert.ok(st.assets['nba:t:1'].price > 90, `${st.assets['nba:t:1'].price}`);
+  // Win chances follow price
+  assert.ok(E.teamWinProb(st, 'nba', '1', '2', true) > 0.7);
+});
+
+t('a star priced at his level does not drift up by playing to it', () => {
+  const st = buildNBA();
+  const a = st.assets['nba:p:10'];
+  const p0 = E.fairOnly(st, a);
+  for (let i = 0; i < 10; i++) {
+    E.applyFinalGame(st, 'nba', { id: `s${i}`, date: now + i * DAY, preseason: false, teams: [{ id: '1', abbr: 'BOS', score: 100, home: true }, { id: '2', abbr: 'WAS', score: 90 }],
+      players: [{ id: '10', name: 'Star Player', pos: 'G', teamId: '1', line: { min: 36, pts: a.perf.ema, fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 } }] }, { now: now + i * DAY + 3 * HOUR });
+  }
+  const r = E.fairOnly(st, a) / p0;
+  assert.ok(Math.abs(r - 1) < 0.01, `fair value moved ${r}`);
+  assert.equal(st.divs.filter((d) => d.id === a.id).length, 0, 'no dividends for an ordinary game');
+});
+
+t('model upgrade converts holdings at equal value', () => {
+  const st = buildNBA();
+  E.trade(st, 'nba:p:10', 'buy', 2, now);
+  E.trade(st, 'nba:p:12', 'buy', 30, now);
+  const nw0 = E.netWorth(st, now);
+  st.modelV = 1;
+  // simulate the old model's prices
+  for (const a of Object.values(st.assets)) { a.price = Math.round(a.price * (a.kind === 'player' ? 0.4 : 0.8) * 100) / 100; for (let i = 1; i < a.hist.length; i += 2) a.hist[i] *= 0.4; }
+  st.alerts.push({ id: 'al', assetId: 'nba:p:10', ticker: 'X', price: st.assets['nba:p:10'].price * 1.1, dir: 'above' });
+  const nwOld = E.netWorth(st, now);
+  assert.ok(E.upgradeModel(st, now));
+  assert.ok(Math.abs(E.netWorth(st, now) - nwOld) < 0.05, `${nwOld} -> ${E.netWorth(st, now)}`);
+  assert.ok(Math.abs(st.alerts[0].price / st.assets['nba:p:10'].price - 1.1) < 0.01);
+  assert.equal(E.upgradeModel(st, now), false, 'runs once');
+  assert.ok(nw0 > 0);
 });
 
 t('rewind + replay restores team records', () => {

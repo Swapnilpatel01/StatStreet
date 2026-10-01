@@ -3,8 +3,8 @@
 import { api, SEASON_CATEGORIES } from './api.js';
 import { LEAGUES, parseStandings, parseSeasonAthletes, parseScoreboard, parseBoxScore, parseInjuries, parseNews } from './scoring.js';
 import {
-  upsertTeam, seedPlayer, repriceLeague, rewindTeamRecords, applyFinalGame, applyLiveGame,
-  applyNews, applyInjuries, clearStaleLive,
+  upsertTeam, seedPlayer, seedPrior, setTeamPrior, initForm, withRebase, MODEL_V, repriceLeague, rewindTeamRecords,
+  applyFinalGame, applyLiveGame, applyNews, applyInjuries, clearStaleLive,
 } from './engine.js';
 import { etDays, pool, HOUR, DAY } from './util.js';
 
@@ -12,19 +12,33 @@ const MIN = 60e3;
 
 async function loadStandings(state, league) {
   const json = await api.standings(league);
-  let teams = parseStandings(league, json);
-  if (teams.length && teams.every((t) => t.gp === 0)) {
-    // New season hasn't started: fall back to last season as a prior.
-    const season = findSeason(json);
-    if (season) {
-      try {
-        const prev = parseStandings(league, await api.standings(league, season - 1));
-        if (prev.length) teams = prev.map((t) => ({ ...t, prior: true }));
-      } catch { /* keep zeros */ }
-    }
-  }
+  const teams = parseStandings(league, json);
   for (const t of teams) upsertTeam(state, league, t);
+  const season = findSeason(json);
+  if (season) state.sync[league].season = season;
   return teams.length;
+}
+
+// Last season's standings and player averages: the starting point ("prior") for this
+// season's prices. Fetched once per season.
+async function loadPriors(state, league, progress, playerSeason) {
+  const s = state.sync[league];
+  const season = s.season;
+  if (season) {
+    try {
+      const teams = parseStandings(league, await api.standings(league, season - 1));
+      // Teams must exist before priors attach; off-season teams come from last year's table.
+      for (const t of teams) { if (!state.assets[`${league}:t:${t.id}`]) upsertTeam(state, league, { ...t, w: 0, l: 0, t: 0, gp: 0, diff: 0, streak: 0 }); setTeamPrior(state, league, t); }
+    } catch { /* optional */ }
+  }
+  const ps = playerSeason || s.statSeason;
+  if (ps) {
+    progress?.(`${LEAGUES[league].name}: loading last season`);
+    const recs = await loadSeasonRecords(league, ps - 1, null);
+    for (const rec of recs.values()) seedPrior(state, league, rec);
+  }
+  s.priorV = MODEL_V;
+  s.priorSeason = s.season;
 }
 
 function findSeason(json) {
@@ -35,13 +49,21 @@ function findSeason(json) {
 }
 
 async function loadSeasonStats(state, league, progress) {
+  const ctx = {};
+  const byId = await loadSeasonRecords(league, null, progress, ctx);
+  for (const rec of byId.values()) seedPlayer(state, league, rec);
+  if (ctx.season) state.sync[league].statSeason = ctx.season;
+  return byId.size;
+}
+
+async function loadSeasonRecords(league, forceSeason, progress, ctx = {}) {
   const byId = new Map();
-  let season = null;
+  let season = forceSeason;
   for (const category of SEASON_CATEGORIES[league]) {
     let first;
     try { first = await api.seasonStats(league, { category, season }); } catch { continue; }
     // In the off-season the current season is empty: use the previous one.
-    if (!season && (first.pagination?.count || 0) < 40) {
+    if (!season && !forceSeason && (first.pagination?.count || 0) < 40) {
       const yr = first.requestedSeason?.year || first.currentSeason?.year;
       if (yr) {
         season = yr - 1;
@@ -57,10 +79,10 @@ async function loadSeasonStats(state, league, progress) {
       if (!json || json.error) continue;
       for (const rec of parseSeasonAthletes(league, json)) if (!byId.has(rec.id)) byId.set(rec.id, rec);
     }
-    progress?.(`${LEAGUES[league].name}: ${byId.size} players listed`);
+    if (!forceSeason) progress?.(`${LEAGUES[league].name}: ${byId.size} players listed`);
   }
-  for (const rec of byId.values()) seedPlayer(state, league, rec);
-  return byId.size;
+  ctx.season = season;
+  return byId;
 }
 
 async function loadScoreboards(league, fromTs, toTs) {
@@ -93,6 +115,8 @@ async function firstRun(state, league, progress, now) {
   await loadStandings(state, league);
   progress(`${L.name}: loading season stats`);
   await loadSeasonStats(state, league, progress);
+  await loadPriors(state, league, progress);
+  initForm(state, league, { all: true });
 
   const t0 = now - L.backfillDays * DAY;
   progress(`${L.name}: loading recent games`);
@@ -158,10 +182,12 @@ async function refresh(state, league, progress, now, { liveOnly = false } = {}) 
   }
   const liveCount = await liveGames(state, league, events, now);
   if (!liveOnly) {
-    // Standings after games so a just-finished game isn't counted twice.
-    try { await loadStandings(state, league); s.standings = now; } catch { /* keep last */ }
-    await newsAndInjuries(state, league, now, false);
-    await loadSchedule(state, league, now);
+    // Standings after games so a just-finished game isn't counted twice. The rest in parallel.
+    await Promise.all([
+      loadStandings(state, league).then(() => { s.standings = now; }).catch(() => { /* keep last */ }),
+      newsAndInjuries(state, league, now, false),
+      loadSchedule(state, league, now),
+    ]);
     s.scoreboard = now;
   }
   clearStaleLive(state, now);
@@ -176,7 +202,23 @@ export async function syncLeague(state, league, { progress = () => {}, now = Dat
     await firstRun(state, league, progress, now);
     return { finals: 0, live: Object.keys(state.liveGames).length, first: true };
   }
-  return refresh(state, league, progress, now, { liveOnly });
+  const r = await refresh(state, league, progress, now, { liveOnly });
+  const s = state.sync[league];
+  if (!liveOnly && (s.priorV !== MODEL_V || (s.season && s.priorSeason !== s.season))) await reseedSeason(state, league, now);
+  return r;
+}
+
+// Once per season (and once for saves made before last-season priors existed): reload
+// season averages and last season's numbers, then reprice at equal value for holders.
+async function reseedSeason(state, league, now) {
+  try {
+    await loadSeasonStats(state, league, null);
+    await loadPriors(state, league, null);
+  } catch { return; }
+  withRebase(state, now, () => {
+    initForm(state, league, { all: true, fromSeason: true });
+    repriceLeague(state, league, now, { record: false });
+  });
 }
 
 export const hasLive = (state, league) => Object.values(state.liveGames).some((g) => g.league === league);

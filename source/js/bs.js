@@ -46,11 +46,11 @@ export function greeks(type, S, K, T, sigma) {
 // + one "game-sized" jump for every game scheduled before expiry.
 
 const DEFAULT_GAME_MOVE = {
-  player: { nba: 0.05, nfl: 0.10, mlb: 0.03 },
-  team: { nba: 0.025, nfl: 0.05, mlb: 0.012 },
+  player: { nba: 0.05, nfl: 0.09, mlb: 0.03 },
+  team: { nba: 0.035, nfl: 0.10, mlb: 0.027 },
 };
 const GAMES_PER_DAY = { nba: 0.45, nfl: 1 / 7, mlb: 0.93 };
-const NEWS_VOL = { player: 0.3, team: 0.15 };      // annualized drift from news and injuries
+const NEWS_VOL = { player: 0.5, team: 0.35 };      // annualized drift from news, injuries and market hype
 const TAPE_NOISE = { player: 0.008, team: 0.004 };  // stationary wiggle around fair value
 const PRESEASON_WEIGHT = 0.35;                      // exhibition games move prices about a third as much
 

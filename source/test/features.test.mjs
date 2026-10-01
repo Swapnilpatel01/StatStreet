@@ -41,7 +41,7 @@ t('fractional buys by dollars stay within budget', () => {
   assert.ok(tx.total <= 250 && tx.total > 249, tx.total);
   E.trade(st, 'nba:p:10', 'sell', st.holdings['nba:p:10'].qty, now + 1);
   assert.equal(st.holdings['nba:p:10'], undefined);
-  assert.throws(() => E.trade(st, 'nba:p:10', 'buy', 0.001, now), /Minimum/);
+  assert.throws(() => E.trade(st, 'nba:p:10', 'buy', 0.5 / st.assets['nba:p:10'].price, now), /Minimum/);
 });
 
 t('team dividend on a win, only if held before the game', () => {

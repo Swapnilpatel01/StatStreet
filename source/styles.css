@@ -434,3 +434,9 @@ details .prose { padding: 12px 14px 4px; }
 .tile b { font-weight: 800; }
 .tile span { font-weight: 600; opacity: .92; }
 @media (max-width: 380px) { .tabbar button { font-size: 10px; } }
+
+/* v9: swipe-back strip along the left edge (keeps page scrolling free of blocking touch handlers) */
+.edge { position: absolute; left: 0; top: 0; bottom: 0; width: 14px; z-index: 38; touch-action: none; cursor: pointer; }
+.updbar { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--safe-t) + 10px); z-index: 61; background: var(--up); color: #04210f;
+  font-weight: 700; font-size: 14px; padding: 10px 16px; border-radius: 999px; box-shadow: 0 8px 30px rgba(0,0,0,.4); white-space: nowrap; }
+@media (display-mode: standalone) and (orientation: portrait) { .updbar { top: calc(max(var(--safe-t), 59px) + 10px); } }

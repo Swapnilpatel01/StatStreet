@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD,
+  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -14,7 +14,7 @@ import { syncLeague, hasLive } from './sync.js';
 import { setProxy, netStats, api } from './api.js';
 import { loadState, saveState, persist, idbDel } from './store.js';
 import { lineChart, sparkline, payoffChart } from './chart.js';
-import { haptic, slideOut, dismissable, pullToRefresh } from './gestures.js';
+import { haptic, slideOut, dismissable, pullToRefresh, edgeSwipe } from './gestures.js';
 import { fmtMoney, fmtPct, timeAgo, DAY, HOUR, clamp, mean } from './util.js';
 import {
   rarity, cardLevel, RARITY, dailyStatus, claimDaily, DAILY_REWARDS, winProb, pickReward, upcomingPickGames, makePick, clearPick,
@@ -33,7 +33,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -447,7 +447,7 @@ function renderAccount() {
 
     <h2 id="notifications">Notifications</h2>
     <div class="list">${inbox.map((n) => `<button class="inbox-item ${n.seen ? '' : 'new'}" ${n.id ? `data-open="${esc(n.id)}"` : ''} style="width:100%;text-align:left">
-      <span class="ic">${{ div: '💵', order: '🧾', option: '🎟️', alert: '🔔', card: '🃏', trophy: '🏆', pick: '🎯' }[n.kind] || '•'}</span>
+      <span class="ic">${{ div: '💵', order: '🧾', option: '🎟️', alert: '🔔', card: '🃏', trophy: '🏆', pick: '🎯', info: '📈' }[n.kind] || '•'}</span>
       <div class="grow">${esc(n.text)}<div class="tiny faint">${timeAgo(n.t)}</div></div></button>`).join('')
       || '<div class="empty">Fills, dividends, option expiries and price alerts show up here.</div>'}</div>
 
@@ -483,11 +483,13 @@ function renderAccount() {
     <h2>How it works</h2>
     <div class="list">
       <details><summary>Prices</summary><div class="prose">
-        <p><b>Players</b> are valued on a rolling performance score from real box scores, compared with others at the same position. <b>Teams</b> are valued on win percentage, point differential, streaks, recent form and playoff odds.</p>
+        <p><b>Players</b> are valued on how good they are compared with others at their position: this season's stats blended with last season's, then updated after every game. Each standard deviation of performance roughly doubles the price, so superstars cost many times more than role players.</p>
+        <p>A game only moves a price by how much it <b>beat or missed that player's usual level</b>. A star playing like a star stays put; a role player's breakout game jumps. <b>Teams</b> start from last season's record (regressed toward .500) and shift as this season's wins, losses and point differential come in.</p>
+        <p><b>Market hype</b> is a slow random drift on top of everything, like a real market's mood, so nothing is a sure thing.</p>
         <p><b>Injuries</b> cut a player's price (Day-to-day −4%, Questionable −5%, Out −20%, IR −28%) and weigh on their team. <b>News</b> is scored for sentiment and nudges price for a few days. <b>Your trades</b> move the price too, and you pay a 0.35% spread.</p>
       </div></details>
       <details><summary>Dividends</summary><div class="prose">
-        <p><b>Teams</b> pay after every win: NBA 0.25%, NFL 1.5%, MLB 0.12% of the share price. <b>Players</b> pay after above-average games: the better the game compared with their position, the bigger the payout. Milestone games (40 points, 3 homers, 5 TD passes…) pay a 1% special dividend.</p>
+        <p><b>Teams</b> pay after every win, more for upsets: a coin-flip win pays NBA 0.25%, NFL 1.5%, MLB 0.12% of the share price; a heavy favorite's win pays less and an underdog's more. <b>Players</b> pay after games that beat their own usual level, so stars and role players yield about the same. Milestone games (40 points, 3 homers, 5 TD passes…) pay a 0.4% special dividend.</p>
         <p>You must own the shares <b>before the game starts</b>. Index funds pass through the dividends of everything they hold.</p>
       </div></details>
       <details><summary>Options</summary><div class="prose">
@@ -882,6 +884,7 @@ function renderDetail({ keepScroll = true } = {}) {
       <div class="brk"><span>News sentiment</span><b class="${Math.abs(b.senti) < 0.001 ? 'muted' : cls(b.senti)}">${fmtPct(b.senti, 1)}</b></div>
       <div class="brk"><span>${LEAGUES[a.league].name} market mood</span><b class="${Math.abs(b.mood) < 0.001 ? 'muted' : cls(b.mood)}">${fmtPct(b.mood, 1)}</b></div>
       ${b.live ? `<div class="brk"><span>Live game</span><b class="${cls(b.live)}">${fmtPct(b.live, 1)}</b></div>` : ''}
+      ${Math.abs(b.hype) > 0.0005 ? `<div class="brk"><span>Market hype</span><b class="${cls(b.hype)}">${fmtPct(b.hype, 1)}</b></div>` : ''}
       ${Math.abs(b.imp) > 0.0005 ? `<div class="brk"><span>Your order flow</span><b class="${cls(b.imp)}">${fmtPct(b.imp, 1)}</b></div>` : ''}
       <div class="brk"><span>Fair price</span><b>${money(b.target)}</b></div>
     </div>` : ''}
@@ -1432,7 +1435,7 @@ function updateNumbers() {
   }
   if (ui.detail && !ui.chain) {
     updateDetailHeader();
-    if (!ui.scrub && !ui.touching && ui.range === '1D') drawDetailChart(); // live line
+    if (!ui.scrub && !busyScrolling() && ui.range === '1D') drawDetailChart(); // live line
   }
   if (ui.order && ui.order.mode !== 'alert' && document.activeElement?.id !== 'qtyin' && document.activeElement?.id !== 'oprice') updateOrder();
 }
@@ -1675,7 +1678,7 @@ $('#trade').addEventListener('click', (e) => { if (e.target.id === 'trade') clos
 for (const id of ['sheet', 'chain', 'game']) $(`#${id}`).addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
 $('#view').addEventListener('scroll', () => { ui.lastScroll = Date.now(); }, { passive: true });
 // Track whether a finger is down, so background refreshes wait until the gesture ends.
-document.addEventListener('touchstart', () => { ui.touching = true; }, { passive: true, capture: true });
+document.addEventListener('touchstart', () => { ui.touching = true; ui.interacted = true; }, { passive: true, capture: true });
 for (const t of ['touchend', 'touchcancel']) document.addEventListener(t, (e) => { if (!e.touches.length) { ui.touching = false; ui.lastScroll = Date.now(); } }, { passive: true, capture: true });
 
 // Native gestures: swipe the order sheet down to close it, swipe from the left edge to go back.
@@ -1684,18 +1687,29 @@ dismissable($('#panel'), {
   canStart: (e) => !e.target.closest('.slider') && $('#panel').scrollTop <= 0,
   onDismiss: () => closeOrder({ animate: false }),
 });
-dismissable($('#sheet'), {
-  axis: 'x', extra: () => [$('#tradebar')],
+const sheetSwipe = {
+  el: $('#sheet'), extra: () => [$('#tradebar')],
   onDismiss: () => { if (history.state?.sheet) { ui.noAnim = true; history.back(); } else closeDetail({ animate: false }); },
-});
-dismissable($('#game'), {
-  axis: 'x',
+};
+const gameSwipe = {
+  el: $('#game'),
   onDismiss: () => { if (history.state?.game) { ui.noAnim = true; history.back(); } else closeGame({ animate: false }); },
-});
-dismissable($('#chain'), {
-  axis: 'x',
+};
+const chainSwipe = {
+  el: $('#chain'),
   onDismiss: () => { if (history.state?.chain) { ui.noAnim = true; history.back(); } else closeChain(false, { animate: false }); },
-});
+};
+// The top-most full-screen page, for swipe-back.
+function topPage() {
+  if (ui.order) return null;
+  if (ui.chain) return chainSwipe;
+  if (ui.game && (!ui.detail || $('#game').style.zIndex === '34')) return gameSwipe;
+  if (ui.detail) return sheetSwipe;
+  if (ui.game) return gameSwipe;
+  return null;
+}
+edgeSwipe($('#edge'), { target: topPage });
+setInterval(() => { const el = $('#edge'); const want = !topPage(); if (el.hidden !== want) el.hidden = want; }, 200);
 pullToRefresh($('#view'), $('#ptr'), {
   enabled: () => !overlayOpen() && ui.tab !== 'account',
   onRefresh: async () => { if (STATIC) { toast('Prices use a data snapshot in this version'); return; } await runSync({ manual: true }); },
@@ -1744,16 +1758,18 @@ async function runSync({ manual = false, liveOnly = false } = {}) {
   const needsBoot = !STATIC && !liveOnly && leagues.some((l) => !state.sync[l]?.seeded) && !assetsList().length;
   if (needsBoot) showBoot();
   let newFinals = 0; let failures = 0;
-  for (const lg of leagues) {
+  // All leagues at once; each one's prices show up as soon as it finishes.
+  await Promise.all(leagues.map(async (lg) => {
     try {
       const r = await syncLeague(state, lg, { progress: bootLog, now: Date.now(), liveOnly });
       newFinals += r.finals || 0;
       if (r.first) bootLog(`${LEAGUES[lg].name}: market open ✓`);
+      else if (!needsBoot) softRefresh();
     } catch (err) {
       failures++; syncError = err.message || String(err);
       bootLog(`${LEAGUES[lg].name}: failed (${syncError})`);
     }
-  }
+  }));
   syncing = false;
   if (!liveOnly) ensureFunds(state, Date.now());
   runSocial(state, Date.now());
@@ -1801,6 +1817,9 @@ function exportData() {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
+// True while a finger is down or the page is still coasting from a flick.
+function busyScrolling(ms = 1200) { return ui.touching || Date.now() - ui.lastScroll < ms; }
+
 async function save() {
   if (!dirty) return;
   dirty = false;
@@ -1811,7 +1830,8 @@ function afterLoad() {
   migrate(state);
   setProxy(state.settings.proxy);
   for (const lg of Object.keys(LEAGUES)) { recomputeStats(state, lg); rebuildInjuryCache(state, lg); }
-  if (Object.keys(state.assets).length) ensureFunds(state, Date.now());
+  if (Object.keys(state.assets).length) { upgradeModel(state, Date.now()); ensureFunds(state, Date.now()); }
+  else state.modelV ??= 2;
   ui.seenInbox = state.inbox.length;
 }
 
@@ -1842,12 +1862,57 @@ function fitScreen() {
   root.style.height = gap > 0 && gap <= 80 ? `${full}px` : '';
 }
 
+// ---------- app updates ----------
+// iOS keeps a Home Screen app suspended in memory, so "opening" it often just resumes the
+// old page. On launch and on every resume we ask the server whether a newer build exists;
+// if so we cache it and switch over straight away, unless you're in the middle of something.
+const BUILD = document.querySelector('meta[name=build]')?.content || 'dev';
+const openedAt = Date.now();
+let updateReady = false; let lastCheck = 0;
+
+async function checkForUpdate() {
+  if (STATIC || BUILD === 'dev' || !navigator.onLine || Date.now() - lastCheck < 20e3) return;
+  lastCheck = Date.now();
+  try {
+    const res = await fetch(`index.html?fresh=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const text = await res.text();
+    const m = text.match(/<meta name="build" content="([^"]+)"/);
+    if (!m || m[1] === BUILD) return;
+    // Put the new page where the service worker will serve it from.
+    if (self.caches) {
+      for (const k of await caches.keys()) {
+        if (/^statstreet-v\d+$/.test(k)) await (await caches.open(k)).put('index.html', new Response(text, { headers: { 'Content-Type': 'text/html' } }));
+      }
+    }
+    updateReady = m[1];
+    applyUpdate();
+  } catch { /* offline or blocked: try again later */ }
+}
+
+function applyUpdate({ force = false } = {}) {
+  if (!updateReady) return;
+  let tried = '';
+  try { tried = sessionStorage.getItem('ss-upd') || ''; } catch { /* private mode */ }
+  const go = () => {
+    try { sessionStorage.setItem('ss-upd', updateReady); } catch { /* */ }
+    // If a reload already failed to pick up this build, load it straight from the network.
+    save().finally(() => { if (tried === updateReady) location.replace(`index.html?fresh=${Date.now()}`); else location.reload(); });
+  };
+  const fresh = Date.now() - openedAt < 8000 && !ui.interacted;
+  if (force || ((fresh || document.hidden) && !overlayOpen() && tried !== updateReady)) { go(); return; }
+  $('#updbar').hidden = false;
+}
+
 async function main() {
   fitScreen();
   addEventListener('resize', fitScreen);
   addEventListener('orientationchange', () => setTimeout(fitScreen, 300));
   state = (await loadState()) || newState();
   afterLoad();
+  $('#updbar').addEventListener('click', () => applyUpdate({ force: true }));
+  navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'update-ready') { lastCheck = 0; checkForUpdate(); } });
+  setTimeout(checkForUpdate, 600);
   if (!STATIC && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
     // When a new version installs, reload once so you're never stuck on an old build.
@@ -1862,7 +1927,7 @@ async function main() {
 
   // The tape: prices wiggle around fair value every few seconds; orders, alerts and expiries are checked each tick.
   setInterval(() => {
-    if (document.hidden) return;
+    if (document.hidden || busyScrolling()) return; // never do heavy work mid-scroll
     const now = Date.now();
     tick(state, now);
     runAutomation(state, now);
@@ -1874,14 +1939,15 @@ async function main() {
   // Live games every minute, everything else every 10 minutes.
   setInterval(() => { if (!document.hidden && Object.keys(state.liveGames).length) runSync({ liveOnly: true }); }, 60e3);
   setInterval(() => { if (!document.hidden) runSync(); }, 10 * 60e3);
-  setInterval(save, 20e3);
+  setInterval(() => { if (!busyScrolling(2500)) save(); }, 30e3);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { save(); return; }
+    if (document.hidden) { save(); applyUpdate(); return; }
+    checkForUpdate();
     tick(state, Date.now());
     runAutomation(state, Date.now()); runSocial(state, Date.now());
     announce();
     const last = Math.max(0, ...enabledLeagues().map((l) => state.sync[l]?.scoreboard || 0));
-    if (Date.now() - last > 5 * 60e3) runSync(); else softRefresh();
+    if (Date.now() - last > 60e3) runSync(); else softRefresh();
   });
   window.addEventListener('online', () => runSync());
 }

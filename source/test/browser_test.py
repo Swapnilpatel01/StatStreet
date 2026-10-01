@@ -24,9 +24,9 @@ def slide(page):
 def toast(page): return page.evaluate("document.querySelector('#toast').textContent")
 
 def drag(cdp, page, x, y, dx, dy, steps=12):
-    cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y}]})
+    cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y, 'radiusX': 1, 'radiusY': 1}]})
     for i in range(1, steps + 1):
-        cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': x + dx * i / steps, 'y': y + dy * i / steps}]}); page.wait_for_timeout(16)
+        cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': x + dx * i / steps, 'y': y + dy * i / steps, 'radiusX': 1, 'radiusY': 1}]}); page.wait_for_timeout(16)
     cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []}); page.wait_for_timeout(450)
 
 errors = []
@@ -41,6 +41,7 @@ with sync_playwright() as p:
     page.route(re.compile(r'https://a\.espncdn\.com/.*'), lambda r: r.fulfill(status=404, body=''))
     page.goto(f'http://127.0.0.1:{srv.server_address[1]}/index.html')
     page.wait_for_selector('#boot[hidden]', state='attached', timeout=60000); page.wait_for_timeout(600)
+    cdp = ctx.new_cdp_session(page)
 
     # --- new installs start with $100; switch to $10,000 via Account for the bigger trades below
     assert '$100.00' in page.text_content('[data-nw]'), page.text_content('[data-nw]')
@@ -69,7 +70,10 @@ with sync_playwright() as p:
         page.click('#view .game[data-game] >> nth=0'); page.wait_for_selector('#game:not([hidden])'); page.wait_for_timeout(300)
         print('live movers:', page.locator('#game .item[data-open]').count())
         page.screenshot(path=f'{OUT}/0c-live.png')
-        drag(cdp0 := ctx.new_cdp_session(page), page, 8, 400, 330, 0)
+        print('edge strip:', page.evaluate("[document.querySelector('#edge').hidden, document.elementFromPoint(8, 400)?.id]"))
+        page.evaluate("window._ev=[]; for (const t of ['touchstart','touchmove','touchend','pointerdown']) window.addEventListener(t, e => _ev.push(t + ':' + (e.target.id || e.target.className)), true)")
+        drag(cdp, page, 8, 400, 330, 0)
+        print('events', page.evaluate("[_ev.slice(0,4), _ev.length, document.querySelector('#game').style.transform, history.state]"))
         assert page.evaluate("document.querySelector('#game').hidden"), 'edge swipe closes game center'
     # heatmap
     page.click('#tabbar [data-tab=market]'); page.click('[data-mview=heat]'); page.wait_for_timeout(200)
@@ -87,9 +91,8 @@ with sync_playwright() as p:
     page.click('#mlist .item >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
     page.screenshot(path=f'{OUT}/2-detail.png')
     box = page.locator('#dchart svg').bounding_box()
-    cdp = ctx.new_cdp_session(page)
     x, y = int(box['x'] + box['width'] / 2), int(box['y'] + box['height'] / 2)
-    cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y}]})
+    cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y, 'radiusX': 1, 'radiusY': 1}]})
     for i in range(1, 16):
         cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': x, 'y': y - i * 20}]}); page.wait_for_timeout(16)
     cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
@@ -190,6 +193,26 @@ with sync_playwright() as p:
     saved = page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
         return await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { const s = g.result; r({h: Object.keys(s.holdings).length, o: Object.keys(s.options).length, a: s.alerts.length, drip: s.settings.drip, funds: Object.keys(s.assets).filter(k => k.startsWith('fund:')).length}); }; }); })()""")
     print('saved after reload:', saved); assert saved['h'] == 2 and saved['o'] == 1 and saved['a'] == 1 and saved['drip'] and saved['funds'] >= 3
+
+    # --- an older save (old pricing model) upgrades at equal value
+    page.wait_for_timeout(3000)
+    nw_before = page.evaluate("""(async () => {
+        const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
+        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
+        s.modelV = 1; for (const lg of Object.keys(s.sync)) { delete s.sync[lg].priorV; }
+        let nw = s.cash;
+        for (const a of Object.values(s.assets)) { if (a.kind === 'fund') continue; a.price = Math.round(a.price * 0.4 * 100) / 100; }
+        s._hist.px = s._hist.px.map(x => x * 0.4);
+        for (const [id, h] of Object.entries(s.holdings)) nw += (s.assets[id].kind === 'fund' ? s.assets[id].price : s.assets[id].price) * h.qty;
+        await new Promise(r => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(s, 'state'); t.oncomplete = r; });
+        return nw; })()""")
+    page.reload(); page.wait_for_timeout(6000)
+    nw_after = float(re.sub(r'[^0-9.]', '', page.text_content('[data-nw]')))
+    page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
+    note = page.locator('text=New pricing').count()
+    print('upgrade: options value dropped from estimate; net worth', round(nw_before, 2), '->', nw_after, 'notice:', note)
+    assert note >= 1
+    assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
     b.close()
 srv.shutdown()
 if errors: print('JS ERRORS:\n' + '\n'.join(errors)); sys.exit(1)

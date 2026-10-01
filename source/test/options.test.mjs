@@ -31,7 +31,7 @@ t('more games before expiry → pricier option', () => {
   const q3 = T.quoteOption(busy, 'nba:p:10', 'call', K(busy), exp, now);
   assert.ok(q3.mid > q0.mid * 2, `${q0.mid} vs ${q3.mid}`);
   assert.equal(q3.games.known, 3);
-  assert.ok(q3.gameShare > 0.6 && q0.gameShare === 0, `${q3.gameShare}`);
+  assert.ok(q3.gameShare > 0.4 && q0.gameShare === 0, `${q3.gameShare}`);
 });
 
 t('premium drops once the game has been played ("crush")', () => {
@@ -39,9 +39,9 @@ t('premium drops once the game has been played ("crush")', () => {
   const k = K(st);
   const before = T.quoteOption(st, 'nba:p:10', 'call', k, exp, now).mid;
   const after = T.quoteOption(st, 'nba:p:10', 'call', k, exp, now + 8 * HOUR).mid; // same share price, game over
-  assert.ok(after < before * 0.6, `${before} -> ${after}`);
+  assert.ok(after < before * 0.75, `${before} -> ${after}`);
   const q = T.quoteOption(st, 'nba:p:10', 'call', k, exp, now);
-  assert.ok(q.theta < -before * 0.3, `decay next 24h ${q.theta}`);
+  assert.ok(q.theta < -before * 0.2, `decay next 24h ${q.theta}`);
 });
 
 t('game size comes from the asset\'s own history', () => {
