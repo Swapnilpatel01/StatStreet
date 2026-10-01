@@ -657,3 +657,15 @@ details .prose { padding: 12px 14px 4px; }
 .pv-card.mcard .pv-back { position: absolute; inset: 0; z-index: 1; }
 .pv-card.mcard .pv-front .mc { height: auto; }
 .mc-opp { min-height: 16px; }
+
+/* v18: Marketplace in the app's own style; card photos without initials behind them */
+.hs { background: color-mix(in srgb, #000 35%, transparent); }
+.hs img { object-position: 50% 15%; }
+.hs.noimg::after { content: attr(data-ini); font-style: normal; }
+.mp-grid { margin-top: 12px; gap: 16px 12px; }
+.mp-item { background: var(--card); border-radius: var(--r); padding: 10px; }
+.mp-meta { justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); margin: 0 2px 8px; font-weight: 600; }
+.mp-actions { justify-content: space-between; gap: 8px; margin-top: 10px; }
+.mp-price { display: flex; flex-direction: column; text-align: left; font-size: 15px; margin: 0; line-height: 1.25; min-width: 0; }
+.mp-price b { font-weight: 800; }
+.mp-actions .btn.small { padding: 8px 16px; border-radius: 10px; }

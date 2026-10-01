@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 17;
+const APP_VERSION = 18;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -943,8 +943,9 @@ function headshot(league, id, name, cls = '') {
   const a = state.assets[`${league}:p:${id}`];
   const ini = initials(name || '?');
   const src = a?.img || `https://a.espncdn.com/i/headshots/${league}/players/full/${id}.png`;
-  if (STATIC) return `<span class="hs ${cls}">${ini}</span>`;
-  return `<span class="hs ${cls}"><img src="${esc(src)}" loading="lazy" alt="" onerror="this.remove()"><em>${ini}</em></span>`;
+  if (STATIC) return `<span class="hs noimg ${cls}" data-ini="${ini}"></span>`;
+  // Initials show only if the photo can't load (never behind a transparent headshot).
+  return `<span class="hs ${cls}" data-ini="${ini}"><img src="${esc(src)}" alt="" decoding="async" onerror="this.parentNode.classList.add('noimg');this.remove()"></span>`;
 }
 
 // The card itself, styled after the Real app: play, rating, rarity, traits, players, situation.
@@ -1072,11 +1073,13 @@ function renderMarketplace() {
   ui.mp ||= { league: 'all', rarity: 'all', sort: 'ending', q: '', view: 'browse' };
   const f = ui.mp;
   const lgs = enabledLeagues();
-  const head = `<div class="topbar mp-top"><h1>Marketplace</h1><div class="row" style="gap:10px"><span class="coins">🪙 ${coinFmt(c.coins)}</span>
-      <button class="icon-btn ${f.view === 'mine' ? 'on-acc' : ''}" data-act="mymarket" aria-label="My bids and listings"><svg viewBox="0 0 24 24"><path d="M14 3l7 7-3 3-7-7z"/><path d="M11 6l-8 8 3 3 8-8"/><path d="M3 21h9"/></svg></button></div></div>`;
+  const head = `${topbar(`<h1>Marketplace</h1>`)}
+    <div class="row between" style="margin:2px 0 10px"><span class="coins">🪙 ${coinFmt(c.coins)}</span>
+      <button class="chip ${f.view === 'mine' ? 'on' : ''}" data-act="mymarket">${f.view === 'mine' ? '← Browse' : 'My bids & listings'}</button></div>`;
   if (f.view === 'mine') { $('#view').innerHTML = head + myMarket(now); return; }
   let list = marketListings(state, now);
   const total = list.length;
+  ui.mpLive = total;
   if (f.league !== 'all') list = list.filter((l) => l.card.m.league === f.league);
   if (f.rarity !== 'all') list = list.filter((l) => l.card.rarity === f.rarity);
   const q = f.q.trim().toLowerCase();
@@ -1085,20 +1088,35 @@ function renderMarketplace() {
   const key = { ending: (l) => l.end, new: (l) => -l.from, low: (l) => views.get(l.id).current, high: (l) => -views.get(l.id).current, rating: (l) => -l.card.m.rating }[f.sort];
   list.sort((x, y) => key(x) - key(y));
   $('#view').innerHTML = `${head}
-    <div class="mp-leagues">${['all', ...lgs].map((l) => `<button data-mpl="${l}" class="${f.league === l ? 'on' : ''}">${l === 'all' ? 'All' : LEAGUES[l].name}</button>`).join('')}</div>
-    <div class="mp-filters">
-      <label class="mp-sel"><select id="mprar">${[['all', 'All rarities'], ...B_RARITY.map((r) => [r.key, r.name])].map(([k, n]) => `<option value="${k}" ${f.rarity === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-      <label class="mp-sel"><select id="mpsort">${MP_SORTS.map(([k, n]) => `<option value="${k}" ${f.sort === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-      <span class="tiny muted">${total} live</span>
-    </div>
-    <input class="search" id="mpq" type="search" placeholder="Search player or team (e.g. PHI)" value="${esc(f.q)}" autocomplete="off" style="margin-top:10px">
+    <div class="seg">${['all', ...lgs].map((l) => `<button data-mpl="${l}" class="${f.league === l ? 'on' : ''}">${l === 'all' ? 'All' : LEAGUES[l].name}</button>`).join('')}</div>
+    <div class="chips" style="margin-top:10px">${[['all', 'All rarities'], ...B_RARITY.map((r) => [r.key, r.name])].map(([k, n]) => `<button class="chip ${f.rarity === k ? 'on' : ''}" data-mprar="${k}">${n}</button>`).join('')}</div>
+    <div class="chips" style="margin-top:6px">${MP_SORTS.map(([k, n]) => `<button class="chip ${f.sort === k ? 'on' : ''}" data-mpsort="${k}">${n}</button>`).join('')}</div>
+    <input class="search" id="mpq" type="search" placeholder="Search player or team (e.g. PHI)" value="${esc(f.q)}" autocomplete="off" style="margin-top:8px">
+    <p class="tiny faint" style="margin:8px 0 0">${total} live auctions · bids are max bids; the highest when time runs out wins</p>
     ${list.length ? `<div class="mp-grid">${list.map((l) => { const v = views.get(l.id); return `<div class="mp-item">
-      <div class="mp-meta"><span>⏰ ${fmtLeft(v.left)}</span><span class="acc">🔨 ${v.bids}</span></div>
+      <div class="mp-meta" data-lotmeta="${l.id}"><span>⏱ ${fmtLeft(v.left)}</span><span>${v.bids} bid${v.bids === 1 ? '' : 's'}</span></div>
       <button class="mp-cardbtn" data-lot="${l.id}">${momentCard(l.card)}</button>
-      <div class="mp-price">🪙 ${v.current}${v.leading ? ' <span class="pk won">You lead</span>' : ''}</div>
-      <div class="mp-actions"><button class="btn mp-bid" data-lot="${l.id}">Bid</button><button class="mp-more" data-lot="${l.id}" aria-label="More">•••</button></div>
+      <div class="mp-actions"><div class="mp-price" data-lotprice="${l.id}"><span class="tiny muted">${v.bids ? 'Top bid' : 'Starts at'}</span><b>🪙 ${v.current}</b>${v.leading ? '<span class="tiny up">You lead</span>' : ''}</div>
+        <button class="btn buy small" data-lot="${l.id}" data-bidbtn="1">Bid</button></div>
     </div>`; }).join('')}</div>`
       : `<div class="card empty" style="margin-top:14px">${total ? 'No auctions match these filters.' : 'No auctions yet. Listings appear as real games are played and moments come in.'}</div>`}`;
+}
+
+// Tick the clocks and prices in place; only rebuild when an auction ends or a new one opens.
+function updateMarketplaceNumbers(now) {
+  if (ui.mp?.view === 'mine') return;
+  const live = marketListings(state, now);
+  const shown = [...document.querySelectorAll('[data-lotmeta]')].map((el) => el.dataset.lotmeta);
+  const liveIds = new Set(live.map((l) => l.id));
+  if (shown.some((id) => !liveIds.has(id)) || (live.length !== (ui.mpLive || 0) && !ui.touching)) { ui.mpLive = live.length; if (!busyScrolling()) softRefresh(); return; }
+  for (const l of live) {
+    const meta = document.querySelector(`[data-lotmeta="${l.id}"]`);
+    if (!meta) continue;
+    const v = listingView(state, l, now);
+    meta.innerHTML = `<span>⏱ ${fmtLeft(v.left)}</span><span>${v.bids} bid${v.bids === 1 ? '' : 's'}</span>`;
+    const pr = document.querySelector(`[data-lotprice="${l.id}"]`);
+    if (pr) pr.innerHTML = `<span class="tiny muted">${v.bids ? 'Top bid' : 'Starts at'}</span><b>🪙 ${v.current}</b>${v.leading ? '<span class="tiny up">You lead</span>' : ''}`;
+  }
 }
 
 function myMarket(now) {
@@ -1111,7 +1129,6 @@ function myMarket(now) {
   const row = (l, right) => `<div class="item"><div class="mc-thumb" style="--rc:${bRarity(l.card.rarity).color}">${KIND_ICON[l.card.m.kind] || '⭐'}</div>
     <div class="grow"><div class="name ellipsis">${esc(cardName(l.card))}</div><div class="sub">${bRarity(l.card.rarity).name} · ⩔ ${l.card.m.rating.toFixed(1)} · #${l.card.serial}</div></div>${right}</div>`;
   return `
-    <div class="seg" style="margin-top:12px"><button data-act="mymarket">Browse</button><button class="on">My market</button></div>
     <h2>Your bids</h2>${bids.length ? `<div class="list">${bids.map((l) => { const v = listingView(state, l, now); return row(l, `<div class="price-col"><div class="price">🪙 ${v.current}</div><div class="tiny ${v.leading ? 'up' : 'down'}">${v.leading ? 'Leading' : 'Outbid'} · ${fmtLeft(v.left)}</div></div>`); }).join('')}</div>` : '<div class="card empty">No active bids.</div>'}
     <h2>Your listings</h2>${live.length ? `<div class="list">${live.map((l) => { const v = listingView(state, l, now); return row(l, `<div class="price-col"><div class="price">${v.bids ? `🪙 ${v.current}` : `from 🪙 ${l.start}`}</div><div class="tiny muted">${v.bids} bids · ${fmtLeft(v.left)}</div></div>`); }).join('')}</div>` : '<div class="card empty">List cards from your Locker.</div>'}
     ${won.length ? `<h2>Won</h2><div class="list">${won.map((l) => row(l, `<div class="price up">🪙 ${l.price ?? buyNowPrice(l)}</div>`)).join('')}</div>` : ''}
@@ -1131,7 +1148,7 @@ function renderLot(focusBid = false) {
   const v = listingView(state, l);
   const wrap = $('#trade'); const panel = $('#panel');
   wrap.hidden = false;
-  panel.style.setProperty('--acc', '#7b5cff');
+  panel.style.setProperty('--acc', 'var(--accent)');
   const my = state.mp.bids[l.id];
   const a = state.assets[assetOf(l.card.m)];
   const inc = Math.max(1, Math.ceil(v.current * 0.1));
@@ -2084,7 +2101,9 @@ document.addEventListener('click', async (e) => {
     try { const got = openBoosterPack(state, d.bpack); dirty = true; save(); haptic(); showBoosterPack(got, pack); } catch (err) { toast(err.message); }
     return;
   }
-  if (d.lot) { openLot(d.lot, el.classList.contains('mp-bid')); return; }
+  if (d.lot) { openLot(d.lot, !!d.bidbtn); return; }
+  if (d.mprar) { ui.mp.rarity = d.mprar; renderMarketplace(); return; }
+  if (d.mpsort) { ui.mp.sort = d.mpsort; renderMarketplace(); return; }
   if (d.mpl) { ui.mp.league = d.mpl; renderMarketplace(); return; }
   if (d.bidq) { const i = $('#bidamt'); if (i) i.value = d.bidq; return; }
   if (d.gleague) { ui.gamesLeague = d.gleague; ui.pickLimit = 8; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
@@ -2629,7 +2648,7 @@ async function main() {
     runCareer(state, now);
     maybeRecap();
     // Keep auction clocks and bids moving on the Marketplace.
-    if (ui.tab === 'marketplace' && !overlayOpen() && now - (ui.mpDrawn || 0) > 20e3) { ui.mpDrawn = now; softRefresh(); }
+    if (ui.tab === 'marketplace' && !overlayOpen()) updateMarketplaceNumbers(now);
     if (ui.order?.mode === 'lot' && document.activeElement?.id !== 'bidamt' && now - (ui.lotDrawn || 0) > 15e3) { ui.lotDrawn = now; renderLot(); }
     dirty = true;
     updateNumbers();

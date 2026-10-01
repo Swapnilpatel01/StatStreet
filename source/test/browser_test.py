@@ -255,7 +255,7 @@ with sync_playwright() as p:
     lots = page.locator('.mp-item').count(); print('marketplace lots:', lots); assert lots >= 2
     page.screenshot(path=f'{OUT}/15-marketplace.png')
     page.screenshot(path=f'{OUT}/15b-marketplace-full.png', full_page=True)
-    page.click('.mp-bid >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
+    page.click('[data-bidbtn] >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
     page.screenshot(path=f'{OUT}/15c-bid.png')
     page.fill('#bidamt', '3000'); page.click('[data-act=placebid]'); page.wait_for_timeout(300)
     print('bid:', toast(page), page.text_content('#terr') if page.locator('#terr').count() else '')
@@ -264,7 +264,7 @@ with sync_playwright() as p:
     assert page.locator('text=Your listings').count() == 1
     page.screenshot(path=f'{OUT}/15d-my-market.png', full_page=True)
     page.click('[data-act=mymarket]'); page.wait_for_timeout(200)
-    page.click('.mp-more >> nth=1'); page.wait_for_selector('#trade:not([hidden])'); page.click('[data-act=buynow]'); page.click('[data-act=buynow]'); page.wait_for_timeout(300)
+    page.click('.mp-cardbtn >> nth=1'); page.wait_for_selector('#trade:not([hidden])'); page.click('[data-act=buynow]'); page.click('[data-act=buynow]'); page.wait_for_timeout(300)
     print('buy now:', toast(page)); assert toast(page).startswith('Bought for')
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(200)
     page.click('#view [data-open^="nba:p"] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(300)
