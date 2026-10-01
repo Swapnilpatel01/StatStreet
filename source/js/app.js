@@ -15,7 +15,7 @@ import { setProxy, netStats, api } from './api.js';
 import { loadState, saveState, persist, idbDel } from './store.js';
 import { lineChart, sparkline, payoffChart } from './chart.js';
 import { haptic, slideOut, dismissable, pullToRefresh, edgeSwipe } from './gestures.js';
-import { fmtMoney, fmtPct, timeAgo, DAY, HOUR, clamp, mean } from './util.js';
+import { fmtMoney, fmtPct, timeAgo, DAY, HOUR, clamp, mean, addDays } from './util.js';
 import {
   rarity, cardLevel, RARITY, dailyStatus, claimDaily, DAILY_REWARDS, dailyAmount, scaledPickReward, winProb, pickReward, upcomingPickGames, makePick, clearPick,
   pickPayout, leaderboard, TROPHIES, runSocial, gamePlayers,
@@ -41,7 +41,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 14;
+const APP_VERSION = 15;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -841,10 +841,10 @@ function gamesPickem() {
       <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
         ${g.teams.map((t) => `<div class="t"><span>${esc(t.abbr)}</span><span>${t.score}</span></div>`).join('')}
         <div class="tiny muted">${esc(g.detail)}</div></button>`).join('')}</div>` : ''}
-    <h2>Pick winners <span class="faint small">today & tomorrow</span></h2>
+    <h2>Pick winners${upcoming.length ? ` <span class="faint small">${upcoming[0].date >= addDays(new Date(now).setHours(0, 0, 0, 0), 2) ? `next games ${fmtDate(upcoming[0].date, { weekday: 'short', month: 'short', day: 'numeric' })}` : 'today & tomorrow'}</span>` : ''}</h2>
     <p class="small muted" style="margin:-4px 0 10px">Free to play. Underdogs pay more, and every win in a row adds 10% (up to 2x).${openPicks ? ` You have ${openPicks} open pick${openPicks > 1 ? 's' : ''}.` : ''}${ps.streak ? ` Next win pays <b class="up">${pickStreakMult(ps.streak).toFixed(1)}x</b>.` : ''}</p>
     ${upcoming.length ? upcoming.slice(0, limit).map(pickGame).join('') + (upcoming.length > limit ? `<button class="more" data-act="morepicks">More games (${upcoming.length - limit})</button>` : '')
-      : '<div class="card empty">No games today or tomorrow. Picks open as soon as there are.</div>'}
+      : '<div class="card empty">No games on the schedule yet. Check back soon.</div>'}
     ${results.length ? `<h2>Recent results</h2><div class="list">${results.map(resultRow).join('')}</div>` : ''}`;
 }
 

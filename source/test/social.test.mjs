@@ -100,15 +100,15 @@ t('leaderboard ranks you against strategy bots', () => {
   for (let i = 1; i < rows.length; i++) assert.ok(rows[i - 1].ret >= rows[i].ret);
 });
 
-t("Pick'em only offers today's and tomorrow's games", () => {
+t("Pick'em offers today's and tomorrow's games, else the next game day", () => {
   const st = build();
   const mk = (id, date) => ({ id, date, name: 'WAS @ BOS', teams: [{ id: '2', abbr: 'WAS' }, { id: '1', abbr: 'BOS', home: true }] });
   const t0 = new Date(2026, 9, 5, 9, 0).getTime(); // 9am local, Monday
   const at = (dayOffset, h) => new Date(2026, 9, 5 + dayOffset, h, 0).getTime();
   st.schedule = { nba: [mk('past', at(0, 8)), mk('today', at(0, 13)), mk('tmrw', at(1, 23)), mk('later', at(2, 1))] };
   assert.deepEqual(S.upcomingPickGames(st, t0).map((g) => g.id), ['today', 'tmrw']);
-  st.schedule = { nba: [mk('later', at(3, 12))] };
-  assert.deepEqual(S.upcomingPickGames(st, t0), [], 'nothing beyond tomorrow');
+  st.schedule = { nba: [mk('d3a', at(3, 12)), mk('d3b', at(3, 20)), mk('d4', at(4, 12))] };
+  assert.deepEqual(S.upcomingPickGames(st, t0).map((g) => g.id), ['d3a', 'd3b'], 'empty today/tomorrow → jump to the next game day');
 });
 
 console.log(`\n${passed} game-layer tests passed`);

@@ -103,18 +103,24 @@ export const pickReward = (p) => round2(clamp(0.5 / p, 0.55, 3));
 export const scaledPickReward = (state, p) => Math.max(0.01, round2(clamp(0.5 / p, 0.55, 3) * bankrollScale(state)));
 
 // Pick'em covers games starting today or tomorrow (your local time) that haven't started yet.
+// If neither day has a game, it jumps ahead to the next day that does.
 export function upcomingPickGames(state, now = Date.now(), leagues = null) {
   const out = [];
   const until = addDays(new Date(now).setHours(0, 0, 0, 0), 2); // midnight at the end of tomorrow
+  const dayOf = (t) => new Date(t).setHours(0, 0, 0, 0);
   for (const [lg, list] of Object.entries(state.schedule || {})) {
     if (leagues && !leagues.includes(lg)) continue;
     for (const g of list || []) {
-      if (g.date <= now || g.date >= until || g.teams.length !== 2) continue;
+      if (g.date <= now || g.teams.length !== 2) continue;
       if (!state.assets[`${lg}:t:${g.teams[0].id}`] || !state.assets[`${lg}:t:${g.teams[1].id}`]) continue;
       out.push({ ...g, league: lg });
     }
   }
-  return out.sort((x, y) => x.date - y.date);
+  out.sort((x, y) => x.date - y.date);
+  const soon = out.filter((g) => g.date < until);
+  if (soon.length || !out.length) return soon;
+  const day = dayOf(out[0].date);
+  return out.filter((g) => dayOf(g.date) === day);
 }
 
 export function makePick(state, game, teamId, now = Date.now()) {
