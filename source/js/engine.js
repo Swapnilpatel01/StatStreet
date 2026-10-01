@@ -49,7 +49,7 @@ export const MILESTONE_DIV = 0.004;
 
 export function newState(startCash = START_CASH) {
   return {
-    v: 1, modelV: MODEL_V, created: Date.now(), startCash,
+    v: 1, modelV: MODEL_V, histV: 2, created: Date.now(), startCash,
     cash: startCash, holdings: {}, txns: [], watch: [],
     assets: {}, stats: {}, mood: { nba: 0, nfl: 0, mlb: 0 },
     games: {}, liveGames: {}, newsSeen: {}, news: [], sync: {},
@@ -770,6 +770,18 @@ export function withRebase(state, now, fn) {
     notify(state, 'option', `${a.ticker} options closed at ${'$' + value.toFixed(2)} for the price update`, a.id, now);
   }
   return changed;
+}
+
+// Start every player's and team's chart fresh from today's price (index funds and your
+// portfolio chart keep their history, since those values carried over unchanged).
+export const HIST_V = 2;
+export function resetHistory(state, now = Date.now()) {
+  for (const a of Object.values(state.assets)) {
+    if (a.kind === 'fund') continue;
+    a.hist = [now - 60e3, a.price, now, a.price];
+    a.events = (a.events || []).map((e) => ({ ...e, pct: 0 })).filter((e) => e.kind === 'injury' || now - e.t < 3 * DAY);
+  }
+  state.histV = HIST_V;
 }
 
 // One-time move of an older save to the current pricing model.

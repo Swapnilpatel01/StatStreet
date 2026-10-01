@@ -273,4 +273,18 @@ t('live game moves prices during play', () => {
   assert.equal(a.live, null);
 });
 
+t('restarting charts flattens player history but keeps value', () => {
+  const st = buildNBA();
+  for (let i = 1; i <= 50; i++) E.tick(st, now - 2 * DAY + i * 30 * 60e3);
+  E.trade(st, 'nba:p:10', 'buy', 1, now);
+  const nw = E.netWorth(st, now);
+  E.resetHistory(st, now);
+  const a = st.assets['nba:p:10'];
+  assert.equal(a.hist.length, 4);
+  assert.equal(E.change(a, now, DAY), 0);
+  assert.equal(E.netWorth(st, now), nw);
+  E.tick(st, now + 20 * 60e3);
+  assert.ok(a.hist.length >= 4);
+});
+
 console.log(`\n${passed} tests passed`);

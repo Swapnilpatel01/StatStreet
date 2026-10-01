@@ -199,7 +199,7 @@ with sync_playwright() as p:
     nw_before = page.evaluate("""(async () => {
         const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
         const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
-        s.modelV = 1; for (const lg of Object.keys(s.sync)) { delete s.sync[lg].priorV; }
+        s.modelV = 1; s.histV = 1; for (const lg of Object.keys(s.sync)) { delete s.sync[lg].priorV; }
         let nw = s.cash;
         for (const a of Object.values(s.assets)) { if (a.kind === 'fund') continue; a.price = Math.round(a.price * 0.4 * 100) / 100; }
         s._hist.px = s._hist.px.map(x => x * 0.4);
@@ -212,6 +212,10 @@ with sync_playwright() as p:
     note = page.locator('text=New pricing').count()
     print('upgrade: options value dropped from estimate; net worth', round(nw_before, 2), '->', nw_after, 'notice:', note)
     assert note >= 1
+    flat = page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
+        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
+        return [s.histV, Math.max(...s._hist.lens.filter((_, i) => !s._hist.ids[i].startsWith('fund:')))]; })()""")
+    print('charts restarted (histV, longest player history):', flat); assert flat[0] == 2 and flat[1] < 40
     assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
     b.close()
 srv.shutdown()

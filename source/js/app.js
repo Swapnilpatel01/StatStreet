@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel,
+  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, resetHistory, HIST_V,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -33,7 +33,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -507,6 +507,7 @@ function renderAccount() {
     <h2>Reset</h2>
     <div class="small muted" style="margin-bottom:8px">Starting balance for a fresh portfolio</div>
     <div class="seg" style="margin-bottom:10px">${START_OPTIONS.map((v) => `<button data-startcash="${v}" class="${state.settings.startCash === v ? 'on' : ''}">${money(v).replace('.00', '')}</button>`).join('')}</div>
+    <div class="btn-row"><button class="btn ghost" data-act="resetcharts">Restart price charts</button></div>
     <div class="btn-row"><button class="btn danger" data-act="resetpf">Reset to ${money(state.settings.startCash).replace('.00', '')}</button><button class="btn danger" data-act="resetall">Reset everything</button></div>
     <p class="tiny faint" style="margin-top:18px;text-align:center">StatStreet version ${APP_VERSION} · Play money only. Not affiliated with ESPN, the NBA, NFL or MLB.</p>
     <p class="tiny faint" style="text-align:center" id="diag">${screenDiag()}</p>`;
@@ -1613,6 +1614,9 @@ document.addEventListener('click', async (e) => {
         ui.seenInbox = 0; dirty = true; save(); render(); toast(`Portfolio reset to ${money(start)}`);
       }
       break;
+    case 'resetcharts':
+      if (armed(el, 'Tap again to restart all charts')) { resetHistory(state, Date.now()); dirty = true; save(); render(); toast('Price charts restarted from today'); }
+      break;
     case 'resetall':
       if (armed(el, 'Tap again to erase everything')) { await idbDel('state'); location.reload(); }
       break;
@@ -1830,7 +1834,11 @@ function afterLoad() {
   migrate(state);
   setProxy(state.settings.proxy);
   for (const lg of Object.keys(LEAGUES)) { recomputeStats(state, lg); rebuildInjuryCache(state, lg); }
-  if (Object.keys(state.assets).length) { upgradeModel(state, Date.now()); ensureFunds(state, Date.now()); }
+  if (Object.keys(state.assets).length) {
+    upgradeModel(state, Date.now());
+    if ((state.histV || 1) < HIST_V) resetHistory(state, Date.now()); // charts from the old pricing model
+    ensureFunds(state, Date.now());
+  }
   else state.modelV ??= 2;
   ui.seenInbox = state.inbox.length;
 }
