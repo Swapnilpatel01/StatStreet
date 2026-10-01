@@ -129,7 +129,39 @@ def summary(lg, eid):
             stats.append({'labels': ['H-AB', 'AB', 'R', 'H', 'RBI', 'HR', 'BB', 'K', '#P', 'AVG', 'OBP', 'SLG'], 'athletes': [{'athlete': {'id': p[0], 'displayName': p[1], 'position': {'abbreviation': p[2]}}, 'stats': ['2-4', '4', str(r.randint(0, 2)), str(r.randint(0, 4)), str(r.randint(0, 4)), str(r.randint(0, 3)), '1', '1', '18', '.300', '.400', '.500']} for p in hit]})
             stats.append({'labels': ['IP', 'H', 'R', 'ER', 'BB', 'K', 'HR', 'PC-ST', 'ERA', 'PC'], 'athletes': [{'athlete': {'id': p[0], 'displayName': p[1], 'position': {'abbreviation': 'SP'}}, 'stats': ['6.2', '4', '2', str(r.randint(0, 5)), '2', str(r.randint(3, 13)), '1', '95-60', '3.10', '95']} for p in pit]})
         players.append({'team': {'id': team, 'abbreviation': [t[1] for t in TEAMS[lg] if t[0] == team][0]}, 'statistics': stats})
-    return {'boxscore': {'players': players}}
+    # Play-by-play for moment cards
+    plist = PLAYERS[lg]
+    if lg == 'mlb':
+        plays = []
+        hs = as_ = 0
+        for k in range(6):
+            pid, name, pos, team, _ = plist[r.randint(0, len(plist) - 1)]
+            if pos == 'SP': continue
+            kind = r.choice(['homered to left center ({} feet)'.format(r.randint(380, 455)), 'doubled to left', 'tripled to right', 'singled to center'])
+            hs += 1 if k % 2 == 0 else 0; as_ += 1 if k % 2 else 0
+            plays.append({'text': f'{name} {kind}.', 'type': {'text': 'Home Run' if 'homer' in kind else 'Hit'}, 'scoringPlay': True, 'scoreValue': 1,
+                          'homeScore': hs, 'awayScore': as_, 'period': {'type': 'Bottom' if k % 2 == 0 else 'Top', 'number': k + 3}, 'outs': r.randint(0, 2),
+                          'participants': [{'athlete': {'id': pid}, 'type': 'batter'}]})
+        return {'boxscore': {'players': players}, 'plays': plays}
+    if lg == 'nba':
+        plays = []
+        hs = as_ = 0
+        for k in range(30):
+            pid, name, pos, team, _ = plist[r.randint(0, len(plist) - 1)]
+            v = r.choice([2, 2, 3])
+            if k % 2: hs += v
+            else: as_ += v
+            desc = f'{name} makes {r.randint(24, 30)}-foot three point jumper' if v == 3 else r.choice([f'{name} makes driving dunk', f'{name} makes alley oop dunk shot', f'{name} makes layup'])
+            plays.append({'text': desc, 'type': {'text': 'Shot'}, 'scoringPlay': True, 'scoreValue': v, 'homeScore': hs, 'awayScore': as_,
+                          'period': {'number': 1 + k // 8}, 'clock': {'displayValue': f'{r.randint(0, 11)}:{r.randint(10, 59)}'}, 'participants': [{'athlete': {'id': pid}}]})
+        return {'boxscore': {'players': players}, 'plays': plays}
+    sp = []
+    qbs = [p for p in plist if p[2] == 'QB']; recv = [p for p in plist if p[2] in ('WR', 'TE', 'RB')]
+    for k in range(4):
+        qb = r.choice(qbs); rc = r.choice(recv)
+        sp.append({'text': f'{rc[1]} {r.randint(3, 65)} Yd pass from {qb[1]} (Kick)', 'type': {'text': 'Passing Touchdown'}, 'homeScore': 7 * (k + 1), 'awayScore': 7 * k,
+                   'period': {'number': k + 1}, 'clock': {'displayValue': '2:00'}})
+    return {'boxscore': {'players': players}, 'scoringPlays': sp}
 
 
 def news(lg):

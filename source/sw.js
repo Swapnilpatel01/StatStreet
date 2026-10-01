@@ -1,11 +1,11 @@
 // Service worker: caches the app shell so StatStreet opens instantly and works
 // offline (with the last prices it saw). Live data always goes to the network.
 
-const VERSION = 'statstreet-v16';
+const VERSION = 'statstreet-v17';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/engine.js', 'js/scoring.js', 'js/sync.js', 'js/api.js', 'js/store.js', 'js/chart.js', 'js/util.js',
-  'js/bs.js', 'js/funds.js', 'js/trading.js', 'js/gestures.js', 'js/social.js', 'js/heatmap.js', 'js/sharecard.js', 'js/xp.js', 'js/career.js', 'js/contests.js', 'js/boosters.js',
+  'js/bs.js', 'js/funds.js', 'js/trading.js', 'js/gestures.js', 'js/social.js', 'js/heatmap.js', 'js/sharecard.js', 'js/xp.js', 'js/career.js', 'js/contests.js', 'js/boosters.js', 'js/moments.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 

@@ -100,7 +100,7 @@ with sync_playwright() as p:
         page.screenshot(path=f'{OUT}/0h-props.png', full_page=True)
     page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/0i-locker.png', full_page=True)
-    assert page.locator('.pack').count() == 8 and page.locator('.theme').count() == 5
+    assert page.locator('.pack').count() == 4 and page.locator('.theme').count() == 5
 
     # heatmap
     page.click('#tabbar [data-tab=market]'); page.click('[data-mview=heat]'); page.wait_for_timeout(200)
@@ -208,8 +208,8 @@ with sync_playwright() as p:
     nc = page.locator('.card-grid .pcard').count(); print('cards:', nc, 'trophies:', nt); assert nc >= 1 and nt >= 3
     coins = int(re.sub(r'[^0-9]', '', page.text_content('.coins.big')))
     print('coins earned so far:', coins)
-    if coins >= 100:
-        page.click('.pack.starter'); page.wait_for_selector('#packview:not([hidden])'); page.wait_for_timeout(300)
+    if coins >= 150:
+        page.click('.pack.mstarter'); page.wait_for_selector('#packview:not([hidden])'); page.wait_for_timeout(300)
         page.click('.pv-card >> nth=0'); page.wait_for_timeout(700)
         page.screenshot(path=f'{OUT}/11-pack.png')
         page.click('[data-act=packdone]'); page.click('[data-act=packdone]'); page.wait_for_timeout(200)
@@ -240,27 +240,35 @@ with sync_playwright() as p:
         await new Promise(r => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(s, 'state'); t.oncomplete = r; }); })()""")
     page.reload(); page.wait_for_timeout(2500)
     page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
-    page.click('[data-bpack=bstarter]'); page.wait_for_selector('#packview:not([hidden])'); page.wait_for_timeout(200)
+    page.click('[data-bpack=mstarter]'); page.wait_for_selector('#packview:not([hidden])'); page.wait_for_timeout(200)
     page.click('[data-act=packdone]'); page.wait_for_timeout(700)
-    page.screenshot(path=f'{OUT}/13-booster-pack.png')
+    page.screenshot(path=f'{OUT}/13-moment-pack.png')
     page.click('[data-act=packdone]'); page.wait_for_timeout(200)
-    nb = page.locator('.brow[data-booster]').count(); print('boosters in locker:', nb); assert nb == 3
-    page.click('.brow[data-booster] >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
-    page.screenshot(path=f'{OUT}/14-booster-sheet.png')
-    page.click('[data-bequip] >> nth=0'); page.wait_for_timeout(300)
-    print('equip:', toast(page)); assert toast(page).startswith('Boosting')
-    page.click('[data-gtab=market]'); page.wait_for_timeout(200)
-    page.screenshot(path=f'{OUT}/15-market.png', full_page=True)
-    page.click('[data-buylist] >> nth=0'); page.wait_for_timeout(200); print('buy:', toast(page)); assert toast(page).startswith('Bought a')
-    page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
-    page.click('.brow[data-booster]:not(:has(.pk.won)) >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
+    nb = page.locator('.mc-cell[data-booster]').count(); print('moment cards in locker:', nb); assert nb == 3
+    page.screenshot(path=f'{OUT}/13b-locker-cards.png', full_page=True)
+    page.click('.mc-cell[data-booster] >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
+    page.screenshot(path=f'{OUT}/14-card-sheet.png')
     page.click('[data-blen="1h"]'); page.fill('#bstart', '1'); page.click('[data-act=blist]'); page.wait_for_timeout(200)
     print('auction:', toast(page)); assert toast(page).startswith('Listed')
-    page.click('[data-gtab=market]'); page.wait_for_timeout(200)
-    assert page.locator('text=Your auctions').count() == 1
+    # Marketplace tab
+    page.click('#tabbar [data-tab=marketplace]'); page.wait_for_timeout(300)
+    lots = page.locator('.mp-item').count(); print('marketplace lots:', lots); assert lots >= 2
+    page.screenshot(path=f'{OUT}/15-marketplace.png')
+    page.screenshot(path=f'{OUT}/15b-marketplace-full.png', full_page=True)
+    page.click('.mp-bid >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
+    page.screenshot(path=f'{OUT}/15c-bid.png')
+    page.fill('#bidamt', '3000'); page.click('[data-act=placebid]'); page.wait_for_timeout(300)
+    print('bid:', toast(page), page.text_content('#terr') if page.locator('#terr').count() else '')
+    if not page.evaluate("document.querySelector('#trade').hidden"): page.click('[data-act=tcancel]'); page.wait_for_timeout(300)
+    page.click('[data-act=mymarket]'); page.wait_for_timeout(200)
+    assert page.locator('text=Your listings').count() == 1
+    page.screenshot(path=f'{OUT}/15d-my-market.png', full_page=True)
+    page.click('[data-act=mymarket]'); page.wait_for_timeout(200)
+    page.click('.mp-more >> nth=1'); page.wait_for_selector('#trade:not([hidden])'); page.click('[data-act=buynow]'); page.click('[data-act=buynow]'); page.wait_for_timeout(300)
+    print('buy now:', toast(page)); assert toast(page).startswith('Bought for')
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(200)
     page.click('#view [data-open^="nba:p"] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(300)
-    print('player page booster slot:', page.locator('#sheet .bslot').count()); assert page.locator('#sheet .bslot').count() == 1
+    print('player page card slot:', page.locator('#sheet .bslot').count()); assert page.locator('#sheet .bslot').count() == 1
     page.evaluate("document.querySelector('#sheet').scrollTop = document.querySelector('.bslot').offsetTop - 300"); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/16-player-boost.png')
     page.click('[data-act=back]'); page.wait_for_timeout(400)

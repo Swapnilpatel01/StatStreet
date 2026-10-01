@@ -1,8 +1,10 @@
-// Booster cards, packs, fusing, marketplace and auctions. Run: node test/boosters.test.mjs
+// Moment cards: parsing real plays, packs, player-only boosts, fusing, marketplace bids and auctions.
+// Run: node test/boosters.test.mjs
 import assert from 'node:assert/strict';
 import * as E from '../js/engine.js';
 import * as X from '../js/xp.js';
 import * as B from '../js/boosters.js';
+import * as M from '../js/moments.js';
 import * as C from '../js/career.js';
 import { DAY, HOUR } from '../js/util.js';
 
@@ -10,122 +12,156 @@ let passed = 0;
 const t = (name, fn) => { fn(); passed++; console.log('ok -', name); };
 const now = new Date(2026, 9, 6, 10, 0).getTime();
 
+const ev = (league, id) => ({ id, date: now - DAY, completed: true, name: 'ATL @ PHI',
+  teams: [{ id: '22', abbr: 'PHI', home: true, score: 4 }, { id: '15', abbr: 'ATL', home: false, score: 3 }] });
+const mlbPlayers = [
+  { id: '30951', name: 'Bryce Harper', teamId: '22', teamAbbr: 'PHI', line: { ab: 4, h: 2, r: 2, rbi: 3, hr: 1, bb: 0, k: 1, ip: 0, ph: 0, er: 0, pbb: 0, pk: 0 } },
+  { id: '4000', name: 'Dylan Lee', teamId: '15', teamAbbr: 'ATL', line: { ab: 0, h: 0, r: 0, rbi: 0, hr: 0, bb: 0, k: 0, ip: 1, ph: 2, er: 2, pbb: 0, pk: 1 } },
+];
+const mlbSummary = { plays: [
+  { text: 'Kyle Schwarber struck out swinging.', type: { text: 'Strike Out' }, homeScore: 0, awayScore: 0, period: { type: 'Bottom', number: 1 }, outs: 1 },
+  { text: 'Bryce Harper doubled to left (310 feet).', type: { text: 'Double' }, scoringPlay: true, scoreValue: 1, homeScore: 1, awayScore: 2, period: { type: 'Bottom', number: 3 }, outs: 2,
+    participants: [{ athlete: { id: '30951' }, type: 'batter' }, { athlete: { id: '4000' }, type: 'pitcher' }] },
+  { text: 'Bryce Harper homered to right center (418 feet), Trea Turner scored.', type: { text: 'Home Run' }, scoringPlay: true, scoreValue: 2, homeScore: 4, awayScore: 3, period: { type: 'Bottom', number: 8 }, outs: 0,
+    participants: [{ athlete: { id: '30951' }, type: 'batter' }, { athlete: { id: '4000' }, type: 'pitcher' }] },
+] };
+
 function build() {
   const st = E.newState(1e6);
-  [['1', 'BOS', 55, 15], ['2', 'WAS', 15, 55]].forEach(([id, abbr, w, l]) => E.upsertTeam(st, 'nba', { id, abbr, name: abbr, w, l, gp: w + l, diff: (w - l) * 8, streak: 1 }));
-  const mk = (id, gs, teamId) => ({ id, name: `P${id}`, pos: 'G', teamId, teamAbbr: '', img: '', gp: 60, gs, line: { pts: gs } });
-  E.seedPlayer(st, 'nba', mk('10', 25, '1'));
-  for (let i = 0; i < 20; i++) E.seedPlayer(st, 'nba', mk(`b${i}`, 4 + (i % 9), '2'));
-  E.repriceLeague(st, 'nba', now - DAY); st.lastTick = now - DAY;
+  [['22', 'PHI', 50, 40], ['15', 'ATL', 45, 45]].forEach(([id, abbr, w, l]) => E.upsertTeam(st, 'mlb', { id, abbr, name: abbr, w, l, gp: w + l, diff: 0, streak: 1 }));
+  for (const p of mlbPlayers) E.seedPlayer(st, 'mlb', { ...p, pos: '1B', gp: 100, gs: 2.5 });
+  for (let i = 0; i < 20; i++) E.seedPlayer(st, 'mlb', { id: `x${i}`, name: `X ${i}`, pos: 'SS', teamId: '15', teamAbbr: 'ATL', gp: 100, gs: 1 + (i % 5) * 0.3, line: {} });
+  E.repriceLeague(st, 'mlb', now - DAY); st.lastTick = now - DAY;
   return st;
 }
-const game = (id, date, pts, scores = [110, 90]) => ({ id, date, preseason: false,
-  teams: [{ id: '1', abbr: 'BOS', score: scores[0], winner: scores[0] > scores[1], home: true }, { id: '2', abbr: 'WAS', score: scores[1], winner: scores[1] > scores[0] }],
-  players: [{ id: '10', name: 'P10', pos: 'G', teamId: '1', line: { min: 36, pts, fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 } }] });
+const game = (id, date, line) => ({ id, date, preseason: false, moments: [],
+  teams: [{ id: '22', abbr: 'PHI', score: 5, winner: true, home: true }, { id: '15', abbr: 'ATL', score: 2 }],
+  players: [{ id: '30951', name: 'Bryce Harper', pos: '1B', teamId: '22', line }] });
+const big = { ab: 4, h: 3, r: 2, rbi: 4, hr: 2, bb: 1, k: 0, ip: 0, ph: 0, er: 0, pbb: 0, pk: 0 };
+const bad = { ab: 4, h: 0, r: 0, rbi: 0, hr: 0, bb: 0, k: 4, ip: 0, ph: 0, er: 0, pbb: 0, pk: 0 };
 
-t('packs: cost coins, level-gated, guaranteed rarity', () => {
-  const st = build();
-  assert.throws(() => B.openBoosterPack(st, 'bstarter', now), /coins/);
+t('real plays become rated moments with traits, players and game situation', () => {
+  const ms = M.parseMoments('mlb', mlbSummary, ev('mlb', 'g1'), mlbPlayers);
+  const hr = ms.find((m) => m.kind === 'HOME RUN');
+  assert.ok(hr, ms.map((m) => m.kind).join(','));
+  assert.equal(hr.player.name, 'Bryce Harper');
+  assert.equal(hr.opp.name, 'Dylan Lee');
+  assert.ok(hr.traits.includes('goahead') && hr.traits.includes('clutch'), hr.traits.join(','));
+  assert.match(hr.desc, /418'/);
+  assert.equal(hr.sit, 'Bot 8 · 0 outs');
+  assert.ok(hr.rating > ms.find((m) => m.kind === 'DOUBLE').rating);
+  assert.ok(['epic', 'legendary', 'iconic'].includes(hr.rarity), `${hr.rating} ${hr.rarity}`);
+  assert.ok(!ms.some((m) => /struck out/i.test(m.desc)));
+  // NFL scoring plays without participants are matched by name
+  const nfl = M.parseMoments('nfl', { scoringPlays: [{ text: 'Travis Kelce 45 Yd pass from Patrick Mahomes (Harrison Butker Kick)', type: { text: 'Passing Touchdown' }, homeScore: 21, awayScore: 17, period: { number: 4 }, clock: { displayValue: '1:12' } }] },
+    ev('nfl', 'n1'), [{ id: '1', name: 'Travis Kelce', teamId: '22', teamAbbr: 'KC', line: {} }, { id: '2', name: 'Patrick Mahomes', teamId: '22', teamAbbr: 'KC', line: {} }]);
+  assert.equal(nfl[0].kind, 'TD PASS');
+  assert.ok(nfl[0].traits.includes('long'));
+  // No play-by-play at all: big box-score nights still make cards
+  const box = M.parseMoments('mlb', {}, ev('mlb', 'g2'), [{ ...mlbPlayers[0], line: big }]);
+  assert.equal(box.length, 1);
+  assert.match(box[0].kind, /HOMER|BIG NIGHT|MONSTER/);
+});
+
+function withPool(st) {
+  E.applyFinalGame(st, 'mlb', { ...game('pool', now - 2 * DAY, big), moments: M.parseMoments('mlb', mlbSummary, ev('mlb', 'g1'), mlbPlayers) }, { now: now - 2 * DAY + 3 * HOUR });
+  assert.ok(st.moments.length >= 2);
+  return st;
+}
+
+t('packs pull real moments; a card only boosts its own player', () => {
+  const st = withPool(build());
+  assert.throws(() => B.openBoosterPack(st, 'mstarter', now), /coins/);
   X.addCoins(st, 5000);
-  assert.throws(() => B.openBoosterPack(st, 'bpremium', now), /level 4/);
-  const got = B.openBoosterPack(st, 'bstarter', now);
+  const got = B.openBoosterPack(st, 'mstarter', now);
   assert.equal(got.length, 3);
-  X.addXP(st, X.LEVEL_XP(10), now);
-  const chase = B.openBoosterPack(st, 'biconic', now);
-  assert.ok(B.rIdx(chase[chase.length - 1].rarity) >= B.rIdx('legendary'));
+  const c = got[0];
+  assert.equal(c.assetId, `mlb:p:${c.m.player.id}`);
+  E.trade(st, 'mlb:p:x1', 'buy', 1, now - HOUR);
+  assert.throws(() => B.equip(st, c.id, 'mlb:p:x1'), /only boosts/);
+  assert.throws(() => B.equip(st, c.id, c.assetId), /Buy some/);
+  E.trade(st, c.assetId, 'buy', 1, now - HOUR);
+  B.equip(st, c.id, c.assetId);
+  assert.equal(B.boosterOn(st, c.assetId).id, c.id);
 });
 
-t('game day booster pays a bonus on up games and uses charges', () => {
-  const st = build();
-  E.trade(st, 'nba:p:10', 'buy', 10, now - 2 * HOUR);
-  const b = B.makeBooster(st, 'game', 'legendary', now);
-  B.equip(st, b.id, 'nba:p:10');
-  const cash = st.cash;
-  E.applyFinalGame(st, 'nba', game('g1', now, 60), { now: now + 3 * HOUR });
+t('game day card pays on a good game; shield refunds a bad one; charges run down', () => {
+  const st = withPool(build());
+  const hr = st.moments.find((m) => m.kind === 'HOME RUN');
+  E.trade(st, 'mlb:p:30951', 'buy', 10, now - 2 * HOUR);
+  const c = B.makeCard(st, { ...hr, traits: [] }, { now });
+  assert.equal(c.type, 'game');
+  B.equip(st, c.id, 'mlb:p:30951');
+  let cash = st.cash;
+  E.applyFinalGame(st, 'mlb', game('a1', now, big), { now: now + 3 * HOUR });
   assert.ok(st.cash > cash, 'bonus paid');
-  assert.equal(b.charges, b.max - 1);
-  assert.ok(st.inbox.some((n) => /Game Day bonus/.test(n.text)));
+  assert.equal(c.charges, c.max - 1);
+  const s = B.makeCard(st, hr, { now }); // clutch home run → Shield
+  assert.equal(s.type, 'shield');
+  B.equip(st, s.id, 'mlb:p:30951'); // swaps
+  assert.equal(c.on, null);
+  cash = st.cash;
+  E.applyFinalGame(st, 'mlb', game('a2', now + DAY, bad), { now: now + DAY + 3 * HOUR });
+  assert.ok(st.cash > cash, 'shield refund');
 });
 
-t('shield refunds part of a loss; dividend booster multiplies dividends', () => {
-  const st = build();
-  E.trade(st, 'nba:p:10', 'buy', 10, now - 2 * HOUR);
-  const sh = B.makeBooster(st, 'shield', 'iconic', now);
-  B.equip(st, sh.id, 'nba:p:10');
-  const before = st.assets['nba:p:10'].price * 10;
-  const cash = st.cash;
-  E.applyFinalGame(st, 'nba', game('g2', now, 2), { now: now + 3 * HOUR });
-  const loss = before - st.assets['nba:p:10'].price * 10;
-  assert.ok(loss > 0);
-  const refund = st.cash - cash;
-  assert.ok(refund > loss * 0.6 && refund < loss * 0.85, `${refund} vs loss ${loss}`); // 80% of the game's move
-  // dividend booster on a team
-  E.trade(st, 'nba:t:1', 'buy', 5, now - 2 * HOUR);
-  const d = B.makeBooster(st, 'div', 'legendary', now);
-  B.equip(st, d.id, 'nba:t:1');
-  E.applyFinalGame(st, 'nba', game('g3', now + DAY, 25), { now: now + DAY + 3 * HOUR });
-  const div = st.divs.find((x) => x.id === 'nba:t:1');
-  assert.ok(div);
-  const plain = Math.round(5 * div.ps * 100) / 100;
-  assert.ok(Math.abs(div.amt - plain * 2) < 0.02, `${div.amt} vs ${plain}x2`);
-});
-
-t('slots, unequip on sale, used-up boosters disappear, fuse 3 → 1', () => {
-  const st = build();
-  E.trade(st, 'nba:p:10', 'buy', 1, now - 2 * HOUR);
-  E.trade(st, 'nba:t:1', 'buy', 1, now - 2 * HOUR);
-  E.trade(st, 'nba:t:2', 'buy', 1, now - 2 * HOUR);
-  const [a, b, c] = ['div', 'div', 'div'].map(() => B.makeBooster(st, 'div', 'common', now));
-  B.equip(st, a.id, 'nba:p:10'); B.equip(st, b.id, 'nba:t:1');
-  assert.throws(() => B.equip(st, c.id, 'nba:t:2'), /slots/);
-  E.trade(st, 'nba:t:1', 'sell', st.holdings['nba:t:1'].qty, now);
-  B.tidyBoosters(st);
-  assert.equal(b.on, null);
-  assert.throws(() => B.fuse(st, 'div', 'common', now), /3 unequipped/);
-  B.unequip(st, a.id);
-  const up = B.fuse(st, 'div', 'common', now);
+t('fuse: three of a rarity → your best one moves up', () => {
+  const st = withPool(build());
+  const m = st.moments[0];
+  const cards = [1, 2, 3].map((i) => B.makeCard(st, { ...m, rating: 1 + i }, { now, rarity: 'common' }));
+  const up = B.fuse(st, 'common', now);
   assert.equal(up.rarity, 'uncommon');
-  assert.equal(B.boosterState(st).inv.filter((x) => x.rarity === 'common').length, 0);
-  // charges run out
-  const g = B.makeBooster(st, 'game', 'common', now);
-  B.equip(st, g.id, 'nba:p:10');
-  for (let i = 0; i < 3; i++) E.applyFinalGame(st, 'nba', game(`r${i}`, now + i * DAY, 25), { now: now + i * DAY + 3 * HOUR });
-  assert.ok(!B.boosterState(st).inv.some((x) => x.id === g.id));
+  assert.equal(up.id, cards[2].id);
+  assert.equal(B.boosterState(st).inv.length, 1);
 });
 
-t('market: quick sell, daily listings, buying', () => {
-  const st = build();
-  const b = B.makeBooster(st, 'shield', 'epic', now);
-  const coins = X.career(st).coins;
-  const p = B.quickSell(st, b.id);
-  assert.equal(X.career(st).coins, coins + p);
-  const L = B.listings(st, now);
-  assert.equal(L.length, 8);
-  assert.deepEqual(L.map((x) => x.price), B.listings(st, now + HOUR).map((x) => x.price), 'stable within a day');
+t('marketplace: listings appear hourly, proxy bids, outbid refunds, winning delivers the card', () => {
+  const st = withPool(build());
   X.addCoins(st, 100000);
-  const nb = B.buyListing(st, L[0].id, now);
-  assert.equal(nb.rarity, L[0].rarity);
-  assert.throws(() => B.buyListing(st, L[0].id, now), /sold/);
-  assert.ok(B.marketValue({ type: 'game', rarity: 'iconic', charges: 15, max: 15 }, now) > B.marketValue({ type: 'game', rarity: 'common', charges: 3, max: 3 }, now) * 50);
+  const L = B.marketListings(st, now);
+  assert.ok(L.length >= 5, `${L.length} live listings`);
+  const l = L[0];
+  const v = B.listingView(st, l, now);
+  assert.throws(() => B.placeBid(st, l.id, v.minBid - 1, now), /at least/);
+  const coins = X.career(st).coins;
+  const low = B.placeBid(st, l.id, Math.max(v.minBid, 1), now);
+  if (!low.leading) assert.equal(X.career(st).coins, coins, 'outbid → refunded');
+  const r = B.placeBid(st, l.id, l.npcMax + 1000, now);
+  assert.ok(r.leading);
+  assert.equal(X.career(st).coins, coins - (l.npcMax + 1000));
+  const n0 = B.boosterState(st).inv.length;
+  B.runMarket(st, l.end + 1);
+  assert.equal(B.boosterState(st).inv.length, n0 + 1);
+  assert.ok(l.price <= l.npcMax + 1000 && X.career(st).coins === coins - l.price, 'paid second price, rest refunded');
+  // buy now
+  const l2 = B.marketListings(st, now).find((x) => x.id !== l.id);
+  const p = B.buyNow(st, l2.id, now);
+  assert.ok(p > 0);
 });
 
-t('auctions: bids climb, settle for coins or come back unsold', () => {
-  const st = build();
-  const b = B.makeBooster(st, 'game', 'legendary', now);
-  const au = B.listAuction(st, b.id, { start: 1, length: '1h' }, now);
-  assert.throws(() => B.equip(st, b.id, 'nba:p:10'), /auction|shares/);
-  const mid = B.auctionView(au, now + 30 * 60e3);
-  assert.ok(mid.current >= 1 && mid.bids >= 1);
+t('your auctions sell to the bidders or come back', () => {
+  const st = withPool(build());
+  const c = B.makeCard(st, st.moments[0], { now, rarity: 'legendary' });
+  const au = B.listAuction(st, c.id, { start: 1, length: '1h' }, now);
+  assert.throws(() => B.equip(st, c.id, c.assetId), /auction/);
   const coins = X.career(st).coins;
-  C.runCareer(st, now + 2 * HOUR);
+  B.runMarket(st, now + 2 * HOUR);
   assert.equal(au.status, 'sold');
-  assert.equal(X.career(st).coins, coins + au.top + 0 * 1, 'paid the winning bid');
-  // a reserve nobody meets
-  const b2 = B.makeBooster(st, 'div', 'common', now);
-  const au2 = B.listAuction(st, b2.id, { start: 99999, length: '1h' }, now);
+  assert.equal(X.career(st).coins, coins + au.price);
+  const c2 = B.makeCard(st, st.moments[0], { now, rarity: 'common' });
+  const au2 = B.listAuction(st, c2.id, { start: 99999, length: '1h' }, now);
   B.runMarket(st, now + 2 * HOUR);
   assert.equal(au2.status, 'unsold');
-  assert.ok(B.boosterState(st).inv.some((x) => x.id === b2.id && !x.listed));
+  assert.ok(!B.boosterState(st).inv.find((x) => x.id === c2.id).listed);
 });
 
-console.log(`\n${passed} booster tests passed`);
+t('old generic boosters are traded in for coins', () => {
+  const st = build();
+  st.boosters = { inv: [{ id: 'old', type: 'div', rarity: 'rare', charges: 5, max: 5 }], seq: 1 };
+  const coins = X.career(st).coins;
+  C.runCareer(st, now);
+  assert.equal(B.boosterState(st).inv.length, 0);
+  assert.equal(X.career(st).coins, coins + 55);
+});
+
+console.log(`\n${passed} moment-card tests passed`);

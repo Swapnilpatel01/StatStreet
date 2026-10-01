@@ -30,8 +30,9 @@ import {
   propBoard, placeBet, MAX_LEGS, PROP_ODDS, potentialPayout,
 } from './contests.js';
 import {
-  B_RARITY, B_PACKS, AUCTION_LENGTHS, bType, bRarity, describe, describeShort, slots, boosterState, equipped, boosterOn, equip, unequip, fuse,
-  openBoosterPack, marketValue, quickSellPrice, quickSell, listings, buyListing, listAuction, auctionView, cancelAuction,
+  B_RARITY, B_PACKS, AUCTION_LENGTHS, bType, bRarity, describe, describeShort, traitList, rIdx, slots, boosterState, equipped, boosterOn,
+  equip, unequip, fuse, openBoosterPack, marketValue, quickSellPrice, quickSell, listAuction, cancelAuction, myAuctions, listingView,
+  marketListings, placeBid, buyNow, buyNowPrice, assetOf,
 } from './boosters.js';
 import { squarify, heatColor } from './heatmap.js';
 import { portfolioCard, assetCard, shareCanvas } from './sharecard.js';
@@ -45,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 16;
+const APP_VERSION = 17;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -510,6 +511,11 @@ function renderAccount() {
         <p>Each contract covers <b>100 shares</b>. A <b>call</b> pays off if the price finishes above the strike; a <b>put</b> if it finishes below. Contracts expire Fridays at 4pm New York time and settle in cash automatically.</p>
         <p>Prices mostly jump when a game's box score comes in, so premiums are built from <b>game risk</b>: every game before expiry counts as a possible move sized from that player's or team's own recent games, plus a little for news and injuries. Premiums rise into game day and drop once the game is played. You can buy to open and sell to close any time before expiry. The most you can lose is what you paid.</p>
       </div></details>
+      <details><summary>Moment cards & Marketplace</summary><div class="prose">
+        <p><b>Moment cards</b> are real plays from recent games: home runs, dunks, touchdowns and monster box-score nights. Each has a <b>play rating</b> (late, close and go-ahead plays rate higher), which sets its rarity from Common to Iconic.</p>
+        <p>A card only works on the player who made the play. Turn it on while you own his shares and it boosts your earnings from him: <b>Dividend</b> cards raise his dividends, <b>Game Day</b> cards pay a bonus when his games lift the price, and <b>Shields</b> give back part of the loss when they drop it. Each of his games uses one charge.</p>
+        <p>In the <b>Marketplace</b>, other collectors auction cards. Bids are max bids: if yours is the highest when time runs out, you win and pay just above the next bidder. You can also buy now, or list your own cards.</p>
+      </div></details>
       <details><summary>Orders</summary><div class="prose">
         <p><b>Market</b> orders fill now, in shares or dollars (fractional shares). <b>Limit</b> orders fill only at your price or better. <b>Stop</b> orders become market orders once the price crosses your stop, so they work as a stop-loss. <b>Recurring</b> buys invest a fixed amount daily or weekly. Orders are checked every few seconds while the app is open, and when you reopen it.</p>
       </div></details>
@@ -601,7 +607,7 @@ function resultRow(r) {
 
 // ---------- Games tab: career header + Season / Contests / Props / Pick'em / Locker ----------
 
-const GTABS = [['season', 'Season'], ['contests', 'Contests'], ['props', 'Props'], ['pickem', "Pick'em"], ['locker', 'Locker'], ['market', 'Market']];
+const GTABS = [['season', 'Season'], ['contests', 'Contests'], ['props', 'Props'], ['pickem', "Pick'em"], ['locker', 'Locker']];
 const coinFmt = (n) => Math.round(n).toLocaleString();
 const daysLeft = (t) => { const d = (t - Date.now()) / DAY; return d >= 1 ? `${Math.ceil(d)} days left` : `${Math.max(1, Math.round(d * 24))}h left`; };
 const pctTxt = (x) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
@@ -628,7 +634,7 @@ function careerHeader() {
 
 function renderGames() {
   ui.gtab ||= 'season';
-  const body = { season: gamesSeason, contests: gamesContests, props: gamesProps, pickem: gamesPickem, locker: gamesLocker, market: gamesMarket }[ui.gtab]();
+  const body = { season: gamesSeason, contests: gamesContests, props: gamesProps, pickem: gamesPickem, locker: gamesLocker }[ui.gtab]();
   $('#view').innerHTML = `
     ${topbar('<h1>Games</h1>')}
     ${careerHeader()}
@@ -860,18 +866,15 @@ function gamesLocker() {
   const cards = Object.keys(state.collection).map((id) => state.assets[id]).filter((a) => a && a.kind !== 'fund')
     .sort((x, y) => rarRank(rarity(state, x)) - rarRank(rarity(state, y)) || cardLevel(state, y.id) - cardLevel(state, x.id));
   return `
-    <div class="row between" style="margin-top:14px"><h2 style="margin:0">Card packs</h2><span class="coins big">🪙 ${coinFmt(c.coins)}</span></div>
-    <p class="small muted" style="margin:6px 0 10px">Earn coins from season tiers, weekly goals, trophies, contests and level-ups. Duplicate cards level up, and every level above 1 adds <b>+5% to that player's dividends</b> for you.</p>
-    <div class="packs">${PACKS.map((p) => { const locked = L < p.level; return `<button class="pack ${p.key} ${locked ? 'locked' : ''}" data-pack="${p.key}">
-      <div class="pk-name">${p.name}</div><div class="tiny">${p.blurb}</div><div class="pk-cost">${locked ? `🔒 Level ${p.level}` : `🪙 ${p.cost}`}</div></button>`; }).join('')}</div>
-
-    <h2>Booster packs</h2>
+    <div class="row between" style="margin-top:14px"><h2 style="margin:0">Moment packs</h2><span class="coins big">🪙 ${coinFmt(c.coins)}</span></div>
+    <p class="small muted" style="margin:6px 0 10px">Packs hold real plays from recent games. Earn coins from season tiers, weekly goals, trophies, contests and level-ups, or by selling cards in the Marketplace.</p>
     <div class="packs">${B_PACKS.map((p) => { const locked = L < p.level; return `<button class="pack ${p.key} ${locked ? 'locked' : ''}" data-bpack="${p.key}">
       <div class="pk-name">${p.name}</div><div class="tiny">${p.blurb}</div><div class="pk-cost">${locked ? `🔒 Level ${p.level}` : `🪙 ${p.cost}`}</div></button>`; }).join('')}</div>
 
     ${boostersSection()}
 
-    <h2>Your cards <span class="faint small">${cards.length}</span></h2>
+    <h2>Your player cards <span class="faint small">${cards.length}</span></h2>
+    <p class="small muted" style="margin:-4px 0 10px">You collect a player's card by owning his shares. Card levels add +5% dividends each.</p>
     ${cards.length ? `<div class="card-grid">${cards.slice(0, ui.allCards ? 999 : 12).map(miniCard).join('')}</div>
       ${cards.length > 12 && !ui.allCards ? `<button class="more" data-act="allcards">See all ${cards.length}</button>` : ''}`
       : '<div class="card empty">No cards yet. Buy a player or open a pack.</div>'}
@@ -928,35 +931,60 @@ function applyTheme() {
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.bg || '#0b0d10');
 }
 
-// ---------- boosters UI ----------
+// ---------- moment cards UI ----------
 
-const chargeDots = (b) => `<span class="dots-c">${Array.from({ length: Math.min(b.max, 15) }, (_, i) => `<i class="${i < b.charges ? 'on' : ''}"></i>`).join('')}</span>`;
-const bName = (b) => `${bRarity(b.rarity).name} ${bType(b.type).name}`;
-function boosterBadge(b, size = 44) {
-  const r = bRarity(b.rarity);
-  return `<div class="bbadge ${b.rarity}" style="--rc:${r.color};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.48)}px">${bType(b.type).icon}</div>`;
-}
-function boosterRow(b) {
-  const a = b.on ? state.assets[b.on] : null;
-  return `<button class="item brow" data-booster="${b.id}">${boosterBadge(b)}
-    <div class="grow"><div class="name ellipsis" style="color:${bRarity(b.rarity).color}">${esc(bName(b))}</div>
-      <div class="sub ellipsis">${esc(describe(b))}</div><div class="tiny muted row" style="gap:6px">${chargeDots(b)} ${b.charges} game${b.charges === 1 ? '' : 's'} left</div></div>
-    ${a ? `<span class="pk won">${esc(a.ticker)}</span>` : b.listed ? '<span class="pk">Auction</span>' : '<span class="muted">›</span>'}</button>`;
+const KIND_ICON = { 'HOME RUN': '⚾', 'GRAND SLAM': '👑', TRIPLE: '⚾', DOUBLE: '⚾', 'RBI SINGLE': '⚾', DUNK: '🏀', 'ALLEY-OOP': '🏀', '3-POINTER': '🎯', BUCKET: '🏀',
+  'TD PASS': '🏈', 'TD RUN': '🏈', TOUCHDOWN: '🏈', 'DEFENSIVE TD': '🛡️', 'FIELD GOAL': '🥅' };
+const fmtLeft = (ms) => { const m = Math.round(ms / 60e3); return m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${Math.max(0, m)}m`; };
+const agoShort = (t) => { const s = (Date.now() - t) / 1000; if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`; if (s < 86400) return `${Math.round(s / 3600)}h`; if (s < 2592000) return `${Math.round(s / 86400)}d`; return `${Math.round(s / 2592000)}mo`; };
+const cardName = (c) => `${c.m.player.name} ${c.m.kind.toLowerCase()}`;
+
+function headshot(league, id, name, cls = '') {
+  const a = state.assets[`${league}:p:${id}`];
+  const ini = initials(name || '?');
+  const src = a?.img || `https://a.espncdn.com/i/headshots/${league}/players/full/${id}.png`;
+  if (STATIC) return `<span class="hs ${cls}">${ini}</span>`;
+  return `<span class="hs ${cls}"><img src="${esc(src)}" loading="lazy" alt="" onerror="this.remove()"><em>${ini}</em></span>`;
 }
 
+// The card itself, styled after the Real app: play, rating, rarity, traits, players, situation.
+function momentCard(c, { mini = false } = {}) {
+  const m = c.m; const r = bRarity(c.rarity);
+  const traits = traitList(m);
+  const icons = traits.length ? traits.map((t) => `<i title="${esc(t.label)}">${t.icon}</i>`).join('') : `<i>${KIND_ICON[m.kind] || '⭐'}</i>`;
+  const sc = m.score || {};
+  const t = bType(c.type);
+  return `<div class="mc r-${c.rarity} ${mini ? 'mini' : ''}" style="--rc:${r.color}">
+    <div class="mc-top"><b>${esc(m.kind)}</b><span class="mc-rate">⩔ ${m.rating.toFixed(1)}</span></div>
+    <div class="mc-art"><span class="mc-rar">${r.name.toUpperCase()}</span>
+      <div class="mc-traits">${icons}</div>
+      <div class="mc-desc">${esc(m.desc || '')}</div></div>
+    <div class="mc-player">${headshot(m.league, m.player.id, m.player.name)}<b class="ellipsis">${esc(m.player.name.toUpperCase())}</b></div>
+    ${m.opp ? `<div class="mc-opp">${headshot(m.league, m.opp.id, m.opp.name, 'sm')}<span class="ellipsis">vs ${esc(m.opp.name.toUpperCase())}</span></div>`
+      : `<div class="mc-opp"><span class="ellipsis">${esc([m.player.team, state.assets[`${m.league}:p:${m.player.id}`]?.pos, LEAGUES[m.league]?.name].filter(Boolean).join(' · '))}</span></div>`}
+    <div class="mc-line"><span class="tm">${esc(sc.away || '')}</span>${sc.a ?? ''}-${sc.h ?? ''}<span class="tm">${esc(sc.home || '')}</span><b>${esc(m.sit || '')}</b></div>
+    <div class="mc-foot"><span>${esc(m.player.team || '')} ${new Date(m.date).getFullYear()}</span><span>${agoShort(m.date)} · <b>#${c.serial}</b></span></div>
+    <div class="mc-boost">${t.icon} ${esc(describeShort(c))}${c.charges != null ? ` · ${c.charges}/${c.max}` : ''}</div>
+  </div>`;
+}
+
+// ---- Locker: moment packs + your cards ----
 function boostersSection() {
   const inv = boosterState(state).inv;
   const used = equipped(state).length;
-  const groups = {};
-  for (const b of inv) if (!b.on && !b.listed) (groups[`${b.type}|${b.rarity}`] ||= []).push(b);
-  const fusable = Object.entries(groups).filter(([k, l]) => l.length >= 3 && !k.endsWith('iconic'));
-  const sorted = [...inv].sort((x, y) => (y.on ? 1 : 0) - (x.on ? 1 : 0) || B_RARITY.findIndex((r) => r.key === y.rarity) - B_RARITY.findIndex((r) => r.key === x.rarity));
+  const counts = {};
+  for (const b of inv) if (!b.on && !b.listed) counts[b.rarity] = (counts[b.rarity] || 0) + 1;
+  const fusable = B_RARITY.slice(0, -1).filter((r) => (counts[r.key] || 0) >= 3);
+  const sorted = [...inv].sort((x, y) => (y.on ? 1 : 0) - (x.on ? 1 : 0) || rIdx(y.rarity) - rIdx(x.rarity) || y.m.rating - x.m.rating);
   return `
-    <div class="row between"><h2>Boosters <span class="faint small">${inv.length}</span></h2><span class="tiny muted">${used}/${slots(state)} slots in use</span></div>
-    <p class="small muted" style="margin:-4px 0 10px">Put a booster on a player or team you own. Each game they play uses one charge. Rarer boosters are stronger and last longer. You get another slot every 3 levels.</p>
-    ${fusable.length ? `<div class="card fuse">${fusable.map(([k]) => { const [type, rarity] = k.split('|'); const i = B_RARITY.findIndex((r) => r.key === rarity);
-      return `<div class="row between"><span class="small">3× ${esc(bRarity(rarity).name)} ${esc(bType(type).name)} → <b style="color:${B_RARITY[i + 1].color}">${B_RARITY[i + 1].name}</b></span><button class="btn buy small" data-fuse="${k}">Fuse</button></div>`; }).join('')}</div>` : ''}
-    ${inv.length ? `<div class="list">${sorted.map(boosterRow).join('')}</div>` : '<div class="card empty">No boosters yet. Open a booster pack or buy one in the Market.</div>'}`;
+    <div class="row between"><h2>Your moment cards <span class="faint small">${inv.length}</span></h2><span class="tiny muted">${used}/${slots(state)} active</span></div>
+    <p class="small muted" style="margin:-4px 0 10px">Each card is a real play. Put it on that player (you need some of his shares) to boost your earnings from him. Each game he plays uses one charge. You get another slot every 3 levels.</p>
+    ${fusable.length ? `<div class="card fuse">${fusable.map((r) => { const nx = B_RARITY[rIdx(r.key) + 1];
+      return `<div class="row between"><span class="small">3 ${r.name} cards → your best one becomes <b style="color:${nx.color}">${nx.name}</b></span><button class="btn buy small" data-fuse="${r.key}">Fuse</button></div>`; }).join('')}</div>` : ''}
+    ${inv.length ? `<div class="mc-grid">${sorted.map((b) => `<button class="mc-cell" data-booster="${b.id}">
+      <div class="mc-status">${b.on ? `<span class="pk won">Active · ${esc(state.assets[b.on]?.ticker || '')}</span>` : b.listed ? '<span class="pk">On auction</span>' : '<span class="pk">Ready</span>'}</div>
+      ${momentCard(b, { mini: true })}</button>`).join('')}</div>`
+      : '<div class="card empty">No moment cards yet. Open a pack, or bid in the Marketplace.</div>'}`;
 }
 
 function openBoosterSheet(id) {
@@ -969,61 +997,58 @@ function openBoosterSheet(id) {
 function renderBoosterSheet() {
   const o = ui.order;
   const b = boosterState(state).inv.find((x) => x.id === o.id);
-  const wrap = $('#trade'); const panel = $('#panel');
   if (!b) { closeOrder(); return; }
+  const wrap = $('#trade'); const panel = $('#panel');
   wrap.hidden = false;
   panel.style.setProperty('--acc', bRarity(b.rarity).color);
-  const r = bRarity(b.rarity);
-  const owned = Object.keys(state.holdings).map((id) => state.assets[id]).filter((a) => a && a.kind !== 'fund');
-  const au = b.listed ? (state.auctions || []).find((x) => x.id === b.listed) : null;
-  const av = au ? auctionView(au) : null;
+  const a = state.assets[b.assetId];
+  const held = !!state.holdings[b.assetId];
+  const au = b.listed ? myAuctions(state).find((x) => x.id === b.listed) : null;
+  const av = au ? listingView(state, au) : null;
   const mv = marketValue(b);
   panel.innerHTML = `<div class="grabber"></div>
-    <div class="bhero">${boosterBadge(b, 72)}<div class="grow"><div class="tiny" style="color:${r.color};font-weight:800;letter-spacing:.06em">${r.name.toUpperCase()}</div>
-      <div class="name" style="font-size:19px">${esc(bType(b.type).name)}</div><div class="small muted">${esc(describe(b))}</div>
-      <div class="tiny muted row" style="gap:6px;margin-top:4px">${chargeDots(b)} ${b.charges}/${b.max} games left</div></div></div>
+    <div class="mc-solo">${momentCard(b)}</div>
+    <div class="small muted" style="text-align:center;margin:8px 0 2px">${esc(describe(b))}</div>
     ${au ? `<div class="card" style="margin-top:12px"><div class="row between"><b>On auction</b><span class="tiny muted">${fmtLeft(av.left)} left</span></div>
-      <div class="small muted" style="margin-top:4px">${av.bids ? `${av.bids} bid${av.bids > 1 ? 's' : ''} · top bid 🪙 ${av.current}` : `No bids yet · starts at 🪙 ${au.start}`}</div>
-      ${av.bids ? '' : `<button class="btn ghost" data-act="bcancel" style="width:100%;margin-top:10px">Cancel auction</button>`}</div>` : `
-    ${b.on ? `<div class="card" style="margin-top:12px"><div class="row between"><span class="small">Boosting <b>${esc(state.assets[b.on]?.name || '')}</b></span><button class="btn ghost small" data-act="bunequip">Remove</button></div></div>` : ''}
-    <h3>${b.on ? 'Move to' : 'Use on'}</h3>
-    ${owned.length ? `<div class="chips bpick">${owned.map((a) => { const other = boosterOn(state, a.id); return `<button class="chip ${b.on === a.id ? 'on' : ''}" data-bequip="${a.id}">${esc(a.ticker)}${other && other.id !== b.id ? ' ↺' : ''}</button>`; }).join('')}</div>
-      <div class="tiny faint" style="margin-top:4px">↺ swaps out the booster already on that stock</div>` : '<div class="small muted">Buy a player or team first, then boost it.</div>'}
+      <div class="small muted" style="margin-top:4px">${av.bids ? `${av.bids} bid${av.bids > 1 ? 's' : ''} · top 🪙 ${av.current}` : `No bids yet · starts at 🪙 ${au.start}`}</div>
+      ${av.bids ? '' : '<button class="btn ghost" data-act="bcancel" style="width:100%;margin-top:10px">Cancel auction</button>'}</div>` : `
+    <div class="btn-row">
+      ${b.on ? '<button class="btn ghost" data-act="bunequip">Turn off</button>'
+        : held ? `<button class="btn buy" data-bequip="${b.assetId}">Use on ${esc(a?.ticker || b.m.player.name)}</button>`
+          : a ? `<button class="btn buy" data-open="${b.assetId}">Buy ${esc(a.ticker)} shares to use it</button>` : '<div class="small muted">This player isn\'t listed right now.</div>'}
+    </div>
     <h3>Sell</h3>
-    <div class="row" style="gap:8px"><button class="btn ghost grow" data-act="bsell">Quick sell · 🪙 ${quickSellPrice(b)}</button></div>
+    <button class="btn ghost" data-act="bsell" style="width:100%">Quick sell · 🪙 ${quickSellPrice(b)}</button>
     ${b.on ? '' : `<div class="card" style="margin-top:10px">
-      <div class="row between"><b>Auction</b><span class="tiny muted">Market value about 🪙 ${mv}</span></div>
+      <div class="row between"><b>Auction it</b><span class="tiny muted">Worth about 🪙 ${mv}</span></div>
       <label class="price-field"><span class="small muted">Starting bid 🪙</span><input id="bstart" inputmode="numeric" value="${Math.max(1, Math.round(mv * 0.6))}"></label>
       <div class="seg" style="margin-top:10px">${AUCTION_LENGTHS.map((L) => `<button data-blen="${L.key}" class="${o.len === L.key ? 'on' : ''}">${L.label}</button>`).join('')}</div>
-      <div class="tiny faint" style="margin-top:6px">Longer auctions draw more bidders. If no bid reaches your starting price, it comes back to you.</div>
-      <button class="btn buy" data-act="blist" style="width:100%;margin-top:10px">List for auction</button></div>`}`}
+      <div class="tiny faint" style="margin-top:6px">Longer auctions draw more bidders. If no bid reaches your starting price, the card comes back.</div>
+      <button class="btn buy" data-act="blist" style="width:100%;margin-top:10px">List in the Marketplace</button></div>`}`}
     <div class="err" id="terr"></div>
     <button class="link-btn" data-act="tcancel">Close</button>`;
 }
 
-const fmtLeft = (ms) => { const m = Math.round(ms / 60e3); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${Math.max(0, m)}m`; };
-
 function boosterSlotCard(a) {
-  if (a.kind === 'fund' || !state.holdings[a.id]) return '';
+  if (a.kind !== 'player') return '';
+  const mine = boosterState(state).inv.filter((x) => x.assetId === a.id);
   const b = boosterOn(state, a.id);
-  if (b) return `<button class="card bslot on" data-booster="${b.id}" style="--rc:${bRarity(b.rarity).color}">${boosterBadge(b, 40)}<div class="grow" style="text-align:left">
-    <div class="name">${esc(bName(b))}</div><div class="tiny muted">${esc(describe(b))} · ${b.charges} game${b.charges === 1 ? '' : 's'} left</div></div></button>`;
-  const free = boosterState(state).inv.filter((x) => !x.on && !x.listed);
-  return `<button class="card bslot" data-act="bpickfor"><div class="bbadge empty">+</div><div class="grow" style="text-align:left"><div class="name">Boost this stock</div>
-    <div class="tiny muted">${free.length ? `${free.length} booster${free.length > 1 ? 's' : ''} ready · ${equipped(state).length}/${slots(state)} slots used` : 'Get boosters from packs or the Market'}</div></div><span class="muted">›</span></button>`;
+  if (b) return `<button class="card bslot on" data-booster="${b.id}" style="--rc:${bRarity(b.rarity).color}"><div class="bbadge" style="--rc:${bRarity(b.rarity).color}">${bType(b.type).icon}</div><div class="grow" style="text-align:left">
+    <div class="name">${esc(bRarity(b.rarity).name)} ${esc(b.m.kind.toLowerCase())} card active</div><div class="tiny muted">${esc(describe(b))} · ${b.charges} game${b.charges === 1 ? '' : 's'} left</div></div></button>`;
+  const ready = mine.filter((x) => !x.listed);
+  return `<button class="card bslot" data-act="${ready.length && state.holdings[a.id] ? 'bpickfor' : 'findcards'}"><div class="bbadge empty">+</div><div class="grow" style="text-align:left"><div class="name">${ready.length ? `Use one of your ${ready.length} ${esc(a.ticker)} card${ready.length > 1 ? 's' : ''}` : `Find ${esc(a.name.split(' ').slice(-1)[0])} moment cards`}</div>
+    <div class="tiny muted">${ready.length ? (state.holdings[a.id] ? `${equipped(state).length}/${slots(state)} card slots used` : 'Buy some shares first, then turn a card on') : 'Real plays from his games. They boost your earnings from him.'}</div></div><span class="muted">›</span></button>`;
 }
 
 function openBoosterPicker() {
   const a = state.assets[ui.detail];
   ui.order = { mode: 'bpick', id: a.id };
-  const free = boosterState(state).inv.filter((x) => !x.on && !x.listed).sort((x, y) => B_RARITY.findIndex((r) => r.key === y.rarity) - B_RARITY.findIndex((r) => r.key === x.rarity));
+  const mine = boosterState(state).inv.filter((x) => x.assetId === a.id && !x.listed).sort((x, y) => rIdx(y.rarity) - rIdx(x.rarity));
   const wrap = $('#trade'); const panel = $('#panel');
   wrap.hidden = false;
   panel.innerHTML = `<div class="grabber"></div><div class="name" style="font-size:18px">Boost ${esc(a.name)}</div>
-    <div class="sub" style="margin-bottom:10px">${equipped(state).length}/${slots(state)} slots used</div>
-    ${free.length ? `<div class="list">${free.map((b) => `<button class="item brow" data-bpickone="${b.id}">${boosterBadge(b)}<div class="grow"><div class="name" style="color:${bRarity(b.rarity).color}">${esc(bName(b))}</div>
-      <div class="sub ellipsis">${esc(describe(b))} · ${b.charges} games</div></div></button>`).join('')}</div>`
-      : '<div class="card empty">No free boosters. Open a booster pack or buy one in the Market.</div><button class="btn buy" data-gtab="locker" style="width:100%;margin-top:10px">Go to Locker</button>'}
+    <div class="sub" style="margin-bottom:10px">${equipped(state).length}/${slots(state)} card slots used</div>
+    <div class="mc-grid">${mine.map((b) => `<button class="mc-cell" data-bpickone="${b.id}">${momentCard(b, { mini: true })}</button>`).join('')}</div>
     <div class="err" id="terr"></div><button class="link-btn" data-act="tcancel">Close</button>`;
   panel.classList.remove('enter'); void panel.offsetWidth; panel.classList.add('enter');
 }
@@ -1033,38 +1058,100 @@ function showBoosterPack(list, pack) {
   ui.packView = { cards: list.map((b) => ({ rarity: bRarity(b.rarity) })), flipped: 0 };
   el.hidden = false;
   el.innerHTML = `<div class="pv-inner"><div class="tiny muted">${esc(pack.name)}</div><h1 style="margin:4px 0 18px">Tap to reveal</h1>
-    <div class="pv-cards">${list.map((b, i) => { const r = bRarity(b.rarity); return `<button class="pv-card" data-flip="${i}" style="--rc:${r.color}">
-      <div class="pv-back">⚡</div>
-      <div class="pv-front ${b.rarity}"><div style="font-size:30px">${bType(b.type).icon}</div><div class="pc-name">${esc(bType(b.type).name.replace(' Booster', ''))}</div>
-        <div class="pc-rar">${r.name}</div><div class="tiny">${esc(describeShort(b))}</div></div></button>`; }).join('')}</div>
+    <div class="pv-cards moments">${list.map((b, i) => `<button class="pv-card mcard" data-flip="${i}" style="--rc:${bRarity(b.rarity).color}">
+      <div class="pv-back">⚡</div><div class="pv-front">${momentCard(b, { mini: true })}</div></button>`).join('')}</div>
     <button class="btn ghost" data-act="packdone" style="margin-top:22px;max-width:320px;width:100%">Reveal all</button></div>`;
 }
 
-// ---------- Market tab ----------
-function gamesMarket() {
+// ---------- Marketplace tab ----------
+const MP_SORTS = [['ending', 'Ending soon'], ['new', 'Newest'], ['low', 'Price: low'], ['high', 'Price: high'], ['rating', 'Rating']];
+
+function renderMarketplace() {
   const now = Date.now();
   const c = career(state);
-  const L = listings(state, now);
-  const aus = (state.auctions || []);
-  const live = aus.filter((a) => a.status === 'live');
-  const done = aus.filter((a) => a.status !== 'live').slice(0, 8);
-  const tomorrow = new Date(now); tomorrow.setHours(24, 0, 0, 0);
+  ui.mp ||= { league: 'all', rarity: 'all', sort: 'ending', q: '', view: 'browse' };
+  const f = ui.mp;
+  const lgs = enabledLeagues();
+  const head = `<div class="topbar mp-top"><h1>Marketplace</h1><div class="row" style="gap:10px"><span class="coins">🪙 ${coinFmt(c.coins)}</span>
+      <button class="icon-btn ${f.view === 'mine' ? 'on-acc' : ''}" data-act="mymarket" aria-label="My bids and listings"><svg viewBox="0 0 24 24"><path d="M14 3l7 7-3 3-7-7z"/><path d="M11 6l-8 8 3 3 8-8"/><path d="M3 21h9"/></svg></button></div></div>`;
+  if (f.view === 'mine') { $('#view').innerHTML = head + myMarket(now); return; }
+  let list = marketListings(state, now);
+  const total = list.length;
+  if (f.league !== 'all') list = list.filter((l) => l.card.m.league === f.league);
+  if (f.rarity !== 'all') list = list.filter((l) => l.card.rarity === f.rarity);
+  const q = f.q.trim().toLowerCase();
+  if (q) list = list.filter((l) => l.card.m.player.name.toLowerCase().includes(q) || (l.card.m.player.team || '').toLowerCase() === q);
+  const views = new Map(list.map((l) => [l.id, listingView(state, l, now)]));
+  const key = { ending: (l) => l.end, new: (l) => -l.from, low: (l) => views.get(l.id).current, high: (l) => -views.get(l.id).current, rating: (l) => -l.card.m.rating }[f.sort];
+  list.sort((x, y) => key(x) - key(y));
+  $('#view').innerHTML = `${head}
+    <div class="mp-leagues">${['all', ...lgs].map((l) => `<button data-mpl="${l}" class="${f.league === l ? 'on' : ''}">${l === 'all' ? 'All' : LEAGUES[l].name}</button>`).join('')}</div>
+    <div class="mp-filters">
+      <label class="mp-sel"><select id="mprar">${[['all', 'All rarities'], ...B_RARITY.map((r) => [r.key, r.name])].map(([k, n]) => `<option value="${k}" ${f.rarity === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="mp-sel"><select id="mpsort">${MP_SORTS.map(([k, n]) => `<option value="${k}" ${f.sort === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <span class="tiny muted">${total} live</span>
+    </div>
+    <input class="search" id="mpq" type="search" placeholder="Search player or team (e.g. PHI)" value="${esc(f.q)}" autocomplete="off" style="margin-top:10px">
+    ${list.length ? `<div class="mp-grid">${list.map((l) => { const v = views.get(l.id); return `<div class="mp-item">
+      <div class="mp-meta"><span>⏰ ${fmtLeft(v.left)}</span><span class="acc">🔨 ${v.bids}</span></div>
+      <button class="mp-cardbtn" data-lot="${l.id}">${momentCard(l.card)}</button>
+      <div class="mp-price">🪙 ${v.current}${v.leading ? ' <span class="pk won">You lead</span>' : ''}</div>
+      <div class="mp-actions"><button class="btn mp-bid" data-lot="${l.id}">Bid</button><button class="mp-more" data-lot="${l.id}" aria-label="More">•••</button></div>
+    </div>`; }).join('')}</div>`
+      : `<div class="card empty" style="margin-top:14px">${total ? 'No auctions match these filters.' : 'No auctions yet. Listings appear as real games are played and moments come in.'}</div>`}`;
+}
+
+function myMarket(now) {
+  const lots = (state.mp?.list || []);
+  const bids = Object.keys(state.mp?.bids || {}).map((id) => lots.find((l) => l.id === id)).filter(Boolean);
+  const mine = myAuctions(state).sort((x, y) => y.from - x.from);
+  const live = mine.filter((l) => l.status === 'live');
+  const done = mine.filter((l) => l.status !== 'live').slice(0, 10);
+  const won = lots.filter((l) => l.won && !l.mine).sort((x, y) => y.end - x.end).slice(0, 10);
+  const row = (l, right) => `<div class="item"><div class="mc-thumb" style="--rc:${bRarity(l.card.rarity).color}">${KIND_ICON[l.card.m.kind] || '⭐'}</div>
+    <div class="grow"><div class="name ellipsis">${esc(cardName(l.card))}</div><div class="sub">${bRarity(l.card.rarity).name} · ⩔ ${l.card.m.rating.toFixed(1)} · #${l.card.serial}</div></div>${right}</div>`;
   return `
-    <div class="row between" style="margin-top:14px"><h2 style="margin:0">Market</h2><span class="coins big">🪙 ${coinFmt(c.coins)}</span></div>
-    <p class="small muted" style="margin:6px 0 10px">Buy boosters from other collectors, or sell yours from the Locker: instantly, or at auction for more. Prices move with daily demand.</p>
-    ${live.length ? `<h2>Your auctions</h2><div class="list">${live.map((au) => { const v = auctionView(au, now); const b = au.booster; return `<button class="item brow" data-booster="${(boosterState(state).inv.find((x) => x.listed === au.id) || {}).id || ''}">${boosterBadge(b)}
-      <div class="grow"><div class="name" style="color:${bRarity(b.rarity).color}">${esc(bName(b))}</div><div class="sub">${v.bids ? `${v.bids} bid${v.bids > 1 ? 's' : ''} · top 🪙 ${v.current}` : `No bids yet · from 🪙 ${au.start}`}</div></div>
-      <span class="tiny muted">${fmtLeft(v.left)}</span></button>`; }).join('')}</div>` : ''}
-    <h2>Today's listings <span class="faint small">new ones in ${fmtLeft(tomorrow - now)}</span></h2>
-    <div class="list">${L.map((l) => `<div class="item brow ${l.sold ? 'sold' : ''}">${boosterBadge(l)}
-      <div class="grow"><div class="name ellipsis" style="color:${bRarity(l.rarity).color}">${esc(bName(l))}</div>
-        <div class="sub ellipsis">${esc(describe(l))}</div><div class="tiny muted">${l.charges}/${l.max} games · from ${esc(l.seller)}</div></div>
-      ${l.sold ? '<span class="pk">Sold</span>' : `<button class="btn buy small" data-buylist="${l.id}">🪙 ${l.price}</button>`}</div>`).join('')}</div>
-    <h2>Quick-sell prices</h2>
-    <div class="qs">${B_RARITY.map((r) => `<div style="--rc:${r.color}"><i></i><span>${r.name}</span><b>🪙 ${r.sell}</b></div>`).join('')}</div>
-    <p class="tiny faint" style="margin-top:6px">For a fully charged booster. Partly used ones sell for less. Auctions usually fetch more.</p>
-    ${done.length ? `<h2>Auction history</h2><div class="list">${done.map((au) => `<div class="item">${boosterBadge(au.booster, 34)}<div class="grow"><div class="name">${esc(bName(au.booster))}</div>
-      <div class="sub">${au.status === 'sold' ? `Sold to ${au.bidders} bidders` : au.status === 'cancelled' ? 'Cancelled' : 'No sale'}</div></div><div class="price ${au.status === 'sold' ? 'up' : 'muted'}">${au.status === 'sold' ? `+🪙 ${au.price}` : '—'}</div></div>`).join('')}</div>` : ''}`;
+    <div class="seg" style="margin-top:12px"><button data-act="mymarket">Browse</button><button class="on">My market</button></div>
+    <h2>Your bids</h2>${bids.length ? `<div class="list">${bids.map((l) => { const v = listingView(state, l, now); return row(l, `<div class="price-col"><div class="price">🪙 ${v.current}</div><div class="tiny ${v.leading ? 'up' : 'down'}">${v.leading ? 'Leading' : 'Outbid'} · ${fmtLeft(v.left)}</div></div>`); }).join('')}</div>` : '<div class="card empty">No active bids.</div>'}
+    <h2>Your listings</h2>${live.length ? `<div class="list">${live.map((l) => { const v = listingView(state, l, now); return row(l, `<div class="price-col"><div class="price">${v.bids ? `🪙 ${v.current}` : `from 🪙 ${l.start}`}</div><div class="tiny muted">${v.bids} bids · ${fmtLeft(v.left)}</div></div>`); }).join('')}</div>` : '<div class="card empty">List cards from your Locker.</div>'}
+    ${won.length ? `<h2>Won</h2><div class="list">${won.map((l) => row(l, `<div class="price up">🪙 ${l.price ?? buyNowPrice(l)}</div>`)).join('')}</div>` : ''}
+    ${done.length ? `<h2>Sold & returned</h2><div class="list">${done.map((l) => row(l, `<div class="price ${l.status === 'sold' ? 'up' : 'muted'}">${l.status === 'sold' ? `+🪙 ${l.price}` : l.status === 'cancelled' ? 'Cancelled' : 'Unsold'}</div>`)).join('')}</div>` : ''}`;
+}
+
+function openLot(id, focusBid = false) {
+  ui.order = { mode: 'lot', id };
+  renderLot(focusBid);
+  const panel = $('#panel');
+  panel.classList.remove('enter'); void panel.offsetWidth; panel.classList.add('enter');
+}
+
+function renderLot(focusBid = false) {
+  const l = (state.mp?.list || []).find((x) => x.id === ui.order.id);
+  if (!l) { closeOrder(); return; }
+  const v = listingView(state, l);
+  const wrap = $('#trade'); const panel = $('#panel');
+  wrap.hidden = false;
+  panel.style.setProperty('--acc', '#7b5cff');
+  const my = state.mp.bids[l.id];
+  const a = state.assets[assetOf(l.card.m)];
+  const inc = Math.max(1, Math.ceil(v.current * 0.1));
+  panel.innerHTML = `<div class="grabber"></div>
+    <div class="mc-solo">${momentCard(l.card)}</div>
+    <div class="small muted" style="text-align:center;margin:8px 0 0">${esc(describe(l.card))}</div>
+    <div class="grid3" style="margin-top:12px">
+      <div class="stat"><div class="k">${v.bids ? 'Top bid' : 'Starts at'}</div><div class="v">🪙 ${v.current}</div></div>
+      <div class="stat"><div class="k">Bids</div><div class="v">${v.bids}</div></div>
+      <div class="stat"><div class="k">Ends in</div><div class="v">${fmtLeft(v.left)}</div></div>
+    </div>
+    ${my ? `<div class="small ${v.leading ? 'up' : 'down'}" style="margin-top:8px">${v.leading ? `You're winning. Your max bid is 🪙 ${my.amount}; you'll pay just over the next bidder.` : 'You were outbid.'}</div>` : ''}
+    <label class="price-field"><span class="small muted">Your max bid 🪙</span><input id="bidamt" inputmode="numeric" value="${v.minBid}"></label>
+    <div class="quick" style="margin-top:10px">${[v.minBid, v.minBid + inc, v.minBid + inc * 3].map((x) => `<button data-bidq="${x}">🪙 ${x}</button>`).join('')}</div>
+    <button class="btn buy" data-act="placebid" style="width:100%">Place bid</button>
+    <button class="btn ghost" data-act="buynow" style="width:100%;margin-top:8px">Buy now · 🪙 ${buyNowPrice(l)}</button>
+    <div class="tiny faint" style="margin-top:8px;text-align:center">Listed by ${esc(l.seller)} · ${a ? `${esc(a.name)} trades at ${money(a.price)}` : ''}</div>
+    <div class="err" id="terr"></div>
+    <button class="link-btn" data-act="tcancel">Close</button>`;
+  if (focusBid) setTimeout(() => $('#bidamt')?.select(), 300);
 }
 
 // ---------- Game Center ----------
@@ -1821,6 +1908,7 @@ function render() {
   else if (ui.tab === 'market') renderMarket();
   else if (ui.tab === 'news') renderNews();
   else if (ui.tab === 'games') renderGames();
+  else if (ui.tab === 'marketplace') renderMarketplace();
   else renderAccount();
 }
 
@@ -1834,6 +1922,7 @@ function softRefresh() {
   else if (ui.game) renderGame();
   else if (ui.draft) refreshBadge();
   else if (ui.tab === 'games' && ['stake', 'dq'].includes(document.activeElement?.id)) refreshBadge();
+  else if (ui.tab === 'marketplace' && document.activeElement?.id === 'mpq') refreshBadge();
   else if (!(ui.tab === 'market' && document.activeElement?.id === 'q')) {
     const y = view().scrollTop; render(); view().scrollTop = y;
   } else refreshBadge();
@@ -1986,8 +2075,7 @@ document.addEventListener('click', async (e) => {
   }
   if (d.blen && ui.order?.mode === 'booster') { ui.order.len = d.blen; const v = $('#bstart')?.value; renderBoosterSheet(); if (v && $('#bstart')) $('#bstart').value = v; return; }
   if (d.fuse) {
-    const [type, rarity] = d.fuse.split('|');
-    try { const nb = fuse(state, type, rarity); dirty = true; save(); haptic(); confetti(); toast(`Fused into a ${bRarity(nb.rarity).name} ${bType(nb.type).name}!`); afterBoostChange(); }
+    try { const nb = fuse(state, d.fuse); dirty = true; save(); haptic(); confetti(); toast(`${nb.m.player.name}'s card is now ${bRarity(nb.rarity).name}!`); afterBoostChange(); }
     catch (err) { toast(err.message); }
     return;
   }
@@ -1996,11 +2084,9 @@ document.addEventListener('click', async (e) => {
     try { const got = openBoosterPack(state, d.bpack); dirty = true; save(); haptic(); showBoosterPack(got, pack); } catch (err) { toast(err.message); }
     return;
   }
-  if (d.buylist) {
-    try { const b = buyListing(state, d.buylist); dirty = true; save(); haptic(); toast(`Bought a ${bRarity(b.rarity).name} ${bType(b.type).name} — find it in your Locker`); afterBoostChange(); }
-    catch (err) { toast(err.message); }
-    return;
-  }
+  if (d.lot) { openLot(d.lot, el.classList.contains('mp-bid')); return; }
+  if (d.mpl) { ui.mp.league = d.mpl; renderMarketplace(); return; }
+  if (d.bidq) { const i = $('#bidamt'); if (i) i.value = d.bidq; return; }
   if (d.gleague) { ui.gamesLeague = d.gleague; ui.pickLimit = 8; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
   if (d.mview) { ui.mview = d.mview; renderMarket(); return; }
   if (d.league) { ui.league = d.league; ui.limit = 60; renderMarket(); return; }
@@ -2125,6 +2211,22 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'bpickfor': openBoosterPicker(); break;
+    case 'findcards': { const a = state.assets[ui.detail]; ui.mp ||= { league: 'all', rarity: 'all', sort: 'ending', q: '', view: 'browse' }; ui.mp.q = a.name; ui.mp.view = 'browse'; ui.tab = 'marketplace'; closeOverlays(); render(); break; }
+    case 'mymarket': ui.mp.view = ui.mp.view === 'mine' ? 'browse' : 'mine'; renderMarketplace(); view().scrollTop = 0; break;
+    case 'placebid': {
+      try {
+        const r = placeBid(state, ui.order.id, $('#bidamt').value); dirty = true; save(); haptic();
+        if (r.leading) { toast(`You're the top bidder at 🪙 ${r.price}`); closeOrder(); renderMarketplace(); }
+        else { $('#terr').textContent = `Outbid right away: another collector went to 🪙 ${r.price}. Your coins are back.`; renderLot(); }
+      } catch (err) { $('#terr').textContent = err.message; }
+      break;
+    }
+    case 'buynow':
+      if (armed(el, 'Tap again to buy now')) {
+        try { const p = buyNow(state, ui.order.id); dirty = true; save(); haptic(); confetti(); toast(`Bought for ${p} coins — it's in your Locker`); closeOrder(); renderMarketplace(); }
+        catch (err) { $('#terr').textContent = err.message; }
+      }
+      break;
     case 'draftback': if (history.state?.draft) history.back(); else closeDraft(); break;
     case 'enterdraft': {
       const dr = ui.draft;
@@ -2203,6 +2305,10 @@ function syncQtyInput() {
 document.addEventListener('input', (e) => {
   if (e.target.id === 'q') { ui.q = e.target.value; ui.limit = 60; renderMarket(true); }
   if (e.target.id === 'dq' && ui.draft) { ui.draft.q = e.target.value; renderDraft(true); }
+  if (e.target.id === 'mpq' && ui.mp) {
+    ui.mp.q = e.target.value; const pos = e.target.selectionStart; renderMarketplace();
+    const inp = $('#mpq'); if (inp) { inp.focus(); try { inp.setSelectionRange(pos, pos); } catch { /* */ } }
+  }
   if (e.target.id === 'stake' && ui.slip) { ui.slip.stake = e.target.value.replace(/[^0-9.]/g, ''); updateSlipPay(); }
   if (e.target.id === 'qtyin' && ui.order) {
     ui.order.amount = e.target.value.replace(ui.order.mode === 'option' ? /[^0-9]/g : /[^0-9.]/g, '');
@@ -2221,6 +2327,8 @@ document.addEventListener('change', async (e) => {
     dirty = true; save();
     if (e.target.checked && !state.sync[e.target.dataset.lgtoggle]?.seeded) runSync({ manual: true });
   }
+  if (e.target.id === 'mprar') { ui.mp.rarity = e.target.value; renderMarketplace(); }
+  if (e.target.id === 'mpsort') { ui.mp.sort = e.target.value; renderMarketplace(); }
   if (e.target.id === 'drip') { state.settings.drip = e.target.checked; dirty = true; save(); toast(e.target.checked ? 'Dividends will be reinvested' : 'Dividends will be paid as cash'); }
   if (e.target.id === 'importfile' && e.target.files[0]) {
     try {
@@ -2520,6 +2628,9 @@ async function main() {
     runSocial(state, now);
     runCareer(state, now);
     maybeRecap();
+    // Keep auction clocks and bids moving on the Marketplace.
+    if (ui.tab === 'marketplace' && !overlayOpen() && now - (ui.mpDrawn || 0) > 20e3) { ui.mpDrawn = now; softRefresh(); }
+    if (ui.order?.mode === 'lot' && document.activeElement?.id !== 'bidamt' && now - (ui.lotDrawn || 0) > 15e3) { ui.lotDrawn = now; renderLot(); }
     dirty = true;
     updateNumbers();
     announce();

@@ -7,6 +7,8 @@ import {
   applyFinalGame, applyLiveGame, applyNews, applyInjuries, clearStaleLive,
 } from './engine.js';
 import { etDays, pool, HOUR, DAY } from './util.js';
+import { parseMoments } from './moments.js';
+import { addMoments } from './boosters.js';
 
 const MIN = 60e3;
 
@@ -100,11 +102,16 @@ async function loadScoreboards(league, fromTs, toTs) {
 async function withBox(league, events, progress, label) {
   let done = 0;
   return pool(events, 5, async (ev) => {
-    let players = [];
-    try { players = parseBoxScore(league, await api.summary(league, ev.id)); } catch { /* team result still counts */ }
+    let players = []; let moments = [];
+    try {
+      const json = await api.summary(league, ev.id);
+      players = parseBoxScore(league, json);
+      // Finished games also yield moments: real plays that become player cards.
+      if (ev.completed) { try { moments = parseMoments(league, json, ev, players); } catch { /* cards are a bonus */ } }
+    } catch { /* team result still counts */ }
     done++;
     if (progress && events.length > 3) progress(`${label} ${done}/${events.length}`);
-    return { ...ev, players };
+    return { ...ev, players, moments };
   });
 }
 
@@ -134,7 +141,7 @@ async function firstRun(state, league, progress, now) {
   await loadSchedule(state, league, now);
   repriceLeague(state, league, now);
   const s = state.sync[league];
-  Object.assign(s, { seeded: true, scoreboard: now, standings: now });
+  Object.assign(s, { seeded: true, scoreboard: now, standings: now, momV: 1 });
 }
 
 // Upcoming games for the next few days (shown as "next game" and before option expiries).
@@ -206,7 +213,17 @@ export async function syncLeague(state, league, { progress = () => {}, now = Dat
   const r = await refresh(state, league, progress, now, { liveOnly });
   const s = state.sync[league];
   if (!liveOnly && (s.priorV !== MODEL_V || (s.season && s.priorSeason !== s.season))) await reseedSeason(state, league, now);
-  else if (!liveOnly && !s.avgV) {
+  else if (!liveOnly && !s.momV) {
+    // Saves from before moment cards: pull plays from the last few days of games once.
+    try {
+      const L = LEAGUES[league];
+      const events = (await loadScoreboards(league, now - L.backfillDays * DAY, now)).filter((e) => e.completed);
+      const boxed = await withBox(league, events, null, '');
+      addMoments(state, boxed.flatMap((g) => g?.moments || []));
+      s.momV = 1;
+    } catch { /* next time */ }
+  }
+  if (!liveOnly && !s.avgV) {
     // Per-stat season averages (for prop lines) weren't kept by older versions.
     try { await loadSeasonStats(state, league, null); initForm(state, league); s.avgV = 1; } catch { /* next time */ }
   }
