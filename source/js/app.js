@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, resetHistory, HIST_V,
+  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, resetHistory, HIST_V, resetPortfolio,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -41,7 +41,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 11;
+const APP_VERSION = 12;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1971,11 +1971,7 @@ document.addEventListener('click', async (e) => {
     case 'resetpf':
       if (armed(el, 'Tap again to reset portfolio')) {
         const start = state.settings.startCash;
-        Object.assign(state, { cash: start, startCash: start, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [],
-          picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, startedAt: Date.now(), contests: {}, props: [] });
-        // The season restarts from the new balance (same season number and end date).
-        if (state.season) Object.assign(state.season, { start: Date.now(), nw0: start, bal: start });
-        state.week = null; runCareer(state, Date.now());
+        resetPortfolio(state, start); runCareer(state, Date.now());
         ui.seenInbox = 0; dirty = true; save(); render(); toast(`Portfolio reset to ${money(start)}`);
       }
       break;

@@ -42,6 +42,12 @@ export const resetRarityCache = () => { rankCache = { t: 0, map: new Map() }; };
 export { cardLevel };
 
 function updateCollection(state, now) {
+  // Selling all of a player or team removes their card, unless you pulled it from a pack
+  // (then it stays, at its pack level).
+  for (const [id, c] of Object.entries(state.collection)) {
+    if (state.holdings[id]) continue;
+    if (c.pulls) c.peak = 0; else delete state.collection[id];
+  }
   for (const [id, h] of Object.entries(state.holdings)) {
     const a = state.assets[id];
     if (!a || a.kind === 'fund') continue;

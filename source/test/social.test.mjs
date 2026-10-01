@@ -46,7 +46,10 @@ t('cards join the collection and level up with the most you have held', () => {
   assert.ok(st.inbox.some((n) => /leveled up/.test(n.text)));
   E.trade(st, 'nba:p:b0', 'sell', st.holdings['nba:p:b0'].qty, now + 3);
   S.runSocial(st, now + 4);
-  assert.equal(S.cardLevel(st, 'nba:p:b0'), lv2, 'level is kept after selling');
+  assert.equal(st.collection['nba:p:b0'], undefined, 'selling everything removes the card');
+  st.collection['nba:p:b5'] = { first: now, peak: 0, pulls: 2 };
+  S.runSocial(st, now + 5);
+  assert.equal(S.cardLevel(st, 'nba:p:b5'), 2, 'pack cards stay');
 });
 
 t('daily reward: claim once a day, streak grows, missing a day resets', () => {

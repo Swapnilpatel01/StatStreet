@@ -7,8 +7,8 @@ import {
 } from './scoring.js';
 import { optionsValue, optionMid, CONTRACT } from './bs.js';
 
-export const START_CASH = 100;
-export const START_OPTIONS = [100, 1000, 10000];
+export const START_CASH = 5;
+export const START_OPTIONS = [5, 100, 1000, 10000];
 export const SPREAD = 0.0035;           // half-spread charged on each trade
 // ---------- pricing model (v2) ----------
 // Prices are a market's best guess of how good someone is, not a scoreboard:
@@ -57,8 +57,21 @@ export function newState(startCash = START_CASH) {
     options: {}, orders: [], alerts: [], recurring: [], divs: [], divTotal: 0, inbox: [], schedule: {},
     picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, daily: { last: '', streak: 0, best: 0 },
     collection: {}, trophies: {}, results: [], startedAt: Date.now(), contests: {}, props: [],
-    settings: { proxy: '', leagues: { nba: true, nfl: true, mlb: true }, drip: false, startCash, startCashV: 1 },
+    settings: { proxy: '', leagues: { nba: true, nfl: true, mlb: true }, drip: false, startCash, startCashV: 2 },
   };
+}
+
+// Start a fresh portfolio with `start` dollars. Career progress (levels, coins, cards from
+// packs, trophies) is kept; the current season restarts from the new balance.
+export function resetPortfolio(state, start, now = Date.now()) {
+  Object.assign(state, {
+    cash: start, startCash: start, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [],
+    picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, startedAt: now, contests: {}, props: [],
+  });
+  if (state.season) Object.assign(state.season, { start: now, nw0: start, bal: start });
+  state.week = null;
+  // Cards you only had because you owned the player go with the shares.
+  for (const [id, c] of Object.entries(state.collection || {})) { if (c.pulls) c.peak = 0; else delete state.collection[id]; }
 }
 
 // Fill in anything an older saved state is missing.
@@ -79,6 +92,13 @@ export function migrate(state) {
     if (untouched) { state.cash = START_CASH; state.startCash = START_CASH; state.nw = []; }
   }
   state.settings.leagues = { ...d.settings.leagues, ...(state.settings.leagues || {}) };
+  if ((state.settings.startCashV || 1) < 2) {
+    // You asked to start over with $5.
+    state.settings.startCashV = 2;
+    state.settings.startCash = START_CASH;
+    resetPortfolio(state, START_CASH);
+    notify(state, 'info', 'Fresh start: your portfolio was reset to $5. Levels, coins and trophies are kept.');
+  }
   for (const h of Object.values(state.holdings || {})) h.since ??= 0;
   return state;
 }

@@ -44,7 +44,7 @@ with sync_playwright() as p:
     cdp = ctx.new_cdp_session(page)
 
     # --- new installs start with $100; switch to $10,000 via Account for the bigger trades below
-    assert '$100.00' in page.text_content('[data-nw]'), page.text_content('[data-nw]')
+    assert '$5.00' in page.text_content('[data-nw]'), page.text_content('[data-nw]')
     page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(200)
     page.click('[data-startcash="10000"]'); page.click('[data-act=resetpf]'); page.click('[data-act=resetpf]'); page.wait_for_timeout(300)
     print('reset:', toast(page)); assert '10,000' in toast(page)
@@ -255,6 +255,17 @@ with sync_playwright() as p:
         const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
         return [s.histV, Math.max(...s._hist.lens.filter((_, i) => !s._hist.ids[i].startsWith('fund:')))]; })()""")
     print('charts restarted (histV, longest player history):', flat); assert flat[0] == 2 and flat[1] < 40
+
+    # --- the one-time $5 fresh start for older saves; cards go when shares are sold
+    page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
+        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
+        s.settings.startCashV = 1; s.collection['nba:t:2'] = { first: 1, peak: 50 };
+        await new Promise(r => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(s, 'state'); t.oncomplete = r; }); })()""")
+    page.reload(); page.wait_for_timeout(3000)
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    nw = page.text_content('[data-nw]'); print('after fresh start:', nw); assert nw.strip() == '$5.00'
+    page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
+    held_cards = page.locator('.card-grid .pcard').count(); print('cards after reset (pack pulls only):', held_cards)
     assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
     b.close()
 srv.shutdown()
