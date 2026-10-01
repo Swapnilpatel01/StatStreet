@@ -2,7 +2,7 @@
 // trophies and a leaderboard against strategy bots. Pure state logic.
 
 import { DAY, HOUR, clamp } from './util.js';
-import { notify, priceAt, netWorth, pickStreakMult, teamWinProb, cardLevel } from './engine.js';
+import { notify, priceAt, netWorth, pickStreakMult, teamWinProb, cardLevel, bankrollScale } from './engine.js';
 import { addXP, addCoins } from './xp.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -66,13 +66,16 @@ function updateCollection(state, now) {
 export const DAILY_REWARDS = [1, 1.5, 2, 2.5, 3, 4, 5]; // day 1..7+, in play dollars
 const dayKey = (t) => new Date(t).toLocaleDateString('en-CA');
 
+// Day N's reward, sized to your bankroll ($1–$5 on a $100 season, 5¢–25¢ on $5).
+export const dailyAmount = (state, day) => Math.max(0.01, round2(DAILY_REWARDS[Math.min(day, 7) - 1] * bankrollScale(state)));
+
 export function dailyStatus(state, now = Date.now()) {
   const d = state.daily;
   const today = dayKey(now); const yesterday = dayKey(now - DAY);
   const claimed = d.last === today;
   const nextStreak = claimed ? d.streak : d.last === yesterday ? d.streak + 1 : 1;
   const alive = claimed || d.last === yesterday;
-  return { claimed, streak: alive ? d.streak : 0, nextStreak, reward: DAILY_REWARDS[Math.min(nextStreak, 7) - 1] };
+  return { claimed, streak: alive ? d.streak : 0, nextStreak, reward: dailyAmount(state, nextStreak) };
 }
 
 export function claimDaily(state, now = Date.now()) {
@@ -97,6 +100,7 @@ export function winProb(state, league, teamId, oppId, home, preseason = false) {
 
 // Correct picks pay more for underdogs: $1 at even odds, from $0.55 up to $3.
 export const pickReward = (p) => round2(clamp(0.5 / p, 0.55, 3));
+export const scaledPickReward = (state, p) => Math.max(0.01, round2(clamp(0.5 / p, 0.55, 3) * bankrollScale(state)));
 
 export function upcomingPickGames(state, now = Date.now(), leagues = null) {
   const out = [];
@@ -117,7 +121,7 @@ export function makePick(state, game, teamId, now = Date.now()) {
   const opp = game.teams.find((t) => t.id !== teamId);
   if (!me || !opp) throw new Error('Pick a team in this game');
   const p = winProb(state, game.league, me.id, opp.id, !!me.home, !!game.preseason);
-  const pk = { gameId: game.id, league: game.league, teamId: me.id, abbr: me.abbr, opp: opp.abbr, name: game.name, date: game.date, p, reward: pickReward(p), t: now };
+  const pk = { gameId: game.id, league: game.league, teamId: me.id, abbr: me.abbr, opp: opp.abbr, name: game.name, date: game.date, p, reward: scaledPickReward(state, p), t: now };
   state.picks[game.id] = pk;
   return pk;
 }

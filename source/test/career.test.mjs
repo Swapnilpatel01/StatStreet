@@ -194,4 +194,18 @@ t('daily reward pays XP, and coins every 7th day', () => {
   assert.ok(X.career(st).xp >= 140);
 });
 
+t('a $5 bankroll scales rewards, fees and minimums', () => {
+  const st = build(5);
+  C.runCareer(st, now);
+  assert.equal(E.minOrder(st), 0.05);
+  assert.equal(S.dailyStatus(st, now).reward, 0.05);
+  assert.equal(S.dailyAmount(st, 7), 0.25);
+  assert.equal(K.entryFee(st, K.CONTEST_TIERS[0]), 0.25);
+  const g = { id: 'sg', league: 'nba', date: now + DAY, name: 'WAS @ BOS', teams: [{ id: '2', abbr: 'WAS', home: false }, { id: '1', abbr: 'BOS', home: true }] };
+  const pk = S.makePick(st, g, '2', now);
+  assert.ok(pk.reward <= 0.15 && pk.reward >= 0.01, `pick reward ${pk.reward}`);
+  E.trade(st, 'nba:p:b0', 'buy', 0.1 / st.assets['nba:p:b0'].price, now);
+  assert.throws(() => E.trade(st, 'nba:p:b0', 'buy', 0.03 / st.assets['nba:p:b0'].price, now), /0\.05/);
+});
+
 console.log(`\n${passed} career tests passed`);

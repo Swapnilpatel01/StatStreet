@@ -9,6 +9,9 @@ import { optionsValue, optionMid, CONTRACT } from './bs.js';
 
 export const START_CASH = 5;
 export const START_OPTIONS = [5, 100, 1000, 10000];
+// Rewards, fees and minimums are sized to your bankroll: 1.0 at a $100 season, 0.05 at $5.
+export const bankrollScale = (state) => (state.season?.bal || state.startCash || 100) / 100;
+export const minOrder = (state) => clamp(Math.round(bankrollScale(state) * 100) / 100, 0.05, 1);
 export const SPREAD = 0.0035;           // half-spread charged on each trade
 // ---------- pricing model (v2) ----------
 // Prices are a market's best guess of how good someone is, not a scoreboard:
@@ -870,7 +873,8 @@ export function trade(state, id, side, qty, now = Date.now()) {
   const pos = state.holdings[id] || { qty: 0, cost: 0, since: now };
   if (side === 'sell' && qty > pos.qty && qty - pos.qty < 1e-5) qty = pos.qty; // "sell all" rounding
   if (!(qty > 0)) throw new Error('Enter an amount to trade');
-  if (qty * a.price < 1 && !(side === 'sell' && qty === pos.qty)) throw new Error('Minimum order is $1');
+  const minAmt = minOrder(state);
+  if (qty * a.price < minAmt && !(side === 'sell' && qty === pos.qty)) throw new Error(`Minimum order is $${minAmt.toFixed(2)}`);
   const pv = previewTrade(state, id, side, qty, now);
   const total = pv.total;
   if (side === 'buy') {

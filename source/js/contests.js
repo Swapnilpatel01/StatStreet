@@ -4,7 +4,7 @@
 // Props: bet over/under on a real stat line (points, yards, strikeouts…), alone or as a parlay.
 
 import { DAY, HOUR, weekEnd, weekId, seeded } from './util.js';
-import { gameHooks, notify, change, netWorth } from './engine.js';
+import { gameHooks, notify, change, netWorth, minOrder } from './engine.js';
 import { LEAGUES, gameScore, posGroup } from './scoring.js';
 import { addXP, addCoins, hasLevel } from './xp.js';
 
@@ -28,7 +28,7 @@ export const BOTS = [
 ];
 
 const seasonBal = (state) => state.season?.bal || state.startCash || 100;
-export const entryFee = (state, tier) => Math.max(1, round2(seasonBal(state) * tier.fee));
+export const entryFee = (state, tier) => Math.max(0.05, round2(seasonBal(state) * tier.fee));
 export const salary = (a) => Math.max(1, Math.round(a.price));
 
 // Draftable players: healthy-ish, with a performance history, most valuable first.
@@ -207,9 +207,10 @@ export function placeBet(state, legs, stake, now = Date.now()) {
   if (legs.length > MAX_LEGS(state)) throw new Error(MAX_LEGS(state) === 1 ? 'Parlays unlock at level 4' : 'Up to 3 picks per parlay');
   if (new Set(legs.map((l) => l.assetId)).size !== legs.length) throw new Error('One pick per player');
   if (legs.some((l) => l.date <= now)) throw new Error('A game on your slip has started — remove it');
-  if (!(stake >= 1)) throw new Error('Minimum stake is $1');
+  const min = minOrder(state);
+  if (!(stake >= min)) throw new Error(`Minimum stake is $${min.toFixed(2)}`);
   if (stake > state.cash) throw new Error(`You have $${state.cash.toFixed(2)} cash`);
-  const max = Math.max(5, round2(netWorth(state, now) * 0.25));
+  const max = Math.max(min, round2(netWorth(state, now) * 0.25));
   if (stake > max) throw new Error(`Max stake is $${max.toFixed(2)} (a quarter of your net worth)`);
   state.cash = round2(state.cash - stake);
   state.props ||= [];

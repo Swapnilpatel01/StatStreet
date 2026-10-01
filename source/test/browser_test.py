@@ -148,7 +148,7 @@ with sync_playwright() as p:
     # --- order panel: stable across taps and ticks (no rebuild / re-animation)
     page.click('#tradebar [data-act=buy]'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
     page.evaluate("document.querySelector('#osum').dataset.mark = 'x'")
-    page.click('#panel [data-q="1"]'); page.click('#panel [data-q="1"]'); page.click('#panel [data-qset="50"]')
+    page.click('#panel [data-q="1"]'); page.click('#panel [data-q="1"]'); page.click('#panel [data-qset] >> nth=0')
     page.wait_for_timeout(4500)
     assert page.evaluate("document.querySelector('#osum').dataset.mark") == 'x', 'panel was rebuilt'
     anim = page.evaluate("getComputedStyle(document.querySelector('#panel')).animationName"); print('panel animation after taps:', anim)

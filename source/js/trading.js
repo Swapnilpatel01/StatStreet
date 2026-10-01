@@ -2,7 +2,7 @@
 // Everything here is pure state logic; runAutomation() is called on each tick.
 
 import { DAY, HOUR, clamp } from './util.js';
-import { trade, previewTrade, priceAt, notify, SPREAD, fmtQty } from './engine.js';
+import { trade, previewTrade, priceAt, notify, SPREAD, fmtQty, minOrder } from './engine.js';
 import { bsPrice, greeks, optionVol, YEAR, CONTRACT, OPT_SPREAD } from './bs.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -197,7 +197,8 @@ function processOrders(state, now) {
 export const FREQ = { daily: DAY, weekly: 7 * DAY };
 
 export function addRecurring(state, { assetId, amount, freq }, now = Date.now()) {
-  if (!(amount >= 1)) throw new Error('Minimum recurring amount is $1');
+  const min = minOrder(state);
+  if (!(amount >= min)) throw new Error(`Minimum recurring amount is $${min.toFixed(2)}`);
   const a = state.assets[assetId];
   const r = { id: uid(), assetId, ticker: a.ticker, amount: round2(amount), freq, next: now, t: now };
   state.recurring.push(r);

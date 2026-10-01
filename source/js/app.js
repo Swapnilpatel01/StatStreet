@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, resetHistory, HIST_V, resetPortfolio,
+  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -17,7 +17,7 @@ import { lineChart, sparkline, payoffChart } from './chart.js';
 import { haptic, slideOut, dismissable, pullToRefresh, edgeSwipe } from './gestures.js';
 import { fmtMoney, fmtPct, timeAgo, DAY, HOUR, clamp, mean } from './util.js';
 import {
-  rarity, cardLevel, RARITY, dailyStatus, claimDaily, DAILY_REWARDS, winProb, pickReward, upcomingPickGames, makePick, clearPick,
+  rarity, cardLevel, RARITY, dailyStatus, claimDaily, DAILY_REWARDS, dailyAmount, scaledPickReward, winProb, pickReward, upcomingPickGames, makePick, clearPick,
   pickPayout, leaderboard, TROPHIES, runSocial, gamePlayers,
 } from './social.js';
 import { pickStreakMult } from './engine.js';
@@ -41,7 +41,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 12;
+const APP_VERSION = 13;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -552,16 +552,16 @@ function dailyCard() {
   const week = Math.floor(Math.max(0, pivot - 1) / 7) * 7;
   const dots = DAILY_REWARDS.map((_, i) => {
     const day = week + i + 1;
-    const amt = DAILY_REWARDS[Math.min(day, 7) - 1];
+    const amt = dailyAmount(state, day);
     const cl = day <= done ? 'got' : !d.claimed && day === done + 1 ? 'next' : '';
-    return `<div class="dd ${cl}"><div class="c">${day <= done ? '✓' : '$' + amt}</div><div class="tiny faint">Day ${day}</div></div>`;
+    return `<div class="dd ${cl}"><div class="c">${day <= done ? '✓' : amt < 1 ? `${Math.round(amt * 100)}¢` : '$' + amt}</div><div class="tiny faint">Day ${day}</div></div>`;
   }).join('');
   const midnight = new Date(); midnight.setHours(24, 0, 0, 0);
   const hrs = Math.max(0, (midnight - Date.now()) / HOUR);
   return `<div class="card daily">
     <div class="row between"><div><div class="name">Daily reward</div><div class="tiny muted">${d.streak ? `🔥 ${d.streak}-day streak` : 'Open the app every day to build a streak'}</div></div>
     ${d.claimed ? `<div class="tiny muted" style="text-align:right">Next in ${hrs < 1 ? Math.round(hrs * 60) + 'm' : Math.floor(hrs) + 'h'}</div>`
-      : `<button class="btn buy small" data-act="claim">Claim $${d.reward}</button>`}</div>
+      : `<button class="btn buy small" data-act="claim">Claim ${money(d.reward)}</button>`}</div>
     <div class="dots">${dots}</div></div>`;
 }
 
@@ -570,7 +570,7 @@ function pickButton(g, t, other) {
   const pk = state.picks[g.id];
   const on = pk && pk.teamId === t.id;
   const ta = teamAsset(g.league, t.id);
-  const reward = pickReward(p);
+  const reward = scaledPickReward(state, p);
   return `<button class="pick-btn ${on ? 'on' : ''} ${pk && !on ? 'off' : ''}" data-pick="${g.league}|${g.id}" data-team="${t.id}">
     ${ta ? avatar(ta) : ''}<div class="grow"><div class="name">${esc(t.abbr)}</div><div class="tiny muted">${Math.round(p * 100)}% win</div></div>
     <div class="pay">${on ? '✓ ' : ''}+$${(on ? pickPayout(state, pk) : Math.round(reward * pickStreakMult(state.pickStats.streak) * 100) / 100).toFixed(2)}</div></button>`;
@@ -794,7 +794,7 @@ function gamesProps() {
       <div class="row between"><b>Bet slip</b><span class="tiny muted">${slip.legs.length} pick${slip.legs.length > 1 ? 's' : ''} · ${(PROP_ODDS ** slip.legs.length).toFixed(2)}×</span></div>
       ${slip.legs.map((l, i) => `<div class="slip-leg"><div class="grow"><b>${esc(state.assets[l.assetId]?.name || '')}</b> <span class="muted">${l.side === 'over' ? 'Over' : 'Under'} ${l.line} ${esc(l.short)}</span></div><button class="x-btn" data-rmleg="${i}">✕</button></div>`).join('')}
       <div class="row" style="margin-top:10px;gap:8px"><label class="price-field grow" style="margin:0"><span class="small muted">Stake $</span><input id="stake" inputmode="decimal" value="${esc(slip.stake)}" placeholder="0"></label>
-        ${[1, 5].map((v) => `<button class="chip" data-stake="${v}">$${v}</button>`).join('')}<button class="chip" data-stake="10%">10%</button></div>
+        <button class="chip" data-stake="${minOrder(state)}">${money(minOrder(state))}</button><button class="chip" data-stake="10%">10%</button><button class="chip" data-stake="25%">25%</button></div>
       <div class="row between small" style="margin-top:8px"><span class="muted">Pays</span><b class="up" id="slippay">${money(potentialPayout(stake, slip.legs.length))}</b></div>
       <div class="err" id="slerr">${esc(slip.err || '')}</div>
       <button class="btn buy" data-act="placebet">Place bet</button>
@@ -1382,7 +1382,7 @@ function stockOrderDefaults(side) {
   const a = state.assets[ui.detail];
   const h = state.holdings[a.id];
   return { mode: 'stock', id: a.id, side, type: 'market', unit: side === 'buy' ? 'usd' : 'sh',
-    amount: side === 'buy' ? String(Math.min(100, Math.floor(buyingPower(state)))) : String(h ? fmtQty(h.qty) : ''),
+    amount: side === 'buy' ? (Math.max(minOrder(state), Math.floor(buyingPower(state) * 25) / 100)).toFixed(2) : String(h ? fmtQty(h.qty) : ''),
     price: '', freq: 'weekly', err: '' };
 }
 
@@ -1398,7 +1398,8 @@ function buildOrder() {
   const types = o.side === 'buy' ? [['market', 'Market'], ['limit', 'Limit'], ['stop', 'Stop'], ['recurring', 'Recurring']] : [['market', 'Market'], ['limit', 'Limit'], ['stop', 'Stop-loss']];
   const usd = o.unit === 'usd';
   const quick = o.side === 'buy'
-    ? (usd ? [['$10', 10], ['$50', 50], ['$100', 100], ['$500', 500], ['Max', 'max']] : [['1', 1], ['5', 5], ['10', 10], ['Max', 'max']])
+    ? (usd ? [0.1, 0.25, 0.5].map((f) => [`${f * 100}%`, (Math.floor(buyingPower(state) * f * 100) / 100).toFixed(2)]).concat([['Max', 'max']])
+      : [['1', 1], ['5', 5], ['10', 10], ['Max', 'max']])
     : [['25%', 0.25], ['50%', 0.5], ['All', 1]];
   panel.innerHTML = `<div class="grabber"></div>
     <div class="seg">${['buy', 'sell'].map((s) => `<button data-oside="${s}" class="${o.side === s ? 'on' : ''}" ${s === 'sell' && !h ? 'disabled' : ''}>${s === 'buy' ? 'Buy' : 'Sell'}</button>`).join('')}</div>
@@ -1452,12 +1453,12 @@ function computeOrder() {
     if (!(amt > 0)) res.err = 'Enter an amount';
     else if (o.side === 'buy' && pv.total > bp + 0.005) res.err = `Not enough buying power (${money(bp)})`;
     else if (o.side === 'sell' && !h) res.err = 'You don’t own any shares';
-    else if (pv.total < 1 && !(o.side === 'sell' && h && qty === h.qty)) res.err = 'Minimum order is $1';
+    else if (pv.total < minOrder(state) && !(o.side === 'sell' && h && qty === h.qty)) res.err = `Minimum order is ${money(minOrder(state))}`;
     else res.ok = true;
   } else if (o.type === 'recurring') {
     res.desc = `Buys ${money(amt)} of ${a.ticker} now, then every ${o.freq === 'daily' ? 'day' : 'week'} while you have buying power.`;
     res.rows = [['Amount', money(amt)], ['Frequency', o.freq === 'daily' ? 'Every day' : 'Every week'], ['First buy', 'Today']];
-    if (!(amt >= 1)) res.err = 'Minimum is $1'; else if (amt > bp) res.err = `Not enough buying power (${money(bp)})`; else res.ok = true;
+    if (!(amt >= minOrder(state))) res.err = `Minimum is ${money(minOrder(state))}`; else if (amt > bp) res.err = `Not enough buying power (${money(bp)})`; else res.ok = true;
   } else {
     const px = parseFloat(o.price);
     const verb = o.side === 'buy' ? 'Buy' : 'Sell';
@@ -1793,7 +1794,7 @@ document.addEventListener('click', async (e) => {
   }
   if (d.rmleg) { ui.slip.legs.splice(Number(d.rmleg), 1); const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
   if (d.stake) {
-    ui.slip.stake = d.stake === '10%' ? (Math.floor(state.cash * 10) / 100).toFixed(2) : d.stake;
+    ui.slip.stake = d.stake.endsWith('%') ? (Math.floor(Math.min(state.cash * Number(d.stake.slice(0, -1)) / 100, netWorth(state) * 0.25) * 100) / 100).toFixed(2) : d.stake;
     const inp = $('#stake'); if (inp) inp.value = ui.slip.stake; updateSlipPay(); return;
   }
   if (d.pack) {
@@ -1858,7 +1859,7 @@ document.addEventListener('click', async (e) => {
     const o = ui.order; const a = state.assets[o.id];
     o.type = d.otype2; o.err = '';
     if (o.type === 'market') o.unit = o.side === 'buy' ? 'usd' : 'sh';
-    if (o.type === 'recurring') o.amount = '25';
+    if (o.type === 'recurring') o.amount = Math.max(minOrder(state), Math.round(bankrollScale(state) * 2500) / 100).toFixed(2);
     if (o.type === 'limit' || o.type === 'stop') {
       o.unit = 'sh';
       const h = state.holdings[a.id];
@@ -1881,7 +1882,7 @@ document.addEventListener('click', async (e) => {
   if (d.freq && ui.order) { ui.order.freq = d.freq; buildOrder(); return; }
   if (d.q && ui.order) {
     const o = ui.order;
-    const step = o.mode === 'option' ? 1 : unitLabel(o) === 'dollars' ? 10 : 1;
+    const step = o.mode === 'option' ? 1 : unitLabel(o) === 'dollars' ? Math.max(0.05, Math.round(bankrollScale(state) * 1000) / 100) : 1;
     o.amount = String(Math.max(o.mode === 'option' ? 1 : 0, Math.round((amountNum(o) + Number(d.q) * step) * 1e4) / 1e4));
     syncQtyInput(); return;
   }
