@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 21;
+const APP_VERSION = 22;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -967,7 +967,7 @@ function momentCard(c, { mini = false } = {}) {
       <div class="mc-kind">${KIND_ICON[m.kind] ? `${KIND_ICON[m.kind]} ` : ''}${esc(m.kind)}</div></div>
       <div class="mc-gauge" style="--p:${Math.round(m.rating * 10)}"><b>${m.rating.toFixed(1)}</b><small>RATING</small></div></div>
     <div class="mc-who">${headshot(m.league, m.player.id, m.player.name)}<div class="grow"><b>${esc(m.player.name)}</b><span>${esc(sub)}</span></div></div>
-    <div class="mc-play">“${esc(playText(m.desc))}”</div>
+    <div class="mc-play">${esc(playText(m.desc))}</div>
     <div class="mc-tags">${traits.map((x) => `<span>${x.icon} ${esc(x.label)}</span>`).join('')}</div>
     <div class="mc-board"><span class="sc">${esc(sc.away || '')} <b>${sc.a ?? ''}</b> · ${esc(sc.home || '')} <b>${sc.h ?? ''}</b></span><span class="sit">${esc(m.sit || '')}</span></div>
     <div class="mc-foot"><span class="boost">${t.icon} ${esc(describeShort(c))}${c.charges != null ? ` · ${c.charges}/${c.max}` : ''}</span>
