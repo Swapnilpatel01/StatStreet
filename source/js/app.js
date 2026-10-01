@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 18;
+const APP_VERSION = 19;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -948,24 +948,30 @@ function headshot(league, id, name, cls = '') {
   return `<span class="hs ${cls}" data-ini="${ini}"><img src="${esc(src)}" alt="" decoding="async" onerror="this.parentNode.classList.add('noimg');this.remove()"></span>`;
 }
 
-// The card itself, styled after the Real app: play, rating, rarity, traits, players, situation.
+// Older moments were stored in capitals; show them in sentence case.
+const playText = (d = '') => (d === d.toUpperCase() ? d.toLowerCase().replace(/^([a-z])/, (x) => x.toUpperCase()) : d.charAt(0).toUpperCase() + d.slice(1));
+
+// The card: StatStreet's "play slip". Rarity stripe, rating gauge, the player, the play
+// as a quote, trait tags, a scoreboard line, and the boost it gives.
 function momentCard(c, { mini = false } = {}) {
   const m = c.m; const r = bRarity(c.rarity);
   const traits = traitList(m);
-  const icons = traits.length ? traits.map((t) => `<i title="${esc(t.label)}">${t.icon}</i>`).join('') : `<i>${KIND_ICON[m.kind] || '⭐'}</i>`;
   const sc = m.score || {};
   const t = bType(c.type);
+  const pos = state.assets[`${m.league}:p:${m.player.id}`]?.pos;
+  const sub = m.opp ? `vs ${m.opp.name}` : [m.player.team, pos].filter(Boolean).join(' · ');
+  const d = new Date(m.date);
   return `<div class="mc r-${c.rarity} ${mini ? 'mini' : ''}" style="--rc:${r.color}">
-    <div class="mc-top"><b>${esc(m.kind)}</b><span class="mc-rate">⩔ ${m.rating.toFixed(1)}</span></div>
-    <div class="mc-art"><span class="mc-rar">${r.name.toUpperCase()}</span>
-      <div class="mc-traits">${icons}</div>
-      <div class="mc-desc">${esc(m.desc || '')}</div></div>
-    <div class="mc-player">${headshot(m.league, m.player.id, m.player.name)}<b class="ellipsis">${esc(m.player.name.toUpperCase())}</b></div>
-    ${m.opp ? `<div class="mc-opp">${headshot(m.league, m.opp.id, m.opp.name, 'sm')}<span class="ellipsis">vs ${esc(m.opp.name.toUpperCase())}</span></div>`
-      : `<div class="mc-opp"><span class="ellipsis">${esc([m.player.team, state.assets[`${m.league}:p:${m.player.id}`]?.pos, LEAGUES[m.league]?.name].filter(Boolean).join(' · '))}</span></div>`}
-    <div class="mc-line"><span class="tm">${esc(sc.away || '')}</span>${sc.a ?? ''}-${sc.h ?? ''}<span class="tm">${esc(sc.home || '')}</span><b>${esc(m.sit || '')}</b></div>
-    <div class="mc-foot"><span>${esc(m.player.team || '')} ${new Date(m.date).getFullYear()}</span><span>${agoShort(m.date)} · <b>#${c.serial}</b></span></div>
-    <div class="mc-boost">${t.icon} ${esc(describeShort(c))}${c.charges != null ? ` · ${c.charges}/${c.max}` : ''}</div>
+    <div class="mc-head"><div style="min-width:0">
+      <div class="mc-kicker">${lgTag(m.league)}${r.name}</div>
+      <div class="mc-kind">${KIND_ICON[m.kind] ? `${KIND_ICON[m.kind]} ` : ''}${esc(m.kind)}</div></div>
+      <div class="mc-gauge" style="--p:${Math.round(m.rating * 10)}"><b>${m.rating.toFixed(1)}</b><small>RATING</small></div></div>
+    <div class="mc-who">${headshot(m.league, m.player.id, m.player.name)}<div class="grow"><b>${esc(m.player.name)}</b><span>${esc(sub)}</span></div></div>
+    <div class="mc-play">“${esc(playText(m.desc))}”</div>
+    <div class="mc-tags">${traits.map((x) => `<span>${x.icon} ${esc(x.label)}</span>`).join('')}</div>
+    <div class="mc-board"><span class="sc">${esc(sc.away || '')} <b>${sc.a ?? ''}</b> · ${esc(sc.home || '')} <b>${sc.h ?? ''}</b></span><span class="sit">${esc(m.sit || '')}</span></div>
+    <div class="mc-foot"><span class="boost">${t.icon} ${esc(describeShort(c))}${c.charges != null ? ` · ${c.charges}/${c.max}` : ''}</span>
+      <span class="no">${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} · No.${String(c.serial).padStart(3, '0')}</span></div>
   </div>`;
 }
 
@@ -1095,7 +1101,7 @@ function renderMarketplace() {
     <p class="tiny faint" style="margin:8px 0 0">${total} live auctions · bids are max bids; the highest when time runs out wins</p>
     ${list.length ? `<div class="mp-grid">${list.map((l) => { const v = views.get(l.id); return `<div class="mp-item">
       <div class="mp-meta" data-lotmeta="${l.id}"><span>⏱ ${fmtLeft(v.left)}</span><span>${v.bids} bid${v.bids === 1 ? '' : 's'}</span></div>
-      <button class="mp-cardbtn" data-lot="${l.id}">${momentCard(l.card)}</button>
+      <button class="mp-cardbtn" data-lot="${l.id}">${momentCard(l.card, { mini: true })}</button>
       <div class="mp-actions"><div class="mp-price" data-lotprice="${l.id}"><span class="tiny muted">${v.bids ? 'Top bid' : 'Starts at'}</span><b>🪙 ${v.current}</b>${v.leading ? '<span class="tiny up">You lead</span>' : ''}</div>
         <button class="btn buy small" data-lot="${l.id}" data-bidbtn="1">Bid</button></div>
     </div>`; }).join('')}</div>`

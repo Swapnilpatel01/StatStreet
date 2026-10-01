@@ -198,7 +198,7 @@ function shortDesc(text, name, extra) {
   s = s.replace(/\([^)]*\)/g, '').replace(/\s*\.\s*$/, '');
   s = s.split(/[.;]/)[0];
   if (s.length > 48) s = `${s.slice(0, 46)}…`;
-  return clean(`${extra ? `${extra} ` : ''}${s}`).toUpperCase();
+  return clean(`${extra ? `${extra} ` : ''}${s}`);
 }
 
 // Standout lines from the box score (40-point games, 3-homer games, 4-TD days…).
@@ -215,7 +215,7 @@ function boxMoment(league, ev, p, home, away) {
   const kind = ms ? ms.toUpperCase() : { nba: `${l.pts}-POINT GAME`, nfl: 'BIG GAME', mlb: 'BIG NIGHT' }[league];
   return {
     id: `${ev.id}:box:${p.id}`, league, game: ev.id, date: ev.date, kind: kind.length > 22 ? 'MONSTER GAME' : kind, rating, rarity: rarityForRating(rating),
-    traits: ms ? ['record', 'monster'] : ['monster'], desc: lineText(league, l).toUpperCase(),
+    traits: ms ? ['record', 'monster'] : ['monster'], desc: lineText(league, l),
     player: { id: p.id, name: p.name, teamId: p.teamId, team: p.teamAbbr }, opp: null,
     score: { away: away?.abbr, home: home?.abbr, a: away?.score, h: home?.score }, sit: 'Final',
   };
