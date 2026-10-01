@@ -1,7 +1,7 @@
 // Real-style game layer: player cards with rarity, Pick'em, daily streaks,
 // trophies and a leaderboard against strategy bots. Pure state logic.
 
-import { DAY, HOUR, clamp } from './util.js';
+import { DAY, HOUR, clamp, addDays } from './util.js';
 import { notify, priceAt, netWorth, pickStreakMult, teamWinProb, cardLevel, bankrollScale } from './engine.js';
 import { addXP, addCoins } from './xp.js';
 
@@ -102,12 +102,14 @@ export function winProb(state, league, teamId, oppId, home, preseason = false) {
 export const pickReward = (p) => round2(clamp(0.5 / p, 0.55, 3));
 export const scaledPickReward = (state, p) => Math.max(0.01, round2(clamp(0.5 / p, 0.55, 3) * bankrollScale(state)));
 
+// Pick'em covers games starting today or tomorrow (your local time) that haven't started yet.
 export function upcomingPickGames(state, now = Date.now(), leagues = null) {
   const out = [];
+  const until = addDays(new Date(now).setHours(0, 0, 0, 0), 2); // midnight at the end of tomorrow
   for (const [lg, list] of Object.entries(state.schedule || {})) {
     if (leagues && !leagues.includes(lg)) continue;
     for (const g of list || []) {
-      if (g.date <= now || g.date > now + 3 * DAY || g.teams.length !== 2) continue;
+      if (g.date <= now || g.date >= until || g.teams.length !== 2) continue;
       if (!state.assets[`${lg}:t:${g.teams[0].id}`] || !state.assets[`${lg}:t:${g.teams[1].id}`]) continue;
       out.push({ ...g, league: lg });
     }

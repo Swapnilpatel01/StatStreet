@@ -142,10 +142,10 @@ async function loadSchedule(state, league, now) {
   const s = state.sync[league];
   if (now - (s.schedule || 0) < 30 * MIN) return;
   try {
-    const events = await loadScoreboards(league, now, now + 4 * DAY);
+    const events = await loadScoreboards(league, now, now + 7 * DAY); // a week, so NFL Sundays are always in view
     state.schedule[league] = events.filter((e) => e.state === 'pre' && e.date > now - HOUR).slice(0, 120)
       .map((e) => ({ id: e.id, date: e.date, name: e.name, preseason: e.preseason, teams: e.teams.map((t) => ({ id: t.id, abbr: t.abbr, home: t.home })) }));
-    s.schedule = now; s.scheduleTo = now + 4 * DAY;
+    s.schedule = now; s.scheduleTo = now + 7 * DAY;
   } catch { /* optional */ }
 }
 

@@ -41,7 +41,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 13;
+const APP_VERSION = 14;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -825,7 +825,7 @@ function gamesPickem() {
   const lgs = enabledLeagues();
   const lgOk = (lg) => lgs.includes(lg) && (ui.gamesLeague === 'all' || ui.gamesLeague === lg);
   const live = Object.entries(state.liveGames).filter(([, g]) => lgOk(g.league));
-  const upcoming = upcomingPickGames(state, now, lgs).filter((g) => lgOk(g.league));
+  const upcoming = upcomingPickGames(state, now, lgs.filter(lgOk));
   const limit = ui.pickLimit || 8;
   const results = (state.results || []).filter((r) => lgOk(r.league)).slice(0, 8);
   const ps = state.pickStats;
@@ -841,10 +841,10 @@ function gamesPickem() {
       <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
         ${g.teams.map((t) => `<div class="t"><span>${esc(t.abbr)}</span><span>${t.score}</span></div>`).join('')}
         <div class="tiny muted">${esc(g.detail)}</div></button>`).join('')}</div>` : ''}
-    <h2>Pick winners</h2>
+    <h2>Pick winners <span class="faint small">today & tomorrow</span></h2>
     <p class="small muted" style="margin:-4px 0 10px">Free to play. Underdogs pay more, and every win in a row adds 10% (up to 2x).${openPicks ? ` You have ${openPicks} open pick${openPicks > 1 ? 's' : ''}.` : ''}${ps.streak ? ` Next win pays <b class="up">${pickStreakMult(ps.streak).toFixed(1)}x</b>.` : ''}</p>
     ${upcoming.length ? upcoming.slice(0, limit).map(pickGame).join('') + (upcoming.length > limit ? `<button class="more" data-act="morepicks">More games (${upcoming.length - limit})</button>` : '')
-      : '<div class="card empty">No upcoming games in the next 3 days. Check back soon.</div>'}
+      : '<div class="card empty">No games today or tomorrow. Picks open as soon as there are.</div>'}
     ${results.length ? `<h2>Recent results</h2><div class="list">${results.map(resultRow).join('')}</div>` : ''}`;
 }
 
