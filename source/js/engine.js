@@ -57,7 +57,7 @@ export const MILESTONE_DIV = 0.004;
 
 export function newState(startCash = START_CASH) {
   return {
-    v: 1, modelV: PRICE_V, histV: 2, created: Date.now(), startCash,
+    v: 1, modelV: PRICE_V, histV: 2, fixV: 1, created: Date.now(), startCash,
     cash: startCash, holdings: {}, txns: [], watch: [],
     assets: {}, stats: {}, mood: { nba: 0, nfl: 0, mlb: 0 },
     games: {}, liveGames: {}, newsSeen: {}, news: [], sync: {},
@@ -329,6 +329,23 @@ export function groupAlpha(state, league, group) {
   return clamp(TARGET_MOVE[league] * sd / (zSlope(league) * gameNoise(state, league, group)), 0.01, 0.35);
 }
 
+// A player we know nothing about (first seen in a box score) is a backup until he shows
+// otherwise: he starts a standard deviation below the listed players at his position.
+function newcomerLevel(state, league, group, gs) {
+  const st = state.stats[league]?.[group];
+  if (!st) return gs;
+  const base = st.mu - st.sd;
+  return gs == null ? base : capStep(state, league, group, base, base + 0.25 * (gs - base));
+}
+// No single game moves a price by more than about a quarter.
+const MAX_GAME_LN = Math.log(1.25);
+function capStep(state, league, group, from, to, scale = 1) {
+  const sd = state.stats[league]?.[group]?.sd;
+  if (!sd) return to;
+  const max = (MAX_GAME_LN * scale / zSlope(league)) * sd;
+  return from + clamp(to - from, -max, max);
+}
+
 // Estimate each player's level from this season, last season and the position average.
 export function initForm(state, league, { all = false, fromSeason = false } = {}) {
   const players = Object.values(state.assets).filter((a) => a.league === league && a.kind === 'player');
@@ -359,7 +376,7 @@ export function initForm(state, league, { all = false, fromSeason = false } = {}
 
 // Recompute per-league, per-position baselines used to normalize performance.
 export function recomputeStats(state, league) {
-  const groups = {};
+  const groups = {}; const seeded = {};
   const teamDiffs = [];
   for (const a of Object.values(state.assets)) {
     if (a.league !== league) continue;
@@ -368,13 +385,17 @@ export function recomputeStats(state, league) {
     // everyone toward the middle and make stars drift down and cheap players drift up.
     const lvl = a.perf?.lvl ?? (a.perf?.n >= 1 ? a.perf.ema : null);
     if (a.kind === 'player' && lvl != null) {
-      (groups[posGroup(league, a.pos)] ||= []).push(lvl);
+      const g = posGroup(league, a.pos);
+      (groups[g] ||= []).push(lvl);
+      if (a.perf.lvl != null) (seeded[g] ||= []).push(lvl);
     } else if (a.kind === 'team' && a.rec.gp > 0) {
       teamDiffs.push(a.rec.diff / a.rec.gp);
     }
   }
   const out = {};
-  for (const [g, arr] of Object.entries(groups)) {
+  for (const [g, all] of Object.entries(groups)) {
+    // Players first seen in a box score (no season-start level) don't move the baseline.
+    const arr = seeded[g]?.length >= 8 ? seeded[g] : all;
     const mu = mean(arr);
     out[g] = { mu, sd: Math.max(std(arr, mu), Math.abs(mu) * 0.25, 0.5), n: arr.length };
   }
@@ -390,7 +411,7 @@ export function recomputeStats(state, league) {
     if (a.league !== league || a.kind !== 'player') continue;
     const lvl = a.perf?.lvl ?? (a.perf?.n >= 1 ? a.perf.ema : null);
     const g = out[posGroup(league, a.pos)];
-    if (lvl == null || !g) { a.fame = 1; continue; }
+    if (lvl == null || !g || (a.perf.lvl == null && seeded[posGroup(league, a.pos)]?.length >= 8)) { a.fame = 1; continue; }
     ranked.push([a, (lvl - g.mu) / g.sd]);
   }
   ranked.sort((x, y) => x[1] - y[1]);
@@ -528,8 +549,8 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
     const playerPct = withEvent(state, a, now, at, 'game', text, () => {
       const alpha = groupAlpha(state, league, grp) * (game.preseason ? 1 / 3 : 1); // exhibition games count for less
       // A newcomer's first game is mostly luck: start him close to the position average.
-      const mu = state.stats[league]?.[grp]?.mu ?? gs;
-      a.perf.ema = before == null ? mu + 0.35 * (gs - mu) : before + alpha * (gs - before);
+      a.perf.ema = before == null ? newcomerLevel(state, league, grp, gs)
+        : capStep(state, league, grp, before, before + alpha * (gs - before), game.preseason ? 1 / 3 : 1);
       a.perf.init = MODEL_V;
       a.perf.n = Math.min(a.perf.n + 1, 20);
       a.perf.last.unshift({ e: game.id, t: game.date, gs: Math.round(gs * 10) / 10, text, opp, line: p.line });
@@ -676,9 +697,11 @@ export function applyLiveGame(state, league, game, { now = Date.now() } = {}) {
     const a = ensurePlayer(state, league, p);
     const gs = gameScore(league, p.line);
     const projected = gs / Math.max(frac, 0.35);
-    const base = a.perf.ema ?? projected;
-    const alpha = groupAlpha(state, league, posGroup(league, a.pos)) * (game.preseason ? 1 / 3 : 1);
-    a.live = { e: game.id, ema: base + alpha * frac * (projected - base), text: lineText(league, p.line), t: now };
+    const grp = posGroup(league, a.pos);
+    // An unknown player's live price starts from the same backup level his final will use.
+    const base = a.perf.ema ?? newcomerLevel(state, league, grp, null);
+    const alpha = groupAlpha(state, league, grp) * (game.preseason ? 1 / 3 : 1);
+    a.live = { e: game.id, ema: capStep(state, league, grp, base, base + alpha * frac * (projected - base), frac), text: lineText(league, p.line), t: now };
     setPrice(state, a, now);
   }
   const [t1, t2] = game.teams;
@@ -873,6 +896,41 @@ export function upgradeModel(state, now = Date.now()) {
   state.modelV = PRICE_V;
   if (had) notify(state, 'info', 'New pricing: teams and star players now cost much more. Your shares were converted at equal value, so your balance is unchanged.', null, now);
   return true;
+}
+
+// One-time repair: players first seen in a box score used to be priced at the position
+// average after one game (and far below it while that game was live). Put them at the
+// backup level, at equal value for holders, and start their charts fresh.
+export const FIX_V = 1;
+export function repairNewcomers(state, now = Date.now()) {
+  if ((state.fixV || 0) >= FIX_V) return 0;
+  state.fixV = FIX_V;
+  const fixed = [];
+  withRebase(state, now, () => {
+    for (const lg of Object.keys(LEAGUES)) {
+      recomputeStats(state, lg);
+      for (const a of Object.values(state.assets)) {
+        if (a.league !== lg || a.kind !== 'player' || a.perf.lvl != null || a.perf.season?.gp || a.perf.prior?.gp) continue;
+        const games = [...(a.perf.last || [])].reverse();
+        if (!games.length || games.length >= 10) continue;
+        const grp = posGroup(lg, a.pos);
+        let ema = null;
+        for (const g of games) {
+          const pre = /preseason/.test(g.text || '');
+          ema = ema == null ? newcomerLevel(state, lg, grp, g.gs)
+            : capStep(state, lg, grp, ema, ema + groupAlpha(state, lg, grp) * (pre ? 1 / 3 : 1) * (g.gs - ema), pre ? 1 / 3 : 1);
+        }
+        if (ema != null && Math.abs(ema - a.perf.ema) > 1e-9) { a.perf.ema = ema; fixed.push(a); }
+      }
+      rebuildInjuryCache(state, lg);
+      for (const a of Object.values(state.assets)) if (a.league === lg) setPrice(state, a, now, { record: false });
+    }
+  });
+  for (const a of fixed) {
+    a.hist = [now - 60e3, a.price, now, a.price];
+    a.events = (a.events || []).map((e) => ({ ...e, pct: 0 }));
+  }
+  return fixed.length;
 }
 
 // ---------- trading ----------
