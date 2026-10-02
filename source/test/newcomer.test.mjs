@@ -24,4 +24,9 @@ a.perf.ema = st.stats.nfl.DEF.mu; st.fixV = 0; E.repriceLeague(st,'nfl',now); st
 assert.equal(E.repairNewcomers(st, now+1000), 1);
 console.log('repaired', a.price, 'value', v, st.holdings[a.id].qty*a.price, a.hist);
 assert.ok(Math.abs(st.holdings[a.id].qty*a.price - v) < 0.05);
+// seen live, then dropped from the final box score: no level on record
+const b = st.assets['nfl:p:ghost'] = { ...structuredClone(a), id: 'nfl:p:ghost', rid: 'ghost', perf: { ema: null, n: 0, season: null, last: [] }, live: null, hist: [now - 5 * H, 4.08, now, 25.93], price: 25.93 };
+st.fixV = 1; E.repairNewcomers(st, now + 2000);
+console.log('ghost', b.price, b.hist);
+assert.ok(b.price < 14 && b.hist.length === 4 && b.hist[1] === b.price);
 console.log('ok');

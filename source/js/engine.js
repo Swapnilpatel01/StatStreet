@@ -55,9 +55,10 @@ export const TEAM_DIV = { nba: 0.0025, nfl: 0.015, mlb: 0.0012 };
 export const PLAYER_DIV = { nba: 0.0015, nfl: 0.006, mlb: 0.0008 };
 export const MILESTONE_DIV = 0.004;
 
+const FIX_V_NEW = 2;
 export function newState(startCash = START_CASH) {
   return {
-    v: 1, modelV: PRICE_V, histV: 2, fixV: 1, created: Date.now(), startCash,
+    v: 1, modelV: PRICE_V, histV: 2, fixV: FIX_V_NEW, created: Date.now(), startCash,
     cash: startCash, holdings: {}, txns: [], watch: [],
     assets: {}, stats: {}, mood: { nba: 0, nfl: 0, mlb: 0 },
     games: {}, liveGames: {}, newsSeen: {}, news: [], sync: {},
@@ -305,7 +306,9 @@ export function setTeamPrior(state, league, t) {
 export function playerZ(state, a) {
   const st = state.stats[a.league]?.[posGroup(a.league, a.pos)];
   const ema = a.live?.ema ?? a.perf.ema;
-  return st && ema != null && st.sd > 0 ? clamp((ema - st.mu) / st.sd, Z_MIN, Z_MAX) : 0;
+  // A player with no games on record yet is priced as a backup, not as an average starter.
+  if (st && ema == null) return -1;
+  return st && st.sd > 0 ? clamp((ema - st.mu) / st.sd, Z_MIN, Z_MAX) : 0;
 }
 
 function playerFair(state, a) {
@@ -901,11 +904,12 @@ export function upgradeModel(state, now = Date.now()) {
 // One-time repair: players first seen in a box score used to be priced at the position
 // average after one game (and far below it while that game was live). Put them at the
 // backup level, at equal value for holders, and start their charts fresh.
-export const FIX_V = 1;
+export const FIX_V = 2;
 export function repairNewcomers(state, now = Date.now()) {
   if ((state.fixV || 0) >= FIX_V) return 0;
   state.fixV = FIX_V;
   const fixed = [];
+  const old = new Map(Object.values(state.assets).map((a) => [a.id, a.price]));
   withRebase(state, now, () => {
     for (const lg of Object.keys(LEAGUES)) {
       recomputeStats(state, lg);
@@ -920,12 +924,13 @@ export function repairNewcomers(state, now = Date.now()) {
           ema = ema == null ? newcomerLevel(state, lg, grp, g.gs)
             : capStep(state, lg, grp, ema, ema + groupAlpha(state, lg, grp) * (pre ? 1 / 3 : 1) * (g.gs - ema), pre ? 1 / 3 : 1);
         }
-        if (ema != null && Math.abs(ema - a.perf.ema) > 1e-9) { a.perf.ema = ema; fixed.push(a); }
+        if (ema != null) a.perf.ema = ema;
       }
       rebuildInjuryCache(state, lg);
       for (const a of Object.values(state.assets)) if (a.league === lg) setPrice(state, a, now, { record: false });
     }
   });
+  for (const a of Object.values(state.assets)) if (a.kind === 'player' && old.get(a.id) > 0 && Math.abs(a.price / old.get(a.id) - 1) > 0.02) fixed.push(a);
   for (const a of fixed) {
     a.hist = [now - 60e3, a.price, now, a.price];
     a.events = (a.events || []).map((e) => ({ ...e, pct: 0 }));
