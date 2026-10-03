@@ -283,17 +283,22 @@ function mp(state) {
   return state.mp;
 }
 
-// New listings appear every hour (2 per hour, 1–24h long). Kept in state so they don't
+const PER_HOUR = 8;
+// New listings appear every hour (8 per hour, 1–24h long). Kept in state so they don't
 // change as new moments arrive.
 function stockListings(state, now) {
   const m = mp(state);
   const by = poolByRarity(state);
   if (!Object.keys(by).length) return;
   const hourNow = Math.floor(now / HOUR);
+  // More shelves than before: restock the last day once at the new rate (existing auctions stay).
+  if (m.per !== PER_HOUR) { m.per = PER_HOUR; m.hour = 0; }
+  const have = new Set(m.list.map((l) => l.id));
   const from = Math.max(m.hour + 1, hourNow - 23);
   for (let h = from; h <= hourNow; h++) {
     const rnd = seeded(`mp:${h}`);
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < PER_HOUR; i++) {
+      if (have.has(`mp${h}-${i}`)) continue;
       const roll = rnd();
       const r = MP_ODDS.find(([, q]) => roll < q)[0];
       const mo = drawMoment(by, r, rnd);
