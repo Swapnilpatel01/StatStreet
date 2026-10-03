@@ -60,7 +60,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 38;
+const APP_VERSION = 39;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3405,11 +3405,13 @@ function closeQuick() { ui.quick = null; const el = $('#qa'); el.hidden = true; 
     const row = e.target.closest?.('#view [data-open]');
     if (!row || !state.assets[row.dataset.open]) return;
     const t = e.touches[0]; sx = t.clientX; sy = t.clientY;
-    timer = setTimeout(() => { timer = 0; ui.swallowClick = Date.now(); openQuick(row.dataset.open); }, 480);
+    timer = setTimeout(() => { timer = 0; ui.swallowClick = Date.now(); ui.lpBuzz = true; openQuick(row.dataset.open); }, 480);
   }, { passive: true });
   document.addEventListener('touchmove', (e) => { if (!timer) return; const t = e.touches[0]; if (Math.abs(t.clientX - sx) > 9 || Math.abs(t.clientY - sy) > 9) cancel(); }, { passive: true });
-  document.addEventListener('touchend', cancel, { passive: true });
-  document.addEventListener('touchcancel', cancel, { passive: true });
+  // iPhone only lets a web app fire a haptic from a finger-up, so the tap you feel there
+  // comes as you lift off; phones that can vibrate directly already buzzed when the menu opened.
+  document.addEventListener('touchend', () => { cancel(); if (ui.lpBuzz) { ui.lpBuzz = false; if (!navigator.vibrate) buzz(); } }, { passive: true });
+  document.addEventListener('touchcancel', () => { cancel(); ui.lpBuzz = false; }, { passive: true });
   // The tap that ends a long press must not also open the player page.
   document.addEventListener('click', (e) => {
     if (ui.swallowClick && Date.now() - ui.swallowClick < 700 && !e.target.closest('#qa')) { e.stopPropagation(); e.preventDefault(); ui.swallowClick = 0; return; }
