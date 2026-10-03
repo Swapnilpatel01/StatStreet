@@ -285,7 +285,7 @@ export function wantedOffers(state, now = Date.now()) {
   const teams = [...new Set((state.moments || []).map((m) => `${m.league}:${m.player?.team || ''}`).filter((k) => !k.endsWith(':')))].sort();
   if (teams.length < 2) return [];
   const rnd = seeded(`wanted:${day}`);
-  state.mp ||= { hour: 0, list: [], bids: {}, v: 2 };
+  state.mp ||= { hour: 0, list: [], bids: {}, v: 3 };
   if (state.mp.wanted?.day !== day) state.mp.wanted = { day, done: {} };
   const inv = boosterState(state).inv;
   const out = [];

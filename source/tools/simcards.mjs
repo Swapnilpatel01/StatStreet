@@ -12,13 +12,17 @@ for (let i = 0; i < 600; i++) {
   st.moments.push({ id: 'm' + i, league: 'nba', kind: 'DUNK', desc: 'x', sit: '', traits: [], rating: Math.min(10, 1.5 + r * 1.6 + Math.random() * 1.5), rarity: R[r], t: now,
     player: { id: 'p' + (i % 40), name: 'P ' + (i % 40), teamAbbr: 'AAA' } });
 }
+// 40 players with a wide spread of prices; stars make more (and better) plays.
+for (let i = 0; i < 40; i++) st.assets['nba:p:p' + i] = { id: 'nba:p:p' + i, kind: 'player', league: 'nba', price: 5 + Math.pow(i, 2.2), hist: [0, 1] };
+for (const m of st.moments) { const star = Math.random() < 0.55 ? 25 + Math.floor(Math.random() * 15) : Math.floor(Math.random() * 40); m.player = { id: 'p' + star, name: 'P ' + star, team: 'AAA' }; }
+B.bindMarket(() => st);
 const resale = (c) => B.marketValue(c, now) * 1.0 * (1 - B.SELLER_FEE); // best case: 24h auction, average bidders
 export const out = {};
 for (const p of B.B_PACKS) {
   let got = 0; const N = 4000;
   for (let i = 0; i < N; i++) { for (const c of B.openBoosterPack(st, p.key, now)) got += resale(c); B.boosterState(st).inv = []; }
-  out[p.key] = got / N / p.cost;
-  console.log(p.name.padEnd(18), 'cost $' + (p.cost / 100).toFixed(0).padStart(6), ' resale $' + (got / N / 100).toFixed(0).padStart(6), ' return ' + (out[p.key] * 100).toFixed(0) + '%');
+  const cost = B.packCost(st, p); out[p.key] = got / N / cost;
+  console.log(p.name.padEnd(18), 'cost $' + (cost / 100).toFixed(0).padStart(6), ' resale $' + (got / N / 100).toFixed(0).padStart(6), ' return ' + (out[p.key] * 100).toFixed(0) + '%');
 }
 // Flipping: win every marketplace auction at the lowest winning price, relist for 24h.
 let paid = 0; let back = 0; let n = 0;

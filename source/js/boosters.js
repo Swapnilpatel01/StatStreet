@@ -93,6 +93,11 @@ export function unequip(state, cardId) {
 
 // Fusing also costs cash, so three cheap cards never turn into one that sells for more.
 export const fuseFee = (rarity) => Math.round(B_RARITY[rIdx(rarity) + 1].sell * 1.5);
+// The fee follows the card being upgraded: a star's card costs more to fuse, as it sells for more.
+export function fuseCost(state, rarity) {
+  const keep = boosterState(state).inv.filter((b) => b.rarity === rarity && !b.on && !b.listed).sort((x, y) => y.m.rating - x.m.rating)[0];
+  return Math.round(fuseFee(rarity) * (keep ? popularity(keep.m) : 1));
+}
 // Three cards of the same rarity: keep your best-rated one and move it up a rarity, fully charged.
 export function fuse(state, rarity, now = Date.now()) {
   const i = rIdx(rarity);
@@ -100,7 +105,7 @@ export function fuse(state, rarity, now = Date.now()) {
   const bs = boosterState(state);
   const pool = bs.inv.filter((b) => b.rarity === rarity && !b.on && !b.listed).sort((x, y) => y.m.rating - x.m.rating);
   if (pool.length < 3) throw new Error('You need 3 unused cards of the same rarity');
-  spendCoins(state, fuseFee(rarity));
+  spendCoins(state, fuseCost(state, rarity));
   const [keep, ...burn] = pool.slice(0, 3);
   const gone = new Set(burn.map((b) => b.id));
   bs.inv = bs.inv.filter((b) => !gone.has(b.id));
@@ -191,7 +196,7 @@ export function openBoosterPack(state, key, now = Date.now(), rnd = Math.random)
   if (!hasLevel(state, p.level)) throw new Error(`${p.name} unlock at level ${p.level}`);
   const by = poolByRarity(state);
   if (!Object.keys(by).length) throw new Error('No moments yet — packs fill up as real games are played');
-  spendCoins(state, p.cost);
+  spendCoins(state, packCost(state, p));
   const odds = key === 'miconic' ? CHASE : ODDS;
   const out = [];
   for (let i = 0; i < p.n; i++) {
@@ -216,7 +221,42 @@ export function demand(now = Date.now(), key = '') {
 // Coins: rarity base × play rating × the day's demand for that league × charges left.
 export function marketValue(b, now = Date.now()) {
   const r = bRarity(b.rarity);
-  return Math.max(1, Math.round(r.sell * 1.6 * (0.75 + b.m.rating / 16) * demand(now, b.m.league) * (0.35 + 0.65 * b.charges / b.max)));
+  return Math.max(1, Math.round(r.sell * 1.6 * (0.75 + b.m.rating / 16) * demand(now, b.m.league) * (0.35 + 0.65 * b.charges / b.max) * popularity(b.m, now)));
+}
+
+// Star premium: cards of the most sought-after players sell for more at every rarity.
+// It follows the player's share price rank in his league: nothing extra for the bottom
+// half, rising to 3.5x for the very top. The app tells this module where the market is.
+let marketCtx = null;
+export const bindMarket = (getState) => { marketCtx = getState; pop.state = null; };
+const pop = { state: null, t: 0, rank: new Map() };
+export function popularity(m, now = Date.now()) {
+  const state = marketCtx?.();
+  if (!state || !m?.player) return 1;
+  if (pop.state !== state || Math.abs(now - pop.t) > 60e3) {
+    pop.state = state; pop.t = now; pop.rank = new Map();
+    const by = {};
+    for (const a of Object.values(state.assets)) if (a.kind === 'player' && a.price > 0) (by[a.league] ||= []).push(a);
+    for (const list of Object.values(by)) { list.sort((x, y) => x.price - y.price); list.forEach((a, i) => pop.rank.set(a.id, list.length > 1 ? i / (list.length - 1) : 0)); }
+  }
+  const pct = pop.rank.get(`${m.league}:p:${m.player.id}`);
+  if (pct == null) return 1;
+  const s = Math.max(0, (pct - 0.5) / 0.5);
+  return Math.round((1 + 2.5 * Math.pow(s, 1.6)) * 100) / 100;
+}
+// What a pack costs: its list price, scaled by how star-heavy the current pool of plays is,
+// so a pack never costs less than the cards inside it are worth on average.
+export function packCost(state, p) {
+  const by = poolByRarity(state);
+  const odds = p.key === 'miconic' ? CHASE : ODDS;
+  let num = 0; let den = 0; let prev = 0;
+  for (const [r, cum] of odds) {
+    const w = (cum - prev) * bRarity(r).sell; prev = cum;
+    const bucket = by[r] || Object.values(by).flat();
+    const mean = bucket.length ? bucket.reduce((s0, m) => s0 + popularity(m), 0) / bucket.length : 1;
+    num += w * mean; den += w;
+  }
+  return Math.round(p.cost * Math.max(1, den ? num / den : 1) / 100) * 100;
 }
 // Instant sale to the house: well under what an auction brings.
 export const quickSellPrice = (b) => Math.max(1, Math.round(bRarity(b.rarity).sell * 0.5 * (0.3 + 0.7 * b.charges / b.max)));
@@ -239,7 +279,7 @@ const MP_ODDS = [['iconic', 0.01], ['legendary', 0.05], ['epic', 0.14], ['rare',
 const increment = (p) => Math.max(1, Math.ceil(p * 0.08));
 
 function mp(state) {
-  state.mp ||= { hour: 0, list: [], bids: {}, v: 2 };
+  state.mp ||= { hour: 0, list: [], bids: {}, v: 3 };
   return state.mp;
 }
 
@@ -369,7 +409,7 @@ export function cancelAuction(state, id, now = Date.now()) {
 
 // One-time, when card prices went up: live listings were priced on the old scale, so
 // bids are refunded, your own auctions come back to the Locker, and the shelves restock.
-const MP_V = 2;
+const MP_V = 3; // v3: star premium on popular players' cards
 function repriceMarket(state, now) {
   const m = mp(state);
   if ((m.v || 1) >= MP_V) return;
@@ -382,7 +422,7 @@ function repriceMarket(state, now) {
   m.bids = {};
   for (const b of boosterState(state).inv) delete b.listed;
   m.list = []; m.hour = 0;
-  notify(state, 'market', `Card prices are much higher now. Open auctions were closed${back ? ` and your bids (${centsFmt(back)}) refunded` : ''}; any cards you had listed are back in your Locker.`, null, now);
+  notify(state, 'market', `Card prices changed: popular players' cards are worth more now. Open auctions were closed${back ? ` and your bids (${centsFmt(back)}) refunded` : ''}; any cards you had listed are back in your Locker.`, null, now);
 }
 
 export function runMarket(state, now = Date.now()) {

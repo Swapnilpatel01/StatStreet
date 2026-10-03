@@ -170,3 +170,24 @@ console.log(`\n${passed} moment-card tests passed`);
 const sim = (await import('../tools/simcards.mjs')).out;
 for (const [k, v] of Object.entries(sim)) assert.ok(v < 0.95, `${k} returns ${(v * 100).toFixed(0)}% of its cost`);
 console.log('ok - packs and flipping lose money on average');
+
+// Star premium: a popular player's card is worth more at any rarity, and fusing it costs more.
+{
+  const st = build();
+  const m = (pid) => ({ id: 'pm' + pid, league: 'mlb', kind: 'DOUBLE', desc: '', sit: '', traits: [], rating: 3, rarity: 'common', t: now, player: { id: pid, name: 'P', team: 'ATL' } });
+  const star = Object.values(st.assets).filter((a) => a.kind === 'player').sort((x, y) => y.price - x.price)[0];
+  const scrub = Object.values(st.assets).filter((a) => a.kind === 'player').sort((x, y) => x.price - y.price)[0];
+  const c1 = B.makeCard(st, m(star.rid), { now }); const c2 = B.makeCard(st, m(scrub.rid), { now });
+  assert.equal(B.marketValue(c1, now), B.marketValue(c2, now), 'no premium until the market is bound');
+  B.bindMarket(() => st);
+  assert.equal(B.popularity(c2.m, now), 1);
+  assert.equal(B.popularity(c1.m, now), 3.5);
+  assert.ok(B.marketValue(c1, now) > 3.3 * B.marketValue(c2, now));
+  for (const r of ['uncommon', 'epic', 'iconic']) assert.ok(B.marketValue({ ...c1, rarity: r }, now) > 3.3 * B.marketValue({ ...c2, rarity: r }, now), r);
+  // fusing a star's card: fee scales, so it can't be upgraded for less than it gains
+  B.makeCard(st, m(scrub.rid), { now }); 
+  assert.equal(B.fuseCost(st, 'common'), Math.round(B.fuseFee('common') * B.popularity(B.boosterState(st).inv.slice().sort((x, y) => y.m.rating - x.m.rating)[0].m)));
+  assert.ok(B.packCost(st, B.B_PACKS[0]) >= B.B_PACKS[0].cost);
+  B.bindMarket(null);
+  console.log('ok - star premium on popular players');
+}
