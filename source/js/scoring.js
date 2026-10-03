@@ -355,7 +355,7 @@ const LEXICON = [
 const RETURN_RE = /\b(gets?|getting|welcomes?) [^,;:]{0,40}\bback\b|\bback (vs|against|for|in lineup|at practice)\b|\breturn(s|ed|ing)?\b|\bactivated\b|\bcleared\b|\bgood to go\b|\bwill play\b|\bexpected to play\b|\boff (the )?injury report\b|\bfull participant\b/;
 const INJURY_WORDS = new Set(['acl', 'achilles', 'surgery', 'fracture', 'broken', 'injured reserve', 'injured list', 'concussion', 'hamstring',
   'ankle', 'knee', 'strain', 'sprain', 'injury', 'injuries', 'injured', 'questionable', 'doubtful', 'sidelined']);
-const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, (m) => `\\${m}`);
 // Whole words only ("wins" must not match "Twins"), allowing simple endings.
 const LEX_RE = LEXICON.map(([phrase, w]) => [phrase, w, new RegExp(`(?<![a-z])${esc(phrase)}(?:s|es|ed|ing)?(?![a-z])`, 'g')]);
 
