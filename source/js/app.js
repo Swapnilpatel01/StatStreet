@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 29;
+const APP_VERSION = 30;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -319,7 +319,28 @@ function orderRow(o) {
 function drawNwChart() {
   const el = $('#nwchart'); if (!el) return;
   const flat = state.nw.concat([Date.now(), netWorth(state)]);
-  lineChart(el, flat, Date.now() - RANGES[ui.homeRange]);
+  lineChart(el, flat, Date.now() - RANGES[ui.homeRange], {
+    // Hold or drag on the chart: the big number shows your balance at that moment.
+    onScrub: (pt) => {
+      ui.nwScrub = !!pt;
+      const v = $('[data-nw]'); const c = $('[data-nwc]');
+      if (!pt) { updateNwHeader(); return; }
+      if (!v || !c) return;
+      v.textContent = money(pt.p);
+      const ch = pt.p - pt.first;
+      c.className = `change-line ${cls(ch)}`;
+      c.innerHTML = `${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} (${fmtPct(pt.first ? ch / pt.first : 0)}) <span class="muted">${new Date(pt.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>`;
+    },
+  });
+}
+function updateNwHeader(now = Date.now()) {
+  const nwEl = $('[data-nw]');
+  if (!nwEl || ui.nwScrub) return;
+  const nw = netWorth(state, now); const ref = nwAt(now - RANGES[ui.homeRange]) ?? state.startCash; const ch = nw - ref;
+  nwEl.textContent = money(nw);
+  const c = $('[data-nwc]');
+  c.className = `change-line ${cls(ch)}`;
+  c.innerHTML = `${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} (${fmtPct(ref ? ch / ref : 0)}) <span class="muted">${rangeLabel(ui.homeRange)}</span>`;
 }
 
 function marketItems() {
@@ -2129,14 +2150,7 @@ function updateNumbers() {
     el.textContent = fmtPct(ch);
     el.className = el.dataset.plain ? `small ${cls(ch)}` : `pill ${cls(ch)}`;
   });
-  const nwEl = $('[data-nw]');
-  if (nwEl) {
-    const nw = netWorth(state, now); const ref = nwAt(now - RANGES[ui.homeRange]) ?? state.startCash; const ch = nw - ref;
-    nwEl.textContent = money(nw);
-    const c = $('[data-nwc]');
-    c.className = `change-line ${cls(ch)}`;
-    c.innerHTML = `${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} (${fmtPct(ref ? ch / ref : 0)}) <span class="muted">${rangeLabel(ui.homeRange)}</span>`;
-  }
+  updateNwHeader(now);
   if (ui.detail && !ui.chain) {
     updateDetailHeader();
     if (!ui.scrub && !busyScrolling() && ui.range === '1D') drawDetailChart(); // live line

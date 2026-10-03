@@ -317,6 +317,14 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
     held_cards = page.locator('.card-grid .pcard').count(); print('cards after reset (pack pulls only):', held_cards)
     assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
+    # Portfolio chart: holding on the graph shows the balance at that point
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    if page.locator('#nwchart svg').count():
+        page.evaluate('''() => { const s = [...document.querySelectorAll('#nwchart svg')].pop(); const r = s.getBoundingClientRect(); s.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + r.width / 2, clientY: r.top + 50, bubbles: true })); }''')
+        lab = page.text_content('[data-nwc]'); assert re.search(r'\d:\d\d', lab), lab
+        page.evaluate('''() => [...document.querySelectorAll('#nwchart svg')].pop().dispatchEvent(new MouseEvent('mouseleave'))''')
+        assert not re.search(r'\d:\d\d', page.text_content('[data-nwc]'))
+        print('portfolio scrub ok')
     # In-app article reader: headline opens the story inside the app
     page.click('#tabbar [data-tab=news]'); page.wait_for_timeout(300)
     page.locator('#view a[data-article]').first.click(); page.wait_for_timeout(900)
