@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup, storyBlocks } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
+  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -62,7 +62,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 51;
+const APP_VERSION = 52;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3641,6 +3641,7 @@ async function runSync({ manual = false, liveOnly = false } = {}) {
   runExtras(state, Date.now()); runExtras3(state, Date.now());
   runCareer(state, Date.now());
   state.lastTick = state.lastTick || Date.now();
+  if (!liveOnly && !failures) { tick(state, Date.now()); fillGaps(state, Date.now()); if (ui.detail && !ui.scrub) ui.chartAnim = false; }
   dirty = true; await save();
   if (needsBoot) {
     if (!assetsList().length) { bootFailed(netStats.lastError || syncError || 'No data returned.'); return; }
@@ -3793,7 +3794,7 @@ async function main() {
     let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded && !overlayOpen()) { reloaded = true; location.reload(); } });
   }
-  tick(state, Date.now());
+  tick(state, Date.now(), { record: false }); // chart points resume once the sync has applied what happened meanwhile
   runAutomation(state, Date.now()); runSocial(state, Date.now()); runExtras(state, Date.now()); runExtras3(state, Date.now()); runCareer(state, Date.now());
   applyTheme(); applyLook();
   ui.since = sinceLastOpen(state);
@@ -3831,7 +3832,7 @@ async function main() {
     if (document.hidden) { markOpen(state); save(); applyUpdate(); return; }
     ui.since = sinceLastOpen(state) || ui.since;
     checkForUpdate();
-    tick(state, Date.now());
+    tick(state, Date.now(), { record: false }); // chart points resume once the sync has applied what happened meanwhile
     runAutomation(state, Date.now()); runSocial(state, Date.now()); runExtras(state, Date.now()); runExtras3(state, Date.now()); runCareer(state, Date.now());
     announce();
     const last = Math.max(0, ...enabledLeagues().map((l) => state.sync[l]?.scoreboard || 0));

@@ -287,4 +287,23 @@ t('restarting charts flattens player history but keeps value', () => {
   assert.ok(a.hist.length >= 4);
 });
 
+t('chart gaps from time away are filled with market wiggle; real points and jumps are kept', () => {
+  const st = E.newState(100);
+  const t0 = 1e12; const H = 3600e3;
+  st.assets.x = { id: 'x', kind: 'player', league: 'nba', hist: [t0, 10, t0 + 60e3, 10.02, t0 + 9 * H, 10.3, t0 + 9 * H + 60e3, 10.31, t0 + 20 * H, 14, t0 + 20 * H + 5 * 60e3, 14.05] };
+  const real = st.assets.x.hist.slice();
+  assert.equal(E.fillGaps(st, t0 + 21 * H), 2);
+  const h = st.assets.x.hist;
+  for (let i = 0; i < real.length; i += 2) { const j = h.indexOf(real[i]); assert.ok(j >= 0 && j % 2 === 0 && h[j + 1] === real[i + 1], 'recorded point kept'); }
+  for (let i = 2; i < h.length; i += 2) { assert.ok(h[i] > h[i - 2], 'in time order'); assert.ok(h[i] - h[i - 2] <= 40 * 60e3 + 1000, 'no long straight stretch left'); }
+  const first = []; const second = [];
+  for (let i = 0; i < h.length; i += 2) { if (h[i] > t0 + 60e3 && h[i] < t0 + 9 * H) first.push(h[i + 1]); if (h[i] > t0 + 9 * H + 60e3 && h[i] < t0 + 20 * H) second.push(h[i + 1]); }
+  assert.ok(first.length >= 20 && new Set(first).size > 10, 'wiggles, not a ramp');
+  let turns = 0; for (let i = 2; i < first.length; i++) if ((first[i] - first[i - 1]) * (first[i - 1] - first[i - 2]) < 0) turns++;
+  assert.ok(turns >= 5, `changes direction: ${turns}`);
+  assert.ok(first.every((p) => p > 8.8 && p < 11.6));
+  assert.ok(second.every((p) => p < 11.9), 'before a big result the price stays at the old level, then jumps');
+  assert.equal(E.fillGaps(st, t0 + 22 * H), 0, 'filling twice changes nothing');
+});
+
 console.log(`\n${passed} tests passed`);

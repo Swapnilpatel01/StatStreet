@@ -817,7 +817,9 @@ export function repriceLeague(state, league, now = Date.now(), { record = true, 
 
 // Called every few seconds while the app is open. Prices wander around their
 // target (like bid/ask noise on a real exchange) but never drift from it.
-export function tick(state, now = Date.now()) {
+// record:false moves prices without adding a chart point (used on reopening the app, before
+// the results that came in while it was closed have been applied).
+export function tick(state, now = Date.now(), { record = true } = {}) {
   const dt = state.lastTick ? Math.min(now - state.lastTick, 12 * HOUR) : 0;
   state.lastTick = now;
   if (!dt) return;
@@ -840,7 +842,7 @@ export function tick(state, now = Date.now()) {
     const h = a.hist;
     const lastT = h[h.length - 2] || 0; const lastP = h[h.length - 1] || p;
     a.price = p;
-    if (now - lastT > 15 * 60e3 || Math.abs(p / lastP - 1) > 0.0075) pushHist(a, now, p);
+    if (record && (now - lastT > 15 * 60e3 || Math.abs(p / lastP - 1) > 0.0075)) pushHist(a, now, p);
   }
   const nw = netWorth(state);
   const last = state.nw[state.nw.length - 2] || 0;
@@ -848,6 +850,49 @@ export function tick(state, now = Date.now()) {
     state.nw.push(now, Math.round(nw * 100) / 100);
     if (state.nw.length > 1600) state.nw = state.nw.filter((_, i) => i % 4 < 2 || i > 800);
   }
+}
+
+// ---------- chart history while the app was closed ----------
+// Prices are only recorded while the app is open, so a night away left a straight line
+// between two points. This fills each long gap with the kind of wiggle the market has when
+// it is open. Every recorded point stays exactly where it was; a jump from a game result
+// stays a jump at the time it happened.
+const GAP_MIN = 40 * 60e3; const GAP_STEP = 12 * 60e3; const GAP_TAU = 90 * 60e3;
+export function fillGaps(state, now = Date.now(), rnd = gauss) {
+  let filled = 0;
+  for (const a of Object.values(state.assets)) {
+    const h = a.hist;
+    if (!h || h.length < 4) continue;
+    let out = null;
+    const sigma = a.kind === 'fund' ? 0.005 : a.kind === 'team' ? 0.01 : 0.02;
+    for (let i = 2; i < h.length; i += 2) {
+      const t0 = h[i - 2]; const p0 = h[i - 1]; const t1 = h[i]; const p1 = h[i + 1];
+      if (out) out.push(t0, p0);
+      const gap = t1 - t0;
+      if (gap <= GAP_MIN || !(p0 > 0) || !(p1 > 0)) continue;
+      out ||= h.slice(0, i);
+      const n = Math.max(3, Math.min(60, Math.round(gap / GAP_STEP)));
+      const dtn = gap / (n + 1);
+      // A big step is a result landing: hold the old level (with noise) and jump at the end.
+      const jump = Math.abs(p1 / p0 - 1) > 0.025;
+      const e = Math.exp(-dtn / GAP_TAU); const s = sigma * Math.sqrt(1 - e * e);
+      const xs = []; let x = 0;
+      for (let k = 0; k < n; k++) { x = x * e + s * rnd(); xs.push(x + sigma * 0.2 * rnd()); } // a slow drift plus tick-to-tick jitter
+      for (let k = 0; k < n; k++) {
+        const f = (k + 1) / (n + 1);
+        const pin = xs[n - 1] * f; // tie the noise back to zero at the far end
+        const base = jump ? p0 : p0 * Math.pow(p1 / p0, f);
+        out.push(Math.round(t0 + dtn * (k + 1)), Math.max(0.01, Math.round(base * Math.exp(xs[k] - pin) * 100) / 100));
+      }
+      filled++;
+    }
+    if (!out) continue;
+    out.push(h[h.length - 2], h[h.length - 1]);
+    // Same thinning as live recording: keep long-range history, drop detail from the oldest part.
+    while (out.length > HIST_CAP * 2) { const half = Math.floor(out.length / 4) * 2; const old = []; for (let i = 0; i < half; i += 4) old.push(out[i], out[i + 1]); out = old.concat(out.slice(half)); }
+    a.hist = out;
+  }
+  return filled;
 }
 
 // ---------- model changes ----------
