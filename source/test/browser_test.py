@@ -218,7 +218,7 @@ with sync_playwright() as p:
     nc = page.locator('.card-grid .pcard').count(); print('cards:', nc, 'trophies:', nt); assert nc >= 1 and nt >= 3
     coins = int(re.sub(r'[^0-9]', '', page.text_content('.coins.big')))
     print('coins earned so far:', coins)
-    if coins >= 150:
+    if coins >= 20000:
         page.click('.pack.mstarter'); page.wait_for_selector('#packview:not([hidden])'); page.wait_for_timeout(300)
         page.click('.pv-card >> nth=0'); page.wait_for_timeout(700)
         page.screenshot(path=f'{OUT}/11-pack.png')
@@ -246,7 +246,7 @@ with sync_playwright() as p:
     # --- booster cards: open a pack, boost a stock, buy from the market, auction one
     page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
         const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
-        s.career.coins = 5000;
+        s.cash = 500000;
         await new Promise(r => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(s, 'state'); t.oncomplete = r; }); })()""")
     page.reload(); page.wait_for_timeout(2500)
     page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
@@ -267,7 +267,7 @@ with sync_playwright() as p:
     page.screenshot(path=f'{OUT}/15b-marketplace-full.png', full_page=True)
     page.click('[data-bidbtn] >> nth=0'); page.wait_for_selector('#trade:not([hidden])'); page.wait_for_timeout(300)
     page.screenshot(path=f'{OUT}/15c-bid.png')
-    page.fill('#bidamt', '3000'); page.click('[data-act=placebid]'); page.wait_for_timeout(300)
+    page.fill('#bidamt', '90000'); page.click('[data-act=placebid]'); page.wait_for_timeout(300)
     print('bid:', toast(page), page.text_content('#terr') if page.locator('#terr').count() else '')
     if not page.evaluate("document.querySelector('#trade').hidden"): page.click('[data-act=tcancel]'); page.wait_for_timeout(300)
     page.click('[data-act=mymarket]'); page.wait_for_timeout(200)

@@ -15,12 +15,14 @@ import { TRAITS } from './moments.js';
 const round2 = (x) => Math.round(x * 100) / 100;
 
 export const B_RARITY = [
-  { key: 'common', name: 'Common', color: '#8b939e', charges: 3, sell: 8 },
-  { key: 'uncommon', name: 'Uncommon', color: '#2fbf71', charges: 4, sell: 20 },
-  { key: 'rare', name: 'Rare', color: '#e07a2e', charges: 5, sell: 55 },
-  { key: 'epic', name: 'Epic', color: '#a45cff', charges: 7, sell: 150 },
-  { key: 'legendary', name: 'Legendary', color: '#f5b700', charges: 10, sell: 450 },
-  { key: 'iconic', name: 'Iconic', color: '#ff4fa3', charges: 15, sell: 1500 },
+  // `sell` is the rarity's base value in cents. A fresh card trades at about 1.8x this:
+  // roughly $3.60, $12.60, $45, $180, $810 and $4,500.
+  { key: 'common', name: 'Common', color: '#8b939e', charges: 3, sell: 200 },
+  { key: 'uncommon', name: 'Uncommon', color: '#2fbf71', charges: 4, sell: 700 },
+  { key: 'rare', name: 'Rare', color: '#e07a2e', charges: 5, sell: 2500 },
+  { key: 'epic', name: 'Epic', color: '#a45cff', charges: 7, sell: 10000 },
+  { key: 'legendary', name: 'Legendary', color: '#f5b700', charges: 10, sell: 45000 },
+  { key: 'iconic', name: 'Iconic', color: '#ff4fa3', charges: 15, sell: 250000 },
 ];
 export const rIdx = (key) => B_RARITY.findIndex((r) => r.key === key);
 
@@ -89,6 +91,8 @@ export function unequip(state, cardId) {
   if (b) b.on = null;
 }
 
+// Fusing also costs cash, so three cheap cards never turn into one that sells for more.
+export const fuseFee = (rarity) => Math.round(B_RARITY[rIdx(rarity) + 1].sell * 1.5);
 // Three cards of the same rarity: keep your best-rated one and move it up a rarity, fully charged.
 export function fuse(state, rarity, now = Date.now()) {
   const i = rIdx(rarity);
@@ -96,6 +100,7 @@ export function fuse(state, rarity, now = Date.now()) {
   const bs = boosterState(state);
   const pool = bs.inv.filter((b) => b.rarity === rarity && !b.on && !b.listed).sort((x, y) => y.m.rating - x.m.rating);
   if (pool.length < 3) throw new Error('You need 3 unused cards of the same rarity');
+  spendCoins(state, fuseFee(rarity));
   const [keep, ...burn] = pool.slice(0, 3);
   const gone = new Set(burn.map((b) => b.id));
   bs.inv = bs.inv.filter((b) => !gone.has(b.id));
@@ -172,10 +177,10 @@ function drawMoment(by, rarity, rnd) {
 // ---------- packs ----------
 
 export const B_PACKS = [
-  { key: 'mstarter', name: 'Moment Pack', cost: 150, level: 1, n: 3, min: null, blurb: '3 moment cards' },
-  { key: 'mpremium', name: 'Premium Moments', cost: 400, level: 4, n: 3, min: 'rare', blurb: '3 cards · 1 Rare or better' },
-  { key: 'melite', name: 'Elite Moments', cost: 900, level: 7, n: 4, min: 'epic', blurb: '4 cards · 1 Epic or better' },
-  { key: 'miconic', name: 'Iconic Chase', cost: 2000, level: 10, n: 4, min: 'legendary', blurb: '4 cards · 1 Legendary+ · best Iconic odds' },
+  { key: 'mstarter', name: 'Moment Pack', cost: 20000, level: 1, n: 3, min: null, blurb: '3 moment cards' },
+  { key: 'mpremium', name: 'Premium Moments', cost: 25000, level: 4, n: 3, min: 'rare', blurb: '3 cards · 1 Rare or better' },
+  { key: 'melite', name: 'Elite Moments', cost: 48000, level: 7, n: 4, min: 'epic', blurb: '4 cards · 1 Epic or better' },
+  { key: 'miconic', name: 'Iconic Chase', cost: 200000, level: 10, n: 4, min: 'legendary', blurb: '4 cards · 1 Legendary+ · best Iconic odds' },
 ];
 const ODDS = [['iconic', 0.004], ['legendary', 0.02], ['epic', 0.07], ['rare', 0.2], ['uncommon', 0.48], ['common', 1]];
 const CHASE = [['iconic', 0.03], ['legendary', 0.08], ['epic', 0.18], ['rare', 0.4], ['uncommon', 0.7], ['common', 1]];
@@ -206,14 +211,15 @@ export function openBoosterPack(state, key, now = Date.now(), rnd = Math.random)
 
 export function demand(now = Date.now(), key = '') {
   const rnd = seeded(`demand:${new Date(now).toLocaleDateString('en-CA')}:${key}`);
-  return 0.85 + 0.35 * rnd();
+  return 0.95 + 0.1 * rnd(); // small daily swings: not enough to buy low and sell high on a schedule
 }
 // Coins: rarity base × play rating × the day's demand for that league × charges left.
 export function marketValue(b, now = Date.now()) {
   const r = bRarity(b.rarity);
   return Math.max(1, Math.round(r.sell * 1.6 * (0.75 + b.m.rating / 16) * demand(now, b.m.league) * (0.35 + 0.65 * b.charges / b.max)));
 }
-export const quickSellPrice = (b) => Math.max(1, Math.round(bRarity(b.rarity).sell * (0.3 + 0.7 * b.charges / b.max)));
+// Instant sale to the house: well under what an auction brings.
+export const quickSellPrice = (b) => Math.max(1, Math.round(bRarity(b.rarity).sell * 0.5 * (0.3 + 0.7 * b.charges / b.max)));
 
 export function quickSell(state, cardId) {
   const bs = boosterState(state);
@@ -233,7 +239,7 @@ const MP_ODDS = [['iconic', 0.01], ['legendary', 0.05], ['epic', 0.14], ['rare',
 const increment = (p) => Math.max(1, Math.ceil(p * 0.08));
 
 function mp(state) {
-  state.mp ||= { hour: 0, list: [], bids: {} };
+  state.mp ||= { hour: 0, list: [], bids: {}, v: 2 };
   return state.mp;
 }
 
@@ -258,7 +264,8 @@ function stockListings(state, now) {
       const value = marketValue(card, h * HOUR);
       const start = Math.max(1, Math.round(value * (0.35 + 0.3 * rnd())));
       const z = Math.sqrt(-2 * Math.log(Math.max(1e-9, rnd()))) * Math.cos(2 * Math.PI * rnd());
-      const npcMax = Math.max(start, Math.round(value * Math.exp(0.25 * z)));
+      // Other collectors always bid close to what a card is worth, so there are no steals to flip.
+      const npcMax = Math.max(start, Math.round(value * Math.max(0.92, Math.exp(0.12 * z))));
       const t0 = h * HOUR + Math.floor(rnd() * HOUR);
       const len = [1, 2, 4, 6, 9, 12, 18, 24][Math.floor(rnd() * 8)] * HOUR;
       m.list.push({ id: `mp${h}-${i}`, card, start, npcMax, from: t0, end: t0 + len, seller: SELLERS[Math.floor(rnd() * SELLERS.length)], bidders: 1 + Math.floor(rnd() * 7) });
@@ -324,10 +331,11 @@ export function buyNow(state, id, now = Date.now()) {
 
 // ---------- your own auctions ----------
 
+export const SELLER_FEE = 0.1; // the marketplace keeps 10% of every auction sale
 export const AUCTION_LENGTHS = [
-  { key: '1h', label: '1 hour', ms: HOUR, boost: 0.9 },
-  { key: '6h', label: '6 hours', ms: 6 * HOUR, boost: 1.0 },
-  { key: '24h', label: '24 hours', ms: DAY, boost: 1.12 },
+  { key: '1h', label: '1 hour', ms: HOUR, boost: 0.8 },
+  { key: '6h', label: '6 hours', ms: 6 * HOUR, boost: 0.9 },
+  { key: '24h', label: '24 hours', ms: DAY, boost: 1.0 },
 ];
 
 export function listAuction(state, cardId, { start, length = '6h' }, now = Date.now()) {
@@ -340,7 +348,7 @@ export function listAuction(state, cardId, { start, length = '6h' }, now = Date.
   start = Math.max(1, Math.round(Number(start) || 1));
   const rnd = seeded(`auction:${b.id}:${now}`);
   const z = Math.sqrt(-2 * Math.log(Math.max(1e-9, rnd()))) * Math.cos(2 * Math.PI * rnd());
-  const top = Math.round(marketValue(b, now) * L.boost * Math.exp(0.22 * z));
+  const top = Math.round(marketValue(b, now) * L.boost * Math.min(1.05, Math.exp(0.1 * z)));
   const au = { id: `my${now.toString(36)}`, mine: true, cardId: b.id, card: { m: b.m, rarity: b.rarity, charges: b.charges, max: b.max, type: b.type, serial: b.serial },
     start, npcMax: top, from: now, end: now + L.ms, bidders: 2 + Math.floor(rnd() * 6), status: 'live' };
   b.listed = au.id;
@@ -359,8 +367,27 @@ export function cancelAuction(state, id, now = Date.now()) {
   if (b) delete b.listed;
 }
 
+// One-time, when card prices went up: live listings were priced on the old scale, so
+// bids are refunded, your own auctions come back to the Locker, and the shelves restock.
+const MP_V = 2;
+function repriceMarket(state, now) {
+  const m = mp(state);
+  if ((m.v || 1) >= MP_V) return;
+  const fresh = !m.list.length;
+  m.v = MP_V;
+  if (fresh) return;
+  let back = 0;
+  for (const b of Object.values(m.bids)) back += b.amount;
+  if (back) addCoins(state, back);
+  m.bids = {};
+  for (const b of boosterState(state).inv) delete b.listed;
+  m.list = []; m.hour = 0;
+  notify(state, 'market', `Card prices are much higher now. Open auctions were closed${back ? ` and your bids (${centsFmt(back)}) refunded` : ''}; any cards you had listed are back in your Locker.`, null, now);
+}
+
 export function runMarket(state, now = Date.now()) {
   tidyBoosters(state);
+  repriceMarket(state, now);
   stockListings(state, now);
   const m = mp(state);
   for (const l of m.list) {
@@ -373,9 +400,10 @@ export function runMarket(state, now = Date.now()) {
       const name = `${l.card.m.player.name} ${l.card.m.kind.toLowerCase()}`;
       if (l.npcMax >= l.start && b) {
         bs.inv = bs.inv.filter((x) => x.id !== b.id);
-        l.status = 'sold'; l.price = l.npcMax;
-        addCoins(state, l.npcMax); addXP(state, 10, now);
-        notify(state, 'market', `Sold at auction: ${name} card for ${centsFmt(l.npcMax)}`, null, now);
+        const net = Math.round(l.npcMax * (1 - SELLER_FEE));
+        l.status = 'sold'; l.price = net;
+        addCoins(state, net); addXP(state, 10, now);
+        notify(state, 'market', `Sold at auction: ${name} card for ${centsFmt(l.npcMax)} (${centsFmt(net)} after the ${SELLER_FEE * 100}% fee)`, null, now);
       } else {
         l.status = 'unsold';
         if (b) delete b.listed;
@@ -402,7 +430,8 @@ export function migrateBoosters(state, now = Date.now()) {
   const old = bs.inv.filter((b) => !b.m);
   if (!old.length && !state.auctions?.length) return 0;
   let coins = 0;
-  for (const b of old) coins += Math.max(1, Math.round(bRarity(b.rarity)?.sell * (0.3 + 0.7 * b.charges / b.max)) || 1);
+  const OLD = { common: 8, uncommon: 20, rare: 55, epic: 150, legendary: 450, iconic: 1500 }; // what they were worth then
+  for (const b of old) coins += Math.max(1, Math.round((OLD[b.rarity] || 8) * (0.3 + 0.7 * b.charges / b.max)) || 1);
   bs.inv = bs.inv.filter((b) => b.m);
   delete state.auctions;
   if (coins) {

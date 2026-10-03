@@ -54,7 +54,7 @@ export function addXP(state, n, now = Date.now()) {
 // Cards, packs and rewards all use your cash. Amounts are whole cents (150 = $1.50).
 // Every cent that moves this way is also tallied in state.flow, so season and weekly
 // returns measure your trading only: rewards don't inflate them, card buys don't sink them.
-export const centsFmt = (n) => `$${(Math.round(n) / 100).toFixed(2)}`;
+export const centsFmt = (n) => `$${(Math.round(n) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const wallet = (state) => Math.floor((state.cash || 0) * 100 + 1e-6);
 function move(state, cents) {
   state.cash = Math.round((state.cash + cents / 100) * 100) / 100;

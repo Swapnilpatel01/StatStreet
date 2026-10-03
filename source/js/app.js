@@ -30,7 +30,7 @@ import {
   propBoard, placeBet, MAX_LEGS, PROP_ODDS, potentialPayout,
 } from './contests.js';
 import {
-  B_RARITY, B_PACKS, AUCTION_LENGTHS, bType, bRarity, describe, describeShort, traitList, rIdx, slots, boosterState, equipped, boosterOn,
+  B_RARITY, B_PACKS, AUCTION_LENGTHS, fuseFee, SELLER_FEE, bType, bRarity, describe, describeShort, traitList, rIdx, slots, boosterState, equipped, boosterOn,
   equip, unequip, fuse, openBoosterPack, marketValue, quickSellPrice, quickSell, listAuction, cancelAuction, myAuctions, listingView,
   marketListings, placeBid, buyNow, buyNowPrice, assetOf,
 } from './boosters.js';
@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 31;
+const APP_VERSION = 32;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1172,7 +1172,7 @@ function boostersSection() {
     <div class="row between"><h2>Your moment cards <span class="faint small">${inv.length}</span></h2><span class="tiny muted">${used}/${slots(state)} active</span></div>
     <p class="small muted" style="margin:-4px 0 10px">Each card is a real play. Put it on that player (you need some of his shares) to boost your earnings from him. Each game he plays uses one charge. You get another slot every 3 levels.</p>
     ${fusable.length ? `<div class="card fuse">${fusable.map((r) => { const nx = B_RARITY[rIdx(r.key) + 1];
-      return `<div class="row between"><span class="small">3 ${r.name} cards → your best one becomes <b style="color:${nx.color}">${nx.name}</b></span><button class="btn buy small" data-fuse="${r.key}">Fuse</button></div>`; }).join('')}</div>` : ''}
+      return `<div class="row between"><span class="small">3 ${r.name} cards → your best one becomes <b style="color:${nx.color}">${nx.name}</b></span><button class="btn buy small" data-fuse="${r.key}">Fuse · ${cm(fuseFee(r.key))}</button></div>`; }).join('')}</div>` : ''}
     ${inv.length ? `<div class="mc-grid">${sorted.map((b) => `<button class="mc-cell" data-booster="${b.id}">
       <div class="mc-status">${b.on ? `<span class="pk won">Active · ${esc(state.assets[b.on]?.ticker || '')}</span>` : b.listed ? '<span class="pk">On auction</span>' : '<span class="pk">Ready</span>'}</div>
       ${momentCard(b, { mini: true })}</button>`).join('')}</div>`
@@ -1212,7 +1212,7 @@ function renderBoosterSheet() {
     <h3>Sell</h3>
     <button class="btn ghost" data-act="bsell" style="width:100%">Quick sell · ${cm(quickSellPrice(b))}</button>
     ${b.on ? '' : `<div class="card" style="margin-top:10px">
-      <div class="row between"><b>Auction it</b><span class="tiny muted">Worth about ${cm(mv)}</span></div>
+      <div class="row between"><b>Auction it</b> <span class="tiny faint">${SELLER_FEE * 100}% fee on a sale</span><span class="tiny muted">Worth about ${cm(mv)}</span></div>
       <label class="price-field"><span class="small muted">Starting bid ($)</span><input id="bstart" inputmode="decimal" value="${(Math.max(1, Math.round(mv * 0.6)) / 100).toFixed(2)}"></label>
       <div class="seg" style="margin-top:10px">${AUCTION_LENGTHS.map((L) => `<button data-blen="${L.key}" class="${o.len === L.key ? 'on' : ''}">${L.label}</button>`).join('')}</div>
       <div class="tiny faint" style="margin-top:6px">Longer auctions draw more bidders. If no bid reaches your starting price, the card comes back.</div>

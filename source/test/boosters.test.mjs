@@ -165,3 +165,8 @@ t('old generic boosters are traded in for coins', () => {
 });
 
 console.log(`\n${passed} moment-card tests passed`);
+
+// The card economy must not be a money machine: packs and flips return less than they cost.
+const sim = (await import('../tools/simcards.mjs')).out;
+for (const [k, v] of Object.entries(sim)) assert.ok(v < 0.95, `${k} returns ${(v * 100).toFixed(0)}% of its cost`);
+console.log('ok - packs and flipping lose money on average');
