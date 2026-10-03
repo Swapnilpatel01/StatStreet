@@ -11,7 +11,7 @@ import {
 } from './trading.js';
 import { impliedVol, greeks, optionMid, optionsValue, CONTRACT, YEAR, gamesBefore as gamesBeforeExp, gameMove } from './bs.js';
 import { syncLeague, hasLive } from './sync.js';
-import { setProxy, netStats, api } from './api.js';
+import { setProxy, netStats, api, wikiPhoto } from './api.js';
 import { loadState, saveState, persist, idbDel } from './store.js';
 import { lineChart, sparkline, payoffChart } from './chart.js';
 import { haptic, slideOut, dismissable, pullToRefresh, edgeSwipe } from './gestures.js';
@@ -62,7 +62,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 46;
+const APP_VERSION = 47;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1183,7 +1183,10 @@ function momentCard(c, { mini = false } = {}) {
   const pos = state.assets[`${m.league}:p:${m.player.id}`]?.pos;
   const sub = m.opp ? `vs ${m.opp.name}` : [m.player.team, pos].filter(Boolean).join(' · ');
   const d = new Date(m.date);
-  return `<div class="mc r-${c.rarity} ${mini ? 'mini' : ''}" style="--rc:${r.color}">
+  // Iconic cards carry a real photo of the player when a freely licensed one exists.
+  const wp = c.rarity === 'iconic' ? cardPhoto(m) : null;
+  return `<div class="mc r-${c.rarity} ${mini ? 'mini' : ''} ${wp ? 'has-photo' : ''}" style="--rc:${r.color}" ${c.rarity === 'iconic' ? `data-wp="${esc(m.league)}:${esc(m.player.id)}"` : ''}>
+    ${wp ? `<div class="mc-photo" style="background-image:url('${esc(wp.src)}')"></div>` : ''}
     <div class="mc-art">${cardArt(m, c.serial)}</div><div class="mc-fx"></div>
     <div class="mc-head"><div style="min-width:0">
       <div class="mc-kicker">${lgTag(m.league)}${r.name}</div>
@@ -1195,6 +1198,7 @@ function momentCard(c, { mini = false } = {}) {
     <div class="mc-board"><span class="sc">${esc(sc.away || '')} <b>${sc.a ?? ''}</b> · ${esc(sc.home || '')} <b>${sc.h ?? ''}</b></span><span class="sit">${esc(m.sit || '')}</span></div>
     <div class="mc-foot"><span class="boost">${t.icon} ${esc(describeShort(c))}${c.charges != null ? ` · ${c.charges}/${c.max}` : ''}</span>
       <span class="no">${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} · No.${String(c.serial).padStart(3, '0')}</span></div>
+    ${wp && !mini ? `<div class="mc-credit">Photo: ${esc(wp.artist)} · ${esc(wp.licence)} · Wikimedia Commons</div>` : ''}
   </div>`;
 }
 
@@ -3531,6 +3535,31 @@ function showConfirm(tx, extras) {
     <button class="btn buy" data-act="confirmdone" style="width:100%;margin-top:8px">Done</button></div>`;
 }
 function closeConfirm() { ui.confirm = false; const el = $('#confirm'); el.hidden = true; el.innerHTML = ''; }
+
+// ---------- photos on Iconic cards ----------
+// Looked up once per player and remembered. Only photos under a free licence are used,
+// with the photographer credited on the card; otherwise the card keeps its drawn art.
+const photoLoading = new Set();
+function cardPhoto(m) {
+  const key = `${m.league}:${m.player.id}`;
+  const hit = state.wikiPhotos?.[key];
+  if (hit && Date.now() - hit.t < 30 * DAY) return hit.src ? hit : null;
+  if (STATIC || photoLoading.has(key)) return null;
+  photoLoading.add(key);
+  wikiPhoto(m.player.name, m.league).then((ph) => {
+    (state.wikiPhotos ||= {})[key] = ph ? { ...ph, t: Date.now() } : { t: Date.now() };
+    dirty = true;
+    if (!ph) return;
+    // Add it to any copies of the card already on screen.
+    document.querySelectorAll(`.mc[data-wp="${key}"]`).forEach((el) => {
+      if (el.querySelector('.mc-photo')) return;
+      const d = document.createElement('div'); d.className = 'mc-photo'; d.style.backgroundImage = `url('${ph.src.replace(/'/g, '%27')}')`;
+      el.prepend(d); el.classList.add('has-photo');
+      if (!el.classList.contains('mini')) { const c = document.createElement('div'); c.className = 'mc-credit'; c.textContent = `Photo: ${ph.artist} · ${ph.licence} · Wikimedia Commons`; el.append(c); }
+    });
+  }).catch(() => { /* optional */ }).then(() => photoLoading.delete(key));
+  return null;
+}
 
 // ---------- card tilt ----------
 // Legendary and Iconic foil follows the phone as you tilt it. iPhone asks for permission

@@ -947,3 +947,13 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: none; transition: background-position .12s linear; }
 .mc.mini.r-epic { animation: none; }
 @media (prefers-reduced-motion: reduce) { .mc.r-epic, .mc.r-legendary .mc-fx, .mc.r-iconic .mc-fx { animation: none; } }
+
+/* ---------- v47: photo on Iconic cards ---------- */
+.mc-photo { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: 50% 18%; pointer-events: none;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,.25) 78%, transparent 100%); mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,.25) 78%, transparent 100%); }
+.mc-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8,6,12,.45), rgba(8,6,12,.15) 30%, rgba(8,6,12,.7) 70%, rgba(8,6,12,.95)); }
+.mc.has-photo .mc-art { opacity: .28; }
+.mc.has-photo .hs { display: none; }
+.mc.has-photo .mc-who { background: linear-gradient(90deg, rgba(10,13,17,.8), rgba(10,13,17,.4)); padding-left: 8px; }
+.mc.has-photo.r-iconic .mc-fx { opacity: .5; }
+.mc-credit { font-size: 7.5px; color: rgba(255,255,255,.55); margin-top: 6px; line-height: 1.3; }

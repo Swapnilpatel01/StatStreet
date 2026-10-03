@@ -126,4 +126,20 @@ t('market indicator, dividend calendar and bio', () => {
   assert.equal(b.facts[3][1], 'Rookie'); assert.equal(b.stats[0][1], '27.1');
   assert.equal(X.parseBio({}).facts.length, 0);
 });
+t('Iconic card photos: right person, free licence only, credited', async () => {});
+{
+  globalThis.fetch ||= () => {};
+  const A = await import('../js/api.js');
+  const sum = { type: 'standard', description: 'American football quarterback (born 1996)', extract: 'x', originalimage: { source: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Josh_Allen_2023.jpg' },
+    thumbnail: { source: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Josh_Allen_2023.jpg/320px-Josh_Allen_2023.jpg' }, content_urls: { mobile: { page: 'https://en.m.wikipedia.org/wiki/Josh_Allen' } } };
+  const ph = A.pickWikiPhoto(sum, 'nfl');
+  assert.equal(ph.file, 'Josh_Allen_2023.jpg'); assert.match(ph.src, /\/640px-/);
+  assert.equal(A.pickWikiPhoto(sum, 'nba'), null, 'a namesake in another sport is rejected');
+  assert.equal(A.pickWikiPhoto({ ...sum, type: 'disambiguation' }, 'nfl'), null);
+  const meta = (lic) => ({ query: { pages: { 1: { imageinfo: [{ descriptionurl: 'https://commons.wikimedia.org/wiki/File:X.jpg', extmetadata: { LicenseShortName: { value: lic }, Artist: { value: '<a href="x">All-Pro Reels</a>' } } }] } } } });
+  assert.deepEqual(A.pickLicence(meta('CC BY-SA 2.0')), { licence: 'CC BY-SA 2.0', artist: 'All-Pro Reels', url: 'https://commons.wikimedia.org/wiki/File:X.jpg' });
+  assert.ok(A.pickLicence(meta('Public domain')));
+  assert.equal(A.pickLicence(meta('Fair use')), null); assert.equal(A.pickLicence(meta('Copyrighted')), null); assert.equal(A.pickLicence({}), null);
+  console.log('ok - photo picking and licence checks');
+}
 console.log(`\n${n} extras3 tests passed`);

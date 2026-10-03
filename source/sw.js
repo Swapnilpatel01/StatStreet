@@ -1,7 +1,7 @@
 // Service worker: caches the app shell so StatStreet opens instantly and works
 // offline (with the last prices it saw). Live data always goes to the network.
 
-const VERSION = 'statstreet-v46';
+const VERSION = 'statstreet-v47';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/engine.js', 'js/scoring.js', 'js/sync.js', 'js/api.js', 'js/store.js', 'js/chart.js', 'js/util.js',
@@ -69,7 +69,7 @@ self.addEventListener('fetch', (e) => {
 
   // Player headshots and team logos: cache-first, they rarely change.
   // Capped so the cache can't grow without limit on the phone.
-  if (url.hostname === 'a.espncdn.com') {
+  if (url.hostname === 'a.espncdn.com' || url.hostname === 'upload.wikimedia.org') {
     e.respondWith(
       caches.open(`${VERSION}-img`).then(async (cache) => {
         const cached = await cache.match(e.request);

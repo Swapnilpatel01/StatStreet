@@ -91,3 +91,41 @@ export const SEASON_CATEGORIES = {
   nfl: ['offense:passing', 'offense:rushing', 'offense:receiving', 'defense:defensive', 'specialTeams:kicking'],
   mlb: ['batting', 'pitching'],
 };
+
+// ---------- freely licensed player photos ----------
+// Wikipedia's lead photo for a player, used only when Wikimedia Commons lists it under a
+// free licence (Creative Commons or public domain) and we can credit the photographer.
+const SPORT_WORDS = { nba: /basketball/i, nfl: /football/i, mlb: /baseball/i };
+const WIKI_SUFFIX = { nba: ['basketball'], nfl: ['American football'], mlb: ['baseball'] };
+const FREE_LICENCE = /^(cc[ -]?(0|by)|public domain|pd\b)/i;
+const text = (html) => String(html || '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+export function pickWikiPhoto(summary, league) {
+  if (!summary || summary.type !== 'standard' || !summary.originalimage?.source) return null;
+  if (!SPORT_WORDS[league]?.test(`${summary.description || ''} ${summary.extract || ''}`)) return null; // someone else with the same name
+  const file = decodeURIComponent(summary.originalimage.source.split('/').pop() || '');
+  if (!file || /\.svg$/i.test(file)) return null;
+  return { file, src: summary.thumbnail?.source?.replace(/\/\d+px-/, '/640px-') || summary.originalimage.source, page: summary.content_urls?.mobile?.page || summary.content_urls?.desktop?.page || '' };
+}
+export function pickLicence(meta) {
+  const p = Object.values(meta?.query?.pages || {})[0];
+  const x = p?.imageinfo?.[0]?.extmetadata;
+  if (!x) return null;
+  const licence = text(x.LicenseShortName?.value);
+  if (!FREE_LICENCE.test(licence) || /fair use|non-free/i.test(text(x.UsageTerms?.value) + licence)) return null;
+  return { licence, artist: text(x.Artist?.value).slice(0, 60) || 'Unknown author', url: p.imageinfo[0].descriptionurl || '' };
+}
+export async function wikiPhoto(name, league) {
+  const titles = [name, ...(WIKI_SUFFIX[league] || []).map((sfx) => `${name} (${sfx})`)];
+  for (const title of titles) {
+    try {
+      const sum = await get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, '_'))}?redirect=true`, 8000);
+      const ph = pickWikiPhoto(sum, league);
+      if (!ph) continue;
+      const meta = await get(`https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent('File:' + ph.file)}&prop=imageinfo&iiprop=extmetadata%7Curl&format=json&origin=*`, 8000);
+      const lic = pickLicence(meta);
+      if (!lic) return null; // found him, but the photo isn't free to reuse
+      return { src: ph.src, page: lic.url || ph.page, artist: lic.artist, licence: lic.licence };
+    } catch { /* try the next title */ }
+  }
+  return null;
+}
