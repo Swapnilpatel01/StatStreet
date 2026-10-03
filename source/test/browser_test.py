@@ -206,7 +206,7 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=market]'); page.fill('#q', 'SS500'); page.wait_for_timeout(200)
     page.click('#mlist .item >> nth=0'); page.wait_for_timeout(400)
     page.screenshot(path=f'{OUT}/8-fund.png')
-    page.click('#tradebar [data-act=buy]'); page.wait_for_timeout(200); slide(page); print('toast:', toast(page)); assert toast(page).startswith('Bought')
+    page.click('#tradebar [data-act=buy]'); page.wait_for_timeout(200); slide(page); t = toast(page); print('toast:', t); assert t.startswith('Bought')
     page.click('[data-act=back]'); page.wait_for_timeout(300)
 
     # --- home & account

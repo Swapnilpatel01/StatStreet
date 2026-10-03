@@ -909,3 +909,41 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .cf-in .grow { flex: 1; min-height: 18px; }
 @media (prefers-reduced-motion: reduce) { .cf-check circle, .cf-check path { animation: none; stroke-dashoffset: 0; } .mkt.live .dot { animation: none; } }
 .cf-in .btn { flex: none; }
+
+/* ---------- v46: card art and rarity finishes ---------- */
+:root { --tx: 0; --ty: 0; }
+.mc > *:not(.mc-art):not(.mc-fx) { position: relative; z-index: 2; }
+.mc-art { position: absolute; inset: 0; z-index: 0; color: var(--rc); pointer-events: none; opacity: .55;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 38%, rgba(0,0,0,.35) 62%, rgba(0,0,0,.12) 100%); mask-image: linear-gradient(180deg, #000 0%, #000 38%, rgba(0,0,0,.35) 62%, rgba(0,0,0,.12) 100%); }
+.mc-art svg { width: 100%; height: 100%; display: block; }
+.mc-fx { position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; }
+/* Text stays readable over the art. */
+.mc-kind, .mc-who .grow b, .mc-play { text-shadow: 0 1px 6px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.9); }
+.mc-who { background: linear-gradient(90deg, rgba(10,13,17,.72), rgba(10,13,17,.35)); border-radius: 10px; padding: 4px 6px 4px 4px; margin-left: -4px; }
+.mc.r-common .mc-art { opacity: .4; }
+/* Uncommon: fine diagonal weave */
+.mc.r-uncommon .mc-fx { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--rc) 12%, transparent) 0 1px, transparent 1px 7px); }
+/* Rare: brushed-metal sheen */
+.mc.r-rare { background: linear-gradient(180deg, #1d1a17, #110f0d); }
+.mc.r-rare .mc-fx { background: linear-gradient(115deg, transparent 20%, rgba(255,255,255,.10) 38%, rgba(255,255,255,.02) 46%, transparent 60%), repeating-linear-gradient(90deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px); }
+/* Epic: breathing glow */
+.mc.r-epic { background: linear-gradient(180deg, #1c1630, #0f0c1a); animation: epicglow 3.2s ease-in-out infinite; }
+.mc.r-epic .mc-art { opacity: .7; }
+.mc.r-epic .mc-fx { background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--rc) 26%, transparent), transparent 70%); }
+@keyframes epicglow { 50% { box-shadow: 0 8px 26px rgba(0,0,0,.35), 0 0 22px color-mix(in srgb, var(--rc) 55%, transparent); } }
+/* Legendary: gold foil that slides with the tilt */
+.mc.r-legendary { background: linear-gradient(180deg, #2a2110, #14100a); border-color: #f5b700; }
+.mc.r-legendary .mc-art { opacity: .8; }
+.mc.r-legendary .mc-fx { background: linear-gradient(calc(110deg + var(--tx) * 25deg), transparent 15%, rgba(255,214,102,.34) 40%, rgba(255,255,255,.5) 50%, rgba(255,214,102,.3) 60%, transparent 85%);
+  background-size: 260% 260%; background-position: calc(50% + var(--tx) * 45%) calc(50% + var(--ty) * 45%); mix-blend-mode: screen; animation: foil 5s ease-in-out infinite; }
+/* Iconic: rainbow holographic */
+.mc.r-iconic .mc-art { opacity: .85; color: #fff; }
+.mc.r-iconic .mc-fx { background:
+    linear-gradient(calc(120deg + var(--tx) * 40deg), rgba(255,79,163,.42), rgba(255,184,0,.36) 22%, rgba(120,255,170,.34) 44%, rgba(76,201,255,.4) 66%, rgba(179,107,255,.42) 88%, rgba(255,79,163,.42)),
+    repeating-linear-gradient(calc(45deg + var(--ty) * 30deg), rgba(255,255,255,.14) 0 2px, transparent 2px 9px);
+  background-size: 300% 300%, 100% 100%; background-position: calc(50% + var(--tx) * 50%) calc(50% + var(--ty) * 50%), 0 0; mix-blend-mode: color-dodge; opacity: .75; animation: foil 4s ease-in-out infinite; }
+@keyframes foil { 0%, 100% { background-position: 20% 30%; } 50% { background-position: 80% 70%; } }
+/* When the phone's tilt (or a finger) is driving the foil, it follows that instead of the idle shimmer. */
+html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: none; transition: background-position .12s linear; }
+.mc.mini.r-epic { animation: none; }
+@media (prefers-reduced-motion: reduce) { .mc.r-epic, .mc.r-legendary .mc-fx, .mc.r-iconic .mc-fx { animation: none; } }

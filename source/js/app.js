@@ -36,6 +36,7 @@ import {
 } from './boosters.js';
 import { squarify, heatColor } from './heatmap.js';
 import { portfolioCard, assetCard, shareCanvas, achievementsCard } from './sharecard.js';
+import { cardArt } from './cardart.js';
 import {
   closedTrades, journalStats, lineupToday, calendar, moverAlerts, dailyChallenge, answerChallenge, collections, SET_SIZE, SET_BONUS,
   achievements, searchAll, sinceLastOpen, markOpen, compareRows,
@@ -61,7 +62,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 45;
+const APP_VERSION = 46;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1183,6 +1184,7 @@ function momentCard(c, { mini = false } = {}) {
   const sub = m.opp ? `vs ${m.opp.name}` : [m.player.team, pos].filter(Boolean).join(' · ');
   const d = new Date(m.date);
   return `<div class="mc r-${c.rarity} ${mini ? 'mini' : ''}" style="--rc:${r.color}">
+    <div class="mc-art">${cardArt(m, c.serial)}</div><div class="mc-fx"></div>
     <div class="mc-head"><div style="min-width:0">
       <div class="mc-kicker">${lgTag(m.league)}${r.name}</div>
       <div class="mc-kind">${KIND_ICON[m.kind] ? `${KIND_ICON[m.kind]} ` : ''}${esc(m.kind)}</div></div>
@@ -1228,6 +1230,7 @@ function renderBoosterSheet() {
   const o = ui.order;
   const b = boosterState(state).inv.find((x) => x.id === o.id);
   if (!b) { closeOrder(); return; }
+  if (b.rarity === 'legendary' || b.rarity === 'iconic') startTilt();
   const wrap = $('#trade'); const panel = $('#panel');
   wrap.hidden = false;
   panel.style.setProperty('--acc', bRarity(b.rarity).color);
@@ -2117,7 +2120,7 @@ function submitOrder() {
     else render();
     if (filled) {
       // A filled market order gets its own screen; the message is kept for screen readers.
-      $('#toast').textContent = msg;
+      $('#toast').textContent = msg; toast.at = Date.now(); // and hold other banners back while the confirmation is up
       const extras = [];
       if (fresh.some((n) => n.kind === 'card' && /^New/.test(n.text))) extras.push('🃏 New card'); else if (fresh.some((n) => n.kind === 'card')) extras.push('🃏 Card leveled up');
       if (fresh.some((n) => n.kind === 'trophy')) extras.push('🏆 Trophy unlocked');
@@ -3528,6 +3531,25 @@ function showConfirm(tx, extras) {
     <button class="btn buy" data-act="confirmdone" style="width:100%;margin-top:8px">Done</button></div>`;
 }
 function closeConfirm() { ui.confirm = false; const el = $('#confirm'); el.hidden = true; el.innerHTML = ''; }
+
+// ---------- card tilt ----------
+// Legendary and Iconic foil follows the phone as you tilt it. iPhone asks for permission
+// once, and only from a tap, so the first time you open one of those cards it asks.
+const setTilt = (x, y) => { const s = document.documentElement.style; s.setProperty('--tx', Math.max(-1, Math.min(1, x)).toFixed(3)); s.setProperty('--ty', Math.max(-1, Math.min(1, y)).toFixed(3)); };
+let tiltOn = false;
+function startTilt() {
+  if (tiltOn || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const listen = () => { tiltOn = true; document.documentElement.classList.add('tilt');
+    window.addEventListener('deviceorientation', (e) => { if (e.gamma == null) return; setTilt(e.gamma / 28, ((e.beta ?? 45) - 45) / 28); }, { passive: true }); };
+  try {
+    const D = window.DeviceOrientationEvent;
+    if (!D) return;
+    if (typeof D.requestPermission === 'function') { if (state.settings.tiltAsked === 'denied') return; D.requestPermission().then((r) => { state.settings.tiltAsked = r; dirty = true; if (r === 'granted') listen(); }).catch(() => { /* not from a tap */ }); }
+    else listen();
+  } catch { /* no motion sensor */ }
+}
+// Dragging a finger across a card moves the foil too.
+document.addEventListener('pointermove', (e) => { const c = e.target.closest?.('.mc.r-legendary, .mc.r-iconic'); if (!c || tiltOn) return; const b = c.getBoundingClientRect(); document.documentElement.classList.add('tilt'); setTilt(((e.clientX - b.left) / b.width - 0.5) * 2, ((e.clientY - b.top) / b.height - 0.5) * 2); }, { passive: true });
 
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {
