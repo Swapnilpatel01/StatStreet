@@ -317,6 +317,55 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
     held_cards = page.locator('.card-grid .pcard').count(); print('cards after reset (pack pulls only):', held_cards)
     assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
+    # --- v34 features
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(400)
+    assert page.locator('.tools [data-page]').count() == 4
+    page.screenshot(path=f'{OUT}/20-home.png', full_page=False)
+    page.evaluate("document.querySelector('.tools').scrollIntoView()"); page.wait_for_timeout(200)
+    page.screenshot(path=f'{OUT}/20b-home-tools.png')
+    page.click('.topbar [data-page=search]'); page.wait_for_timeout(500)
+    page.fill('#pageq', 'do'); page.wait_for_timeout(200)
+    assert page.locator('#pageres .item').count() >= 1, 'search finds something'
+    assert page.evaluate("document.activeElement.id") == 'pageq', 'typing keeps focus'
+    page.screenshot(path=f'{OUT}/21-search.png')
+    page.click('#page [data-act=pageback]'); page.wait_for_timeout(150); assert not page.locator('#page').is_visible()
+    for k in ['calendar', 'journal', 'achievements']:
+        page.evaluate(f"document.querySelector('.tools [data-page={k}]').click()"); page.wait_for_timeout(450)
+        assert page.locator('#page').is_visible(), k
+        page.screenshot(path=f'{OUT}/22-{k}.png')
+        page.click('#page [data-act=pageback]'); page.wait_for_timeout(150)
+    # player page: tabs, compare
+    page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300)
+    page.locator('#view .item[data-open^="nba:p:"]').first.click(); page.wait_for_timeout(600)
+    assert page.locator('.dtabs button').count() == 4
+    assert page.locator('#dinner .research, #dinner .rs-tiles').first.is_hidden() if page.locator('#dinner .rs-tiles').count() else True
+    page.click('.dtabs [data-dtab=research]'); page.wait_for_timeout(150)
+    page.screenshot(path=f'{OUT}/23-tab-research.png')
+    assert page.locator('#dinner .dsec[data-sec=overview]').first.is_hidden() and page.locator('#dinner .dsec[data-sec=research]').first.is_visible()
+    page.click('.dtabs [data-dtab=overview]'); page.wait_for_timeout(100)
+    page.click('#sheet [data-act=watch]'); page.wait_for_timeout(300)
+    if page.locator('#wnote').count() == 0: page.click('#sheet [data-act=watch]'); page.wait_for_timeout(300)
+    page.fill('#wfnew', 'Rookies'); page.keyboard.press('Enter'); page.wait_for_timeout(300)
+    page.fill('#wnote', 'Buy under $20'); page.locator('#wnote').blur(); page.wait_for_timeout(200)
+    page.click('#sheet [data-act=compare]'); page.wait_for_timeout(500)
+    page.locator('#page [data-cmp]').first.click(); page.wait_for_timeout(500)
+    assert page.locator('.cmp-row').count() >= 5
+    page.screenshot(path=f'{OUT}/24-compare.png')
+    page.click('#page [data-act=pageback]'); page.wait_for_timeout(150)
+    page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    wl = page.text_content('#view'); assert 'Rookies' in wl and 'Buy under $20' in wl, 'folder and note on the watchlist'
+    # light theme and larger text
+    page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
+    page.evaluate("document.querySelector('#setlight').click()"); page.wait_for_timeout(200)
+    assert page.evaluate("document.documentElement.dataset.mode") == 'light'
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    page.screenshot(path=f'{OUT}/25-light-home.png')
+    page.click('#tabbar [data-tab=marketplace]'); page.wait_for_timeout(300); page.screenshot(path=f'{OUT}/25b-light-market.png')
+    page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
+    page.evaluate("document.querySelector('#setlight').click()"); page.wait_for_timeout(200)
+    assert page.evaluate("document.documentElement.dataset.mode") is None
+    print('v34 features ok')
     # Portfolio chart: holding on the graph shows the balance at that point
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
     if page.locator('#nwchart svg').count():

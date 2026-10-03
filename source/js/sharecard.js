@@ -102,6 +102,25 @@ export function assetCard(d) {
 }
 
 // Share through the iOS share sheet when possible, otherwise download the PNG.
+// d: { title, level, netWorth, items: [{icon, title, value, sub}] }
+export function achievementsCard(d) {
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  base(ctx, '#ffc83d');
+  ctx.fillStyle = '#8b939e'; ctx.font = `600 36px ${FONT}`; ctx.fillText(`Level ${d.level} · ${d.title}`, 80, 250);
+  ctx.fillStyle = '#eceef1'; ctx.font = `800 96px ${FONT}`; ctx.fillText('Achievements', 80, 360);
+  ctx.fillStyle = '#8b939e'; ctx.font = `500 34px ${FONT}`; ctx.fillText(`Net worth ${usd(d.netWorth)}`, 80, 420);
+  const bw = (W - 160 - 24) / 2; const bh = 220;
+  d.items.slice(0, 6).forEach((x, i) => {
+    const px = 80 + (i % 2) * (bw + 24); const py = 490 + Math.floor(i / 2) * (bh + 24);
+    roundRect(ctx, px, py, bw, bh, 28); ctx.fillStyle = '#161a20'; ctx.fill();
+    ctx.font = `400 52px ${FONT}`; ctx.fillStyle = '#eceef1'; ctx.fillText(x.icon, px + 30, py + 76);
+    fitText(ctx, x.value, bw - 60, 800, 60); ctx.fillStyle = '#eceef1'; ctx.fillText(x.value, px + 30, py + 148);
+    ctx.fillStyle = '#8b939e'; ctx.font = `600 30px ${FONT}`; ctx.fillText(x.title, px + 30, py + 192);
+  });
+  return c;
+}
+
 export async function shareCanvas(canvas, name, text) {
   const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
   if (!blob) throw new Error('Could not draw the image');

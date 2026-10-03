@@ -35,7 +35,11 @@ import {
   marketListings, placeBid, buyNow, buyNowPrice, assetOf,
 } from './boosters.js';
 import { squarify, heatColor } from './heatmap.js';
-import { portfolioCard, assetCard, shareCanvas } from './sharecard.js';
+import { portfolioCard, assetCard, shareCanvas, achievementsCard } from './sharecard.js';
+import {
+  closedTrades, journalStats, lineupToday, calendar, moverAlerts, dailyChallenge, answerChallenge, collections, SET_SIZE, SET_BONUS,
+  achievements, searchAll, sinceLastOpen, markOpen, compareRows,
+} from './extras.js';
 
 // ---------- state ----------
 
@@ -46,7 +50,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 33;
+const APP_VERSION = 34;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -63,7 +67,7 @@ const assetsList = () => Object.values(state.assets).filter((a) => leagueOn(a) &
 const fmtDate = (t, o = { month: 'short', day: 'numeric' }) => new Date(t).toLocaleDateString([], o);
 const fmtExp = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
 const fmtDateTime = (t) => new Date(t).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-const overlayOpen = () => !!(ui.detail || ui.chain || ui.order || ui.game || ui.draft || ui.article);
+const overlayOpen = () => !!(ui.detail || ui.chain || ui.order || ui.game || ui.draft || ui.article || ui.page);
 const view = () => $('#view');
 
 // ---------- small render helpers ----------
@@ -129,13 +133,14 @@ function syncBadge() {
 function topbar(title) {
   const unseen = state.inbox.filter((n) => !n.seen).length;
   return `<div class="topbar">${title}<div class="row" style="gap:10px">${syncBadge()}
+    <button class="icon-btn" data-page="search" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
     <button class="icon-btn badge-dot" data-act="inbox" aria-label="Notifications" ${unseen ? `data-n="${unseen > 9 ? '9+' : unseen}"` : ''}>
       <svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button></div></div>`;
 }
 
 function toast(msg) {
   const el = $('#toast');
-  el.textContent = msg; el.classList.add('show');
+  el.textContent = msg; el.classList.add('show'); toast.at = Date.now();
   clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
@@ -251,6 +256,7 @@ function renderHome() {
       <div class="stat"><div class="k">Buying power</div><div class="v">${money(buyingPower(state))}</div></div>
       <div class="stat"><div class="k">Dividends earned</div><div class="v up">${money(state.divTotal || 0)}</div></div>
     </div>
+    ${homeExtras(now, holdings, movers)}
     ${holdings.length || opts.length ? `<div class="alloc">${parts.map(([, v, c]) => `<i style="width:${(v / tot) * 100}%;background:${c}"></i>`).join('')}</div>
     <div class="legend">${parts.map(([n, v, c]) => { const pc = (v / tot) * 100; return `<span style="--c:${c}">${n} ${pc > 0 && pc < 1 ? '<1' : Math.round(pc)}%</span>`; }).join('')}</div>` : ''}
 
@@ -274,7 +280,7 @@ function renderHome() {
 
     ${funds.length ? `<h2>Index funds</h2><div class="list">${funds.map(({ a, h }) => positionRow(a, h)).join('')}</div>` : ''}
 
-    ${watch.length ? `<h2>Watchlist</h2><div class="list">${watch.map((a) => assetRow(a, { right: 'spark' })).join('')}</div>` : ''}
+    ${watchSection(watch)}
 
     ${games.length ? `<h2>${myGames.length ? 'Your upcoming games' : 'Upcoming games'}</h2><div class="list">${games.map((g) => `
       <button class="item" data-game="${g.lg}|${g.id}">${lgTag(g.lg)}<div class="grow"><div class="name">${esc(g.name)}</div><div class="sub">${fmtDateTime(g.date)}${g.preseason ? ' · preseason' : ''}</div></div>${state.picks[g.id] ? `<span class="pk">Picked ${esc(state.picks[g.id].abbr)}</span>` : '<span class="muted">›</span>'}</button>`).join('')}</div>` : ''}
@@ -283,8 +289,6 @@ function renderHome() {
     <div class="collections">${COLLECTIONS.map((c) => `<button class="coll" data-coll="${c.key}"><div class="e">${c.e}</div><div class="t">${c.t}</div><div class="d">${c.d}</div></button>`).join('')}
       <button class="coll" data-coll="funds"><div class="e">🧺</div><div class="t">Index funds</div><div class="d">Whole leagues in one tap</div></button></div>
 
-    <h2>Biggest movers · 24h</h2>
-    <div class="list">${movers.map(({ a }) => assetRow(a)).join('') || '<div class="empty">Waiting for market data…</div>'}</div>
   `;
   drawNwChart();
 }
@@ -319,7 +323,9 @@ function orderRow(o) {
 function drawNwChart() {
   const el = $('#nwchart'); if (!el) return;
   const flat = state.nw.concat([Date.now(), netWorth(state)]);
+  const animate = !!ui.nwAnim; ui.nwAnim = false;
   lineChart(el, flat, Date.now() - RANGES[ui.homeRange], {
+    animate,
     // Hold or drag on the chart: the big number shows your balance at that moment.
     onScrub: (pt) => {
       ui.nwScrub = !!pt;
@@ -664,6 +670,16 @@ function renderAccount() {
     <h2>History</h2>
     <div class="chips">${[['all', 'All'], ['trade', 'Stocks'], ['option', 'Options'], ['div', 'Dividends']].map(([k, n]) => `<button class="chip ${ui.actFilter === k ? 'on' : ''}" data-actf="${k}">${n}</button>`).join('')}</div>
     <div class="list" style="margin-top:8px">${activityItems().map(activityRow).join('') || '<div class="empty">Nothing here yet.</div>'}</div>
+
+    <h2>Appearance</h2>
+    <div class="list"><label class="toggle"><span>Light theme<div class="tiny faint">A bright look for daytime</div></span>
+      <span class="switch"><input type="checkbox" id="setlight" ${state.settings.light ? 'checked' : ''}><span></span></span></label>
+      <label class="toggle"><span>Larger text<div class="tiny faint">Bigger type across the app</div></span>
+      <span class="switch"><input type="checkbox" id="setbig" ${state.settings.bigText ? 'checked' : ''}><span></span></span></label></div>
+
+    <h2>Move alerts</h2>
+    <p class="small muted" style="margin:4px 0 8px">A banner while the app is open when something you own or watch moves this much in a day, or when its game starts.</p>
+    <div class="chips">${[[0, 'Off'], [3, '3%'], [5, '5%'], [10, '10%']].map(([v, t]) => `<button class="chip ${(state.settings.moveAlert ?? 5) === v ? 'on' : ''}" data-movealert="${v}">${t}</button>`).join('')}</div>
 
     <h2>Leagues</h2>
     <div class="list">${Object.values(LEAGUES).map((L) => `<label class="toggle"><span>${lgTag(L.key)} &nbsp;${L.name} <span class="tiny faint">${state.sync[L.key]?.seeded ? 'loaded' : 'not loaded'}</span></span>
@@ -1112,8 +1128,9 @@ function applyTheme() {
   const t = themeOf(state);
   const r = document.documentElement.style;
   r.setProperty('--accent', t.accent);
-  if (t.bg) r.setProperty('--bg', t.bg); else r.removeProperty('--bg');
-  document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.bg || '#0b0d10');
+  const light = !!state.settings.light; // the light look keeps its own background
+  if (t.bg && !light) r.setProperty('--bg', t.bg); else r.removeProperty('--bg');
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', light ? '#f4f5f7' : t.bg || '#0b0d10');
 }
 
 // ---------- moment cards UI ----------
@@ -1169,6 +1186,7 @@ function boostersSection() {
   const fusable = B_RARITY.slice(0, -1).filter((r) => (counts[r.key] || 0) >= 3);
   const sorted = [...inv].sort((x, y) => (y.on ? 1 : 0) - (x.on ? 1 : 0) || rIdx(y.rarity) - rIdx(x.rarity) || y.m.rating - x.m.rating);
   return `
+    ${collectionsSection()}
     <div class="row between"><h2>Your moment cards <span class="faint small">${inv.length}</span></h2><span class="tiny muted">${used}/${slots(state)} active</span></div>
     <p class="small muted" style="margin:-4px 0 10px">Each card is a real play. Put it on that player (you need some of his shares) to boost your earnings from him. Each game he plays uses one charge. You get another slot every 3 levels.</p>
     ${fusable.length ? `<div class="card fuse">${fusable.map((r) => { const nx = B_RARITY[rIdx(r.key) + 1];
@@ -1430,6 +1448,7 @@ function renderGame() {
     <div class="wp"><div class="tiny muted row between"><span>${esc(away.abbr)} ${Math.round(pAway * 100)}%</span><span>Win probability (from share prices)</span><span>${Math.round((1 - pAway) * 100)}% ${esc(home.abbr)}</span></div>
       <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div></div>
     ${up ? `<h3>Your pick</h3>${pickGame(up)}` : pk ? `<div class="card small" style="margin-top:12px">Your pick: <b>${esc(pk.abbr)}</b> · ${pk.result ? { won: `won <b class="up">+${money(pk.paid || 0)}</b>`, lost: '<span class="down">missed</span>', push: 'push', void: 'voided' }[pk.result] : 'locked — game in progress'}</div>` : ''}
+    ${gameStake(g, league)}
     <h3>${g.status === 'pre' ? 'Players to watch' : 'Player movers'}</h3>
     <div class="list">${players.map(({ a, text, live }) => {
       const h = state.holdings[a.id]; const c = change(a, now);
@@ -1500,7 +1519,8 @@ function openDetail(id) {
   if (ui.chain) closeChain(true);
   const wasOpen = !!ui.detail;
   if (ui.game) $('#game').style.zIndex = ''; // the player page goes on top of the game
-  ui.detail = id;
+  ui.detail = id; ui.chartAnim = true;
+  state.recentSearch = [id, ...(state.recentSearch || []).filter((x) => x !== id)].slice(0, 6);
   ui.scrub = false;
   try { history.pushState({ sheet: id }, ''); } catch { /* sandboxed frame */ }
   lockBody();
@@ -1535,7 +1555,8 @@ function renderDetail({ keepScroll = true } = {}) {
   const b = breakdown(state, a, now);
   const watching = state.watch.includes(a.id);
   const alerting = state.alerts.some((x) => x.assetId === a.id);
-  const news = state.news.filter((n) => (n.targets || []).includes(a.id)).slice(0, 6);
+  const news = state.news.filter((n) => (n.targets || []).includes(a.id)).slice(0, 14);
+  const dtab = a.kind === 'fund' && ui.dtab === 'cards' ? 'overview' : (ui.dtab || 'overview');
   const myOpts = Object.values(state.options).filter((o) => o.under === a.id);
   const myOrders = state.orders.filter((o) => o.assetId === a.id);
   const divEarned = state.divs.filter((d) => d.id === a.id).reduce((s, d) => s + d.amt, 0);
@@ -1543,10 +1564,11 @@ function renderDetail({ keepScroll = true } = {}) {
   const r = scoutRating(a);
   sheet.hidden = false;
   sheet.classList.toggle('acc-down', ch < 0);
-  sheet.innerHTML = `<div class="sheet-inner">
+  sheet.innerHTML = `<div class="sheet-inner" id="dinner" data-dtab="${dtab}">
     <div class="row between">
       <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="icons-right">
+        ${a.kind !== 'fund' ? '<button class="icon-btn" data-act="compare" aria-label="Compare"><svg viewBox="0 0 24 24"><path d="M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></svg></button>' : ''}
         <button class="icon-btn" data-act="shareasset" aria-label="Share"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></button>
         <button class="icon-btn ${alerting ? 'alerting' : ''}" data-act="alert" aria-label="Price alert"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
         <button class="icon-btn ${watching ? 'on' : ''}" data-act="watch" aria-label="Watchlist"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg></button>
@@ -1558,6 +1580,9 @@ function renderDetail({ keepScroll = true } = {}) {
     <div class="chart-wrap" id="dchart"></div>
     <div class="ranges">${Object.keys(RANGES).map((rg) => `<button data-range="${rg}" class="${rg === ui.range ? 'on' : ''}">${rg}</button>`).join('')}</div>
 
+    <div class="dtabs">${[['overview', 'Overview'], ['research', 'Research'], ['news', `News${news.length ? ` <i>${news.length}</i>` : ''}`], ...(a.kind !== 'fund' ? [['cards', 'Cards']] : [])].map(([k, t]) => `<button data-dtab="${k}" class="${dtab === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+    <div class="dsec" data-sec="overview">
+    ${watchEditor(a)}
     ${h ? `<h3>Your position</h3><div class="grid2">
       <div class="stat"><div class="k">Shares</div><div class="v">${fmtQty(h.qty)}</div></div>
       <div class="stat"><div class="k">Market value</div><div class="v">${money(a.price * h.qty)}</div></div>
@@ -1571,8 +1596,10 @@ function renderDetail({ keepScroll = true } = {}) {
 
     ${a.live ? `<div class="card" style="margin-top:14px"><span class="tag live">LIVE</span> <b style="margin-left:6px">${esc(a.live.text)}</b></div>` : ''}
     ${a.injury ? `<div class="card" style="margin-top:14px"><span class="tag inj">${esc(a.injury.status)}</span> <span class="small" style="margin-left:6px">${esc(a.injury.detail || '')}</span></div>` : ''}
+    </div><div class="dsec" data-sec="cards">
     ${cardSection(a)}
     ${boosterSlotCard(a)}
+    </div><div class="dsec" data-sec="overview">
     ${ng ? `<div class="card next-game" data-game="${a.league}|${ng.id}" style="margin-top:14px"><div><div class="tiny muted">NEXT GAME</div><b>${esc(ng.name)}</b></div><div class="small muted" style="text-align:right">${fmtDateTime(ng.date)}</div></div>` : ''}
 
     ${a.kind === 'fund' ? fundSection(a) : ''}
@@ -1580,8 +1607,9 @@ function renderDetail({ keepScroll = true } = {}) {
     <h3>Key stats</h3>
     <div class="stats-grid">${keyStats(a).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>
 
+    </div><div class="dsec" data-sec="research">
     ${researchSection(a)}
-
+    </div><div class="dsec" data-sec="overview">
     <h3>Why it's moving</h3>
     <div class="list">${(a.events || []).slice(0, 10).map((e) => `<div class="driver">
       <div class="ic">${{ game: '🏟️', milestone: '🏆', news: '📰', injury: '🩹', fund: '🧺' }[e.kind] || '•'}</div>
@@ -1589,6 +1617,7 @@ function renderDetail({ keepScroll = true } = {}) {
       <div class="pct ${cls(e.pct)}">${Math.abs(e.pct) < 0.0005 ? '<span class="faint">—</span>' : fmtPct(e.pct, 1)}</div></div>`).join('')
       || '<div class="empty">No price-moving events yet.</div>'}</div>
 
+    </div><div class="dsec" data-sec="research">
     ${a.kind === 'player' ? playerStats(a) : a.kind === 'team' ? teamStats(a) : ''}
 
     ${(a.divHist || []).length ? `<h3>Dividend history</h3><div class="list">${a.divHist.slice(0, 6).map((d) => `<div class="driver"><div class="ic">💵</div>
@@ -1606,6 +1635,7 @@ function renderDetail({ keepScroll = true } = {}) {
       <div class="brk"><span>Fair price</span><b>${money(b.target)}</b></div>
     </div>` : ''}
 
+    </div><div class="dsec" data-sec="news">
     ${news.length ? `<h3>News</h3><div class="list">${news.map((n) => `<a class="news" href="${esc(n.url)}" data-article="${esc(n.id)}">
       <div class="h">${esc(n.headline)}</div><div class="meta"><span class="senti ${(n.fx?.[a.id] || 0) > 0.12 ? 'up' : (n.fx?.[a.id] || 0) < -0.12 ? 'down' : 'flat'}">${(n.fx?.[a.id] || 0) > 0.12 ? 'Bullish' : (n.fx?.[a.id] || 0) < -0.12 ? 'Bearish' : 'Mention'}</span><span class="tiny faint">${timeAgo(n.published)}</span></div></a>`).join('')}</div>` : ''}
   </div>`;
@@ -1625,7 +1655,11 @@ function drawDetailChart() {
   const el = $('#dchart');
   if (!a || !el) return;
   const now = Date.now();
+  const animate = !!ui.chartAnim; ui.chartAnim = false;
+  // Game days along the bottom of the chart (skipped on the 1-day view).
+  const marks = ui.range === '1D' ? [] : (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: e.pct }));
   lineChart(el, a.hist.concat([now, a.price]), now - RANGES[ui.range], {
+    animate, marks,
     onScrub: (pt) => {
       ui.scrub = !!pt;
       if (!pt) { updateDetailHeader(); return; }
@@ -2103,6 +2137,7 @@ function closeOverlays() {
   if (ui.detail) { ui.detail = null; $('#sheet').hidden = true; $('#tradebar').hidden = true; unlockBody(); }
   if (ui.game) { ui.game = null; $('#game').hidden = true; $('#game').innerHTML = ''; }
   if (ui.article) closeArticle();
+  if (ui.page) closePage();
   if (ui.draft) { ui.draft = null; $('#draft').hidden = true; $('#draft').innerHTML = ''; $('#dfoot').hidden = true; }
 }
 
@@ -2166,6 +2201,7 @@ function maybeRecap() {
 
 // Toast new notifications (fills, dividends, expiries, alerts).
 function announce() {
+  if (Date.now() - (toast.at || 0) < 3200) return; // let the message on screen finish first
   const fresh = state.inbox.slice(0, Math.max(0, state.inbox.length - ui.seenInbox)).filter((n) => !n.seen);
   ui.seenInbox = state.inbox.length;
   if (!fresh.length) return;
@@ -2176,8 +2212,17 @@ function announce() {
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('button, [data-article], [data-open], label, [data-optpos], [data-game], [data-flip]');
   if (!el) return;
-  if (el.dataset.article) { e.preventDefault(); openArticle(el.dataset.article); return; }
   const d = el.dataset;
+  // Anything that leaves a full-screen page (opening a player, a game, a tab) closes it first.
+  if (ui.page && (d.open || d.game || d.article || d.tab || d.gtab)) closePage();
+  if (el.dataset.article) { e.preventDefault(); openArticle(el.dataset.article); return; }
+  if (d.page) { if (ui.article) closeArticle(); openPage(d.page); return; }
+  if (d.cmp != null && ui.page?.type === 'compare') { ui.page.b = d.cmp || null; ui.page.q = ''; renderPage(); $('#page').scrollTop = 0; if (!d.cmp) setTimeout(() => $('#pageq')?.focus(), 50); return; }
+  if (d.cmprange && ui.page) { ui.page.range = d.cmprange; renderPage(); return; }
+  if (d.dtab) { ui.dtab = d.dtab; const inner = $('#dinner'); if (inner) { inner.dataset.dtab = d.dtab; inner.querySelectorAll('.dtabs button').forEach((b) => b.classList.toggle('on', b.dataset.dtab === d.dtab)); } return; }
+  if (d.wfolder != null && ui.detail) { (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: d.wfolder }; dirty = true; save(); renderDetail(); return; }
+  if (d.chal) { try { answerChallenge(state, d.chal === 'yes'); dirty = true; save(); haptic(); toast('Locked in. Good luck!'); renderHome(); } catch (err) { toast(err.message); } return; }
+  if (d.movealert != null) { state.settings.moveAlert = Number(d.movealert); dirty = true; save(); const y = view().scrollTop; renderAccount(); view().scrollTop = y; return; }
   if (el.disabled) return;
   if (d.tab) {
     if (d.tab === ui.tab && !overlayOpen()) { view().scrollTo({ top: 0, behavior: 'smooth' }); return; }
@@ -2303,8 +2348,8 @@ document.addEventListener('click', async (e) => {
   if (d.nleague) { ui.newsLeague = d.nleague; renderNews(); return; }
   if (d.actf) { ui.actFilter = d.actf; renderAccount(); return; }
   if (d.startcash) { state.settings.startCash = Number(d.startcash); dirty = true; const y = view().scrollTop; renderAccount(); view().scrollTop = y; return; }
-  if (d.range) { ui.range = d.range; renderDetail(); return; }
-  if (d.hrange) { ui.homeRange = d.hrange; renderHome(); return; }
+  if (d.range) { ui.range = d.range; ui.chartAnim = true; renderDetail(); return; }
+  if (d.hrange) { ui.homeRange = d.hrange; ui.nwAnim = true; renderHome(); return; }
   if (d.exp) { ui.chain.exp = Number(d.exp); renderChain(); return; }
   if (d.otype) { ui.chain.type = d.otype; renderChain(); return; }
   if (d.strike) {
@@ -2397,6 +2442,10 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'artback': closeArticle(); break;
+    case 'pageback': closePage(); break;
+    case 'compare': if (ui.detail) openPage('compare', { a: ui.detail, b: null }); break;
+    case 'shareach': shareAchievements().catch((err) => toast(err.message)); break;
+    case 'sincex': ui.since = null; renderHome(); break;
     case 'gameback': if (history.state?.game) history.back(); else closeGame(); break;
     case 'bunequip': if (ui.order?.mode === 'booster') { unequip(state, ui.order.id); dirty = true; save(); closeOrder(); afterBoostChange(); } break;
     case 'bsell':
@@ -2506,6 +2555,11 @@ function syncQtyInput() {
 }
 
 document.addEventListener('input', (e) => {
+  if (e.target.id === 'pageq' && ui.page) {
+    ui.page.q = e.target.value;
+    if (ui.page.type === 'search') $('#pageres').innerHTML = searchResults(ui.page.q);
+    else { const pos = e.target.selectionStart; renderPage(); const inp = $('#pageq'); if (inp) { inp.focus(); try { inp.setSelectionRange(pos, pos); } catch { /* */ } } }
+  }
   if (e.target.id === 'q') { ui.q = e.target.value; ui.limit = 60; renderMarket(true); }
   if (e.target.id === 'dq' && ui.draft) { ui.draft.q = e.target.value; renderDraft(true); }
   if (e.target.id === 'mpq' && ui.mp) {
@@ -2524,6 +2578,14 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', async (e) => {
+  if (e.target.id === 'wnote' && ui.detail) { (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), note: e.target.value.trim() }; dirty = true; save(); return; }
+  if (e.target.id === 'wfnew' && ui.detail) {
+    const f = e.target.value.trim().slice(0, 18);
+    if (f) { state.watchFolders = [...new Set([...(state.watchFolders || []), f])]; (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: f }; dirty = true; save(); renderDetail(); }
+    return;
+  }
+  if (e.target.id === 'setlight') { state.settings.light = e.target.checked; dirty = true; save(); applyLook(); applyTheme(); return; }
+  if (e.target.id === 'setbig') { state.settings.bigText = e.target.checked; dirty = true; save(); applyLook(); return; }
   if (e.target.dataset.lgtoggle) {
     state.settings.leagues[e.target.dataset.lgtoggle] = e.target.checked;
     if (!enabledLeagues().length) { state.settings.leagues[e.target.dataset.lgtoggle] = true; e.target.checked = true; toast('Keep at least one league'); return; }
@@ -2584,6 +2646,7 @@ const draftSwipe = {
   el: $('#draft'), extra: () => [$('#dfoot')],
   onDismiss: () => { if (history.state?.draft) { ui.noAnim = true; history.back(); } else closeDraft({ animate: false }); },
 };
+const pageSwipe = { el: $('#page'), onDismiss: () => closePage() };
 const articleSwipe = { el: $('#article'), onDismiss: () => closeArticle({ animate: false }) };
 const chainSwipe = {
   el: $('#chain'),
@@ -2592,6 +2655,7 @@ const chainSwipe = {
 // The top-most full-screen page, for swipe-back.
 function topPage() {
   if (ui.order) return null;
+  if (ui.page) return pageSwipe;
   if (ui.article) return articleSwipe;
   if (ui.draft) return draftSwipe;
   if (ui.chain) return chainSwipe;
@@ -2704,6 +2768,253 @@ function renderArticle() {
       ${n.url ? `<a class="btn ghost" href="${esc(n.url)}" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">${c && !c.failed ? 'View on ESPN' : 'Read the full story on ESPN'}</a>` : ''}
       <div class="tiny faint" style="text-align:center">Story by ESPN. StatStreet is not affiliated with ESPN.</div>
     </div></div>`;
+}
+
+// ====================================================================================
+// v34: search, compare, calendar, trade journal, achievements, home extras, alerts
+// ====================================================================================
+
+const BACK_SVG = '<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>';
+const pageHead = (title, right = '') => `<div class="row between"><button class="icon-btn" data-act="pageback" aria-label="Back">${BACK_SVG}</button>
+  <b>${title}</b><div style="min-width:38px;text-align:right">${right}</div></div>`;
+
+function openPage(type, params = {}) {
+  ui.page = { type, ...params };
+  const el = $('#page');
+  el.hidden = false; el.scrollTop = 0; el.style.transform = '';
+  el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
+  renderPage();
+  if (type === 'search' || (type === 'compare' && !params.b)) setTimeout(() => $('#pageq')?.focus(), 320);
+}
+function closePage() {
+  ui.page = null;
+  const el = $('#page');
+  el.hidden = true; el.innerHTML = ''; el.style.transform = '';
+}
+function renderPage() {
+  const p = ui.page; if (!p) return;
+  const el = $('#page');
+  const body = { search: pageSearch, compare: pageCompare, calendar: pageCalendar, journal: pageJournal, achievements: pageAchievements }[p.type]?.(p) || '';
+  el.innerHTML = `<div class="sheet-inner">${body}</div>`;
+}
+// Swipe right anywhere on a full-screen page to go back (the page itself only scrolls up and down).
+function swipeClose(el, close) {
+  let sx = 0; let sy = 0; let t0 = 0; let on = null; let dist = 0;
+  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; t0 = performance.now(); on = e.target.closest?.('input, textarea, .hscroll') ? false : null; dist = 0; }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    if (on === false) return;
+    const t = e.touches[0]; const dx = t.clientX - sx; const dy = t.clientY - sy;
+    if (on === null) { if (dx > 10 && dx > 1.5 * Math.abs(dy)) on = true; else if (Math.abs(dy) > 10 || dx < -10) { on = false; return; } else return; }
+    dist = Math.max(0, dx); el.style.transition = 'none'; el.style.transform = `translateX(${dist}px)`;
+  }, { passive: true });
+  const end = () => {
+    if (!on) return; on = null;
+    const fast = dist / Math.max(1, performance.now() - t0) > 0.5 && dist > 40;
+    el.style.transition = 'transform .2s ease-out';
+    if (dist > el.offsetWidth * 0.3 || fast) { el.style.transform = 'translateX(100%)'; setTimeout(() => { el.style.transition = ''; close(); }, 190); }
+    else { el.style.transform = ''; setTimeout(() => { el.style.transition = ''; }, 210); }
+  };
+  el.addEventListener('touchend', end, { passive: true }); el.addEventListener('touchcancel', end, { passive: true });
+}
+swipeClose($('#page'), closePage);
+
+// ---------- search everywhere ----------
+function searchResults(q) {
+  const r = searchAll(state, q);
+  const none = !r.assets.length && !r.news.length && !r.cards.length && !r.lots.length;
+  if (String(q).trim().length < 2) {
+    const recent = (state.recentSearch || []).map((id) => state.assets[id]).filter(Boolean);
+    return `${recent.length ? `<h3>Recently viewed</h3><div class="list">${recent.map((a) => assetRow(a)).join('')}</div>` : ''}
+      <div class="empty">Search players, teams, funds, headlines and moment cards.</div>`;
+  }
+  if (none) return `<div class="empty">Nothing matches “${esc(q)}”.</div>`;
+  return `${r.assets.length ? `<h3>Players, teams and funds</h3><div class="list">${r.assets.map((a) => assetRow(a)).join('')}</div>` : ''}
+    ${r.cards.length ? `<h3>Your cards</h3><div class="list">${r.cards.map((b) => `<button class="item" data-gtab="locker"><div class="rdot" style="background:${bRarity(b.rarity).color}"></div>
+      <div class="grow"><div class="name ellipsis">${esc(b.m.player.name)}</div><div class="sub">${bRarity(b.rarity).name} · ${esc(b.m.kind.toLowerCase())}</div></div><span class="muted">›</span></button>`).join('')}</div>` : ''}
+    ${r.lots.length ? `<h3>Cards for sale</h3><div class="list">${r.lots.map((l) => { const v = listingView(state, l); return `<button class="item" data-tab="marketplace"><div class="rdot" style="background:${bRarity(l.card.rarity).color}"></div>
+      <div class="grow"><div class="name ellipsis">${esc(l.card.m.player.name)}</div><div class="sub">${bRarity(l.card.rarity).name} · ${esc(l.card.m.kind.toLowerCase())}</div></div><div class="price">${cm(v.current)}</div></button>`; }).join('')}</div>` : ''}
+    ${r.news.length ? `<h3>News</h3><div class="list">${r.news.map((n) => `<a class="news" href="${esc(n.url)}" data-article="${esc(n.id)}"><div class="h">${esc(n.headline)}</div>
+      <div class="meta">${lgTag(n.league)}<span class="tiny faint">${timeAgo(n.published)}</span></div></a>`).join('')}</div>` : ''}`;
+}
+function pageSearch(p) {
+  return `${pageHead('Search')}
+    <input id="pageq" class="searchbox" type="search" placeholder="Players, teams, news, cards" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(p.q || '')}">
+    <div id="pageres">${searchResults(p.q || '')}</div>`;
+}
+
+// ---------- compare two players or teams ----------
+function dualChart(a, b, span) {
+  const now = Date.now(); const from = now - span; const W = Math.min(640, (view().clientWidth || 360) - 32); const H = 150;
+  const ser = [a, b].map((x) => { const p0 = priceAt(x, from) || x.price; const pts = [[from, 0]];
+    for (let i = 0; i < x.hist.length; i += 2) if (x.hist[i] > from) pts.push([x.hist[i], x.hist[i + 1] / p0 - 1]);
+    pts.push([now, x.price / p0 - 1]); return pts; });
+  const ys = ser.flat().map((q) => q[1]); let lo = Math.min(...ys, 0); let hi = Math.max(...ys, 0); const pad = (hi - lo) * 0.12 || 0.01; lo -= pad; hi += pad;
+  const X = (t) => ((t - from) / (now - from)) * (W - 8) + 4; const Y = (v) => H - 6 - ((v - lo) / (hi - lo)) * (H - 12);
+  const path = (pts) => pts.map((q, i) => `${i ? 'L' : 'M'}${X(q[0]).toFixed(1)},${Y(q[1]).toFixed(1)}`).join('');
+  return `<svg class="chart draw" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--line)" stroke-dasharray="2 4"/>
+    <path class="ln" pathLength="1" d="${path(ser[0])}" fill="none" stroke="var(--cmp-a)" stroke-width="2.2" stroke-linejoin="round"/>
+    <path class="ln" pathLength="1" d="${path(ser[1])}" fill="none" stroke="var(--cmp-b)" stroke-width="2.2" stroke-linejoin="round"/></svg>`;
+}
+function pageCompare(p) {
+  const a = state.assets[p.a]; const b = state.assets[p.b];
+  if (!a) return pageHead('Compare');
+  if (!b) {
+    const q = (p.q || '').trim();
+    const peers = q.length >= 2 ? searchAll(state, q).assets.filter((x) => x.id !== a.id && x.kind !== 'fund')
+      : assetsList().filter((x) => x.id !== a.id && x.kind === a.kind && x.league === a.league && (a.kind === 'team' || posGroup(x.league, x.pos) === posGroup(a.league, a.pos)))
+        .sort((x, y) => Math.abs(Math.log(x.price / a.price)) - Math.abs(Math.log(y.price / a.price))).slice(0, 10);
+    return `${pageHead('Compare')}
+      <p class="small muted" style="margin:10px 0">Pick who to compare with <b>${esc(a.name)}</b>.</p>
+      <input id="pageq" class="searchbox" type="search" placeholder="Search a player or team" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(p.q || '')}">
+      <div id="pageres"><h3>${q.length >= 2 ? 'Results' : 'Similar price, same position'}</h3><div class="list">${peers.map((x) => `<button class="item" data-cmp="${x.id}">${avatar(x)}
+        <div class="grow"><div class="name ellipsis">${esc(x.name)}</div><div class="sub">${subLine(x)}</div></div><div class="price">${money(x.price)}</div></button>`).join('') || '<div class="empty">No matches.</div>'}</div></div>`;
+  }
+  const rows = compareRows(state, a, b);
+  const span = RANGES[p.range || '1M'];
+  const up = (x) => upcomingFor(x).slice(0, 3).map((u) => `${u.home ? 'vs' : '@'} ${esc(u.opp?.abbr || '')}${u.rank ? ` (#${u.rank})` : ''}`).join(', ') || 'No games this week';
+  const wins = { a: rows.filter((r) => r.win === 'a').length, b: rows.filter((r) => r.win === 'b').length };
+  const head = (x, k) => `<button class="cmp-h" data-open="${x.id}" style="--cc:var(--cmp-${k})">${avatar(x)}<div class="name ellipsis">${esc(x.kind === 'team' ? x.ticker : x.name)}</div><div class="tiny muted">${esc(x.ticker)} · ${wins[k]} edge${wins[k] === 1 ? '' : 's'}</div></button>`;
+  return `${pageHead('Compare', `<button class="tlink" data-cmp="">Change</button>`)}
+    <div class="cmp-top">${head(a, 'a')}<div class="cmp-vs">vs</div>${head(b, 'b')}</div>
+    <div class="chart-wrap" style="margin-top:10px">${dualChart(a, b, span)}</div>
+    <div class="ranges">${['1W', '1M', '3M', 'ALL'].map((r) => `<button data-cmprange="${r}" class="${r === (p.range || '1M') ? 'on' : ''}">${r}</button>`).join('')}</div>
+    <div class="cmp-table">${rows.map((r) => `<div class="cmp-row"><b class="${r.win === 'a' ? 'win' : ''}">${esc(r.a)}</b><span>${esc(r.label)}</span><b class="${r.win === 'b' ? 'win' : ''}">${esc(r.b)}</b></div>`).join('')}
+      <div class="cmp-row sched"><b>${up(a)}</b><span>Next games</span><b>${up(b)}</b></div></div>
+    <p class="tiny faint" style="text-align:center;margin-top:12px">Green marks the better number on each line. Opponent rank is by team share price.</p>`;
+}
+
+// ---------- calendar ----------
+function pageCalendar() {
+  const now = Date.now();
+  const games = calendar(state, now, 7);
+  const days = new Map();
+  for (const g of games) { const k = new Date(g.date).toDateString(); if (!days.has(k)) days.set(k, []); days.get(k).push(g); }
+  const label = { easy: 'Easy matchup', even: 'Even', tough: 'Tough matchup' };
+  return `${pageHead('Calendar')}
+    <p class="small muted" style="margin:10px 0">The next 7 days of games for what you own. Prices and dividends move on game results, so soft matchups are chances and tough ones are risks.</p>
+    ${games.length ? [...days.entries()].map(([k, list]) => `<h3>${new Date(list[0].date).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}${k === new Date(now).toDateString() ? ' · today' : ''}</h3>
+      <div class="list">${list.map((g) => `<button class="item" data-game="${g.league}|${g.id}">${lgTag(g.league)}<div class="grow"><div class="name">${esc(g.team)} ${g.home ? 'vs' : '@'} ${esc(g.opp)}${g.oppRank ? ` <span class="tiny faint">#${g.oppRank} of ${g.n}</span>` : ''}</div>
+        <div class="sub">${new Date(g.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${g.mine.slice(0, 4).map((a) => esc(a.ticker)).join(', ')}${g.mine.length > 4 ? ` +${g.mine.length - 4}` : ''}</div></div>
+        <span class="diff ${g.diff}">${label[g.diff]}</span></button>`).join('')}</div>`).join('')
+      : `<div class="card empty" style="margin-top:14px">${Object.keys(state.holdings).length ? 'Nothing you own plays in the next 7 days.' : 'Buy a player or team and their games show up here.'}</div>`}`;
+}
+
+// ---------- trade journal ----------
+const heldTxt = (ms) => (ms < HOUR ? `${Math.max(1, Math.round(ms / 60e3))}m` : ms < DAY ? `${Math.round(ms / HOUR)}h` : `${Math.round(ms / DAY)}d`);
+function pageJournal() {
+  const trades = closedTrades(state);
+  const s = journalStats(trades);
+  return `${pageHead('Trade journal')}
+    <p class="small muted" style="margin:10px 0">Every sale this season, against what the shares cost you.</p>
+    ${trades.length ? `<div class="grid2">
+      <div class="stat"><div class="k">Realized profit</div><div class="v ${cls(s.total)}">${signMoney(s.total)}</div></div>
+      <div class="stat"><div class="k">Win rate</div><div class="v">${Math.round(s.winRate * 100)}% <span class="tiny muted">${s.wins}W · ${s.losses}L</span></div></div>
+      <div class="stat"><div class="k">Average win</div><div class="v up">${signMoney(s.avgWin)}</div></div>
+      <div class="stat"><div class="k">Average loss</div><div class="v down">${signMoney(s.avgLoss)}</div></div></div>
+    <h3>Closed trades</h3><div class="list">${trades.slice(0, 80).map((t) => `<button class="item jr" ${state.assets[t.id] ? `data-open="${t.id}"` : ''}>
+      <div class="grow"><div class="name ellipsis">${esc(t.name || t.ticker)}</div>
+        <div class="sub">${fmtQty(t.qty)} sh · ${money(t.buy)} → ${money(t.sell)} · held ${heldTxt(t.held)} · ${fmtDate(t.t)}</div>
+        ${t.why ? `<div class="tiny faint ellipsis">Around the sale: ${esc(t.why)}</div>` : ''}</div>
+      <div class="price-col"><div class="price ${cls(t.pl)}">${signMoney(t.pl)}</div><div class="small ${cls(t.pct)}">${fmtPct(t.pct, 1)}</div></div></button>`).join('')}</div>`
+      : '<div class="card empty" style="margin-top:14px">No sales yet. When you sell, the trade lands here with your profit or loss and what was moving the price.</div>'}`;
+}
+
+// ---------- achievements ----------
+function pageAchievements() {
+  const d = achievements(state);
+  const xp = xpProgress(state);
+  return `${pageHead('Achievements', '<button class="tlink" data-act="shareach">Share</button>')}
+    <div class="ach-hero"><div class="lvl">${xp.level}</div><div class="grow"><div class="name">${esc(career(state).title)}</div><div class="tiny muted">Level ${xp.level} · net worth ${money(d.netWorth)}</div></div></div>
+    <div class="ach-grid">${d.items.map((x) => `<div class="ach ${x.ok ? '' : 'off'}"><div class="e">${x.icon}</div><div class="v">${esc(x.value)}</div><div class="t">${esc(x.title)}</div><div class="tiny muted ellipsis">${esc(x.sub)}</div></div>`).join('')}</div>`;
+}
+async function shareAchievements() {
+  const d = achievements(state);
+  const c = achievementsCard({ title: career(state).title, level: xpProgress(state).level, netWorth: d.netWorth, items: d.items.filter((x) => x.ok).slice(0, 6) });
+  await shareCanvas(c, 'statstreet-achievements.png', 'My StatStreet achievements');
+}
+
+// ---------- portfolio page extras ----------
+function challengeCard(now) {
+  const ch = dailyChallenge(state, now); const c = ch.cur;
+  if (!c) return '';
+  const a = state.assets[c.id];
+  const open = !c.pick && now < c.date;
+  const state2 = c.result === 'won' ? '<span class="pk won">Won</span>' : c.result === 'lost' ? '<span class="pk lost">Missed</span>' : c.result === 'void' ? '<span class="pk">No result</span>'
+    : c.pick ? `<span class="pk">You said ${c.pick === 'over' ? 'Yes' : 'No'}</span>` : now >= c.date ? '<span class="pk">Closed</span>' : '';
+  return `<div class="card chal"><div class="row between"><div class="tiny muted">DAILY CHALLENGE${ch.streak ? ` · 🔥 ${ch.streak}` : ''}</div>${state2}</div>
+    <div class="q">Will <button class="tlink" data-open="${c.id}">${esc(c.name)}</button> beat his usual game tonight?</div>
+    <div class="tiny muted">${esc(c.game)} · ${new Date(c.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · usual game score ${c.line}${c.gs != null ? ` · scored ${c.gs}` : ''}${a?.perf?.last?.[0] && c.gs == null ? ` · last game ${a.perf.last[0].gs}` : ''}</div>
+    ${open ? `<div class="btn-row" style="margin-top:10px"><button class="btn buy small" data-chal="yes">Yes, he beats it</button><button class="btn ghost small" data-chal="no">No</button></div>
+      <div class="tiny faint" style="margin-top:6px">Right answers earn XP and build a streak; every 5th in a row pays $0.50.</div>` : ''}</div>`;
+}
+function homeExtras(now, holdings, movers) {
+  const since = ui.since;
+  const today = holdings.map(({ a, h }) => ({ a, d: (a.price - priceAt(a, now - DAY)) * h.qty, c: change(a, now) })).sort((x, y) => y.d - x.d);
+  const win = today[0] && today[0].d > 0.004 ? today[0] : null; const lose = today.length > 1 && today[today.length - 1].d < -0.004 ? today[today.length - 1] : (today.length === 1 && today[0].d < -0.004 ? today[0] : null);
+  const lineup = lineupToday(state, now);
+  const wl = (x, label) => `<button class="stat wl" data-open="${x.a.id}"><div class="k">${label}</div><div class="v ${cls(x.d)}">${signMoney(x.d)}</div><div class="tiny muted ellipsis">${esc(x.a.kind === 'team' ? x.a.name : x.a.name)} · ${fmtPct(x.c, 1)}</div></button>`;
+  return `
+    ${since ? `<div class="card since"><button class="x-btn" data-act="sincex" aria-label="Dismiss">✕</button><div class="tiny muted">SINCE YOU LAST OPENED · ${timeAgo(since.t)}</div>
+      <div class="s-line">Your portfolio is <b class="${cls(since.change)}">${since.change >= 0 ? 'up' : 'down'} ${money(Math.abs(since.change))}</b> (${fmtPct(since.pct)})${since.top ? `. Biggest mover: <button class="tlink" data-open="${since.top.a.id}">${esc(since.top.a.ticker)}</button> <span class="${cls(since.top.d)}">${signMoney(since.top.d)}</span>` : ''}${since.nDivs ? `. ${since.nDivs} dividend${since.nDivs > 1 ? 's' : ''} paid <span class="up">${money(since.divs)}</span>` : ''}.</div></div>` : ''}
+    ${win || lose ? `<div class="grid2" style="margin-top:12px">${win ? wl(win, 'Top gainer today') : ''}${lose ? wl(lose, 'Top loser today') : ''}</div>` : ''}
+    ${lineup.length ? `<h3>Playing today</h3><div class="hscroll lineup">${lineup.map((g) => `<button class="lu ${g.live ? 'live' : ''}" data-game="${g.league}|${g.id}">
+      <div class="row" style="gap:6px">${lgTag(g.league)}${g.live ? '<span class="tag live">LIVE</span>' : `<span class="tiny muted">${new Date(g.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>`}</div>
+      <div class="name">${esc(g.name)}</div>
+      <div class="tiny muted ellipsis">${g.live && g.detail ? esc(g.detail) + ' · ' : ''}${g.mine.slice(0, 3).map((x) => `${x.own ? '' : '☆'}${esc(x.a.ticker)}`).join(', ')}${g.mine.length > 3 ? ` +${g.mine.length - 3}` : ''}</div></button>`).join('')}</div>` : ''}
+    ${challengeCard(now)}
+    <div class="tools">${[['calendar', '📅', 'Calendar'], ['journal', '📒', 'Journal'], ['achievements', '🏅', 'Achievements'], ['search', '🔎', 'Search']].map(([k, e, t]) => `<button data-page="${k}"><span>${e}</span>${t}</button>`).join('')}</div>
+    ${movers.length ? `<h3>Top movers today</h3><div class="hscroll mv">${movers.map(({ a }) => { const c = change(a, now); return `<button class="mvc" data-open="${a.id}">${avatar(a)}<b>${esc(a.ticker)}</b><span class="${cls(c)}" data-c="${a.id}" data-plain="1" data-r="1D">${fmtPct(c)}</span></button>`; }).join('')}</div>` : ''}`;
+}
+// Watchlist grouped into your folders, with your notes.
+function watchSection(watch) {
+  if (!watch.length) return '';
+  const meta = state.watchMeta || {};
+  const groups = new Map();
+  for (const a of watch) { const f = meta[a.id]?.folder || ''; if (!groups.has(f)) groups.set(f, []); groups.get(f).push(a); }
+  const keys = [...groups.keys()].sort((x, y) => (x === '') - (y === '') || x.localeCompare(y));
+  return `<h2>Watchlist</h2>${keys.map((k) => `${keys.length > 1 || k ? `<div class="wfolder">${k ? '📁 ' + esc(k) : 'No folder'} <span class="faint">${groups.get(k).length}</span></div>` : ''}
+    <div class="list">${groups.get(k).map((a) => assetRow(a, { right: 'spark', note: meta[a.id]?.note ? `<span class="wnote ellipsis">📝 ${esc(meta[a.id].note)}</span>` : '' })).join('')}</div>`).join('')}`;
+}
+// Folder and note editor on a watched player's page.
+function watchEditor(a) {
+  if (!state.watch.includes(a.id)) return '';
+  const m = state.watchMeta?.[a.id] || {};
+  const folders = [...new Set([...(state.watchFolders || []), ...Object.values(state.watchMeta || {}).map((x) => x.folder).filter(Boolean)])];
+  return `<div class="card wedit"><div class="tiny muted">WATCHLIST FOLDER</div>
+    <div class="chips" style="margin:8px 0">${['', ...folders].map((f) => `<button class="chip ${(m.folder || '') === f ? 'on' : ''}" data-wfolder="${esc(f)}">${f ? esc(f) : 'None'}</button>`).join('')}
+      <input class="chip-input" id="wfnew" placeholder="+ New folder" maxlength="18" enterkeyhint="done"></div>
+    <div class="tiny muted">YOUR NOTE</div>
+    <textarea id="wnote" rows="2" maxlength="240" placeholder="Why you're watching, your target price…">${esc(m.note || '')}</textarea></div>`;
+}
+// What you have riding on a game.
+function gameStake(g, league) {
+  const ids = new Set(g.teams.map((t) => t.id));
+  const now = Date.now();
+  const mine = Object.entries(state.holdings).map(([id, h]) => ({ a: state.assets[id], h }))
+    .filter(({ a }) => a && a.kind !== 'fund' && a.league === league && ids.has(a.kind === 'team' ? a.rid : a.teamId));
+  if (!mine.length) return '';
+  const tot = mine.reduce((s, { a, h }) => s + a.price * h.qty, 0);
+  const day = mine.reduce((s, { a, h }) => s + (a.price - priceAt(a, now - DAY)) * h.qty, 0);
+  return `<h3>Your stake in this game</h3><div class="card stake"><div class="row between"><div><div class="tiny muted">AT STAKE</div><b style="font-size:20px">${money(tot)}</b></div>
+    <div style="text-align:right"><div class="tiny muted">TODAY</div><b class="${cls(day)}" style="font-size:20px">${signMoney(day)}</b></div></div></div>
+    <div class="list" style="margin-top:8px">${mine.sort((x, y) => y.a.price * y.h.qty - x.a.price * x.h.qty).map(({ a, h }) => { const d = (a.price - priceAt(a, now - DAY)) * h.qty; return `<button class="item" data-open="${a.id}">${avatar(a)}
+      <div class="grow"><div class="name ellipsis">${esc(a.name)}</div><div class="sub ellipsis">${a.live?.text ? `<span class="tag live">LIVE</span> ${esc(a.live.text)}` : `${fmtQty(h.qty)} sh`}</div></div>
+      <div class="price-col"><div class="price">${money(a.price * h.qty)}</div><div class="small ${cls(d)}">${signMoney(d)}</div></div></button>`; }).join('')}</div>`;
+}
+// Card sets in the Locker.
+function collectionsSection() {
+  const sets = collections(state);
+  if (!sets.length) return '';
+  return `<h2>Collections <span class="faint small">${sets.filter((s) => s.done).length} complete</span></h2>
+    <p class="small muted" style="margin:6px 0 10px">Own ${SET_SIZE} moment cards from one team to complete its set: +${Math.round(SET_BONUS * 100)}% dividends from that team and all its players, on top of any card boosts.</p>
+    <div class="list">${sets.slice(0, 12).map((s) => `<div class="item"><span class="lg ${s.league}">${esc(s.team)}</span><div class="grow"><div class="name">${esc(s.team)} set ${s.done ? '<span class="pk won">Complete</span>' : ''}</div>
+      <div class="setbar"><i style="width:${Math.min(100, (s.n / SET_SIZE) * 100)}%"></i></div></div><div class="small ${s.done ? 'up' : 'muted'}">${s.done ? `+${Math.round(SET_BONUS * 100)}% divs` : `${s.n}/${SET_SIZE}`}</div></div>`).join('')}</div>`;
+}
+function applyLook() {
+  const s = state.settings;
+  const root = document.documentElement;
+  if (s.light) root.dataset.mode = 'light'; else delete root.dataset.mode;
+  root.classList.toggle('big-text', !!s.bigText);
 }
 
 // Two-tap confirmation (dialogs aren't available everywhere).
@@ -2919,7 +3230,9 @@ async function main() {
   }
   tick(state, Date.now());
   runAutomation(state, Date.now()); runSocial(state, Date.now()); runCareer(state, Date.now());
-  applyTheme();
+  applyTheme(); applyLook();
+  ui.since = sinceLastOpen(state);
+  if (!state.lastOpen) markOpen(state);
   render();
   announce();
   maybeRecap();
@@ -2933,6 +3246,7 @@ async function main() {
     runAutomation(state, now);
     runSocial(state, now);
     runCareer(state, now);
+    moverAlerts(state, now);
     maybeRecap();
     // Keep auction clocks and bids moving on the Marketplace.
     if (ui.tab === 'marketplace' && !overlayOpen()) updateMarketplaceNumbers(now);
@@ -2946,7 +3260,8 @@ async function main() {
   setInterval(() => { if (!document.hidden) runSync(); }, 10 * 60e3);
   setInterval(() => { if (!busyScrolling(2500)) save(); }, 30e3);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { save(); applyUpdate(); return; }
+    if (document.hidden) { markOpen(state); save(); applyUpdate(); return; }
+    ui.since = sinceLastOpen(state) || ui.since;
     checkForUpdate();
     tick(state, Date.now());
     runAutomation(state, Date.now()); runSocial(state, Date.now()); runCareer(state, Date.now());

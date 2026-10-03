@@ -733,7 +733,7 @@ export function clearStaleLive(state, now = Date.now()) {
 
 const NEWS_W = { player: 0.07, team: 0.035 };
 const effectsFor = (state, art, targets) => newsEffects(art, targets.map((id) => state.assets[id]).filter(Boolean)
-  .map((a) => ({ id: a.id, kind: a.kind, name: a.name, abbr: a.abbr })));
+  .map((a) => ({ id: a.id, kind: a.kind, name: a.name, abbr: a.kind === 'team' ? a.ticker : '' })));
 
 export function applyNews(state, league, articles, { now = Date.now() } = {}) {
   let added = 0;

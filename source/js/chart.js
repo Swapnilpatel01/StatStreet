@@ -27,7 +27,7 @@ export function sparkline(flat, from, w = 64, h = 28) {
 // Full-width chart. onScrub(point|null) lets the header show the touched price.
 // Scrubbing starts only on a sideways drag or a press-and-hold, so vertical
 // swipes that begin on the chart still scroll the page.
-export function lineChart(el, flat, from, { onScrub, height = 190 } = {}) {
+export function lineChart(el, flat, from, { onScrub, height = 190, animate = false, marks = [] } = {}) {
   const pts = sliceRange(flat, from);
   const w = el.clientWidth || 340; const h = height;
   if (pts.length < 2) {
@@ -46,14 +46,20 @@ export function lineChart(el, flat, from, { onScrub, height = 190 } = {}) {
   const base = y(ys[0]);
   const gid = `g${Math.random().toString(36).slice(2, 7)}`;
   const last = pts[pts.length - 1];
+  // Game days: a bar along the bottom, taller for bigger moves, green or red by direction.
+  const inR = marks.filter((m) => m.t >= t0 && m.t <= t1);
+  const top = Math.max(0.02, ...inR.map((m) => Math.abs(m.v)));
+  const bw = Math.max(2, Math.min(7, (w - 12) / Math.max(12, inR.length * 2.2)));
+  const bars = inR.map((m) => { const bh = 3 + 17 * Math.min(1, Math.abs(m.v) / top); return `<rect class="gbar" x="${(x(m.t) - bw / 2).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="var(--${m.v >= 0 ? 'up' : 'down'})"/>`; }).join('');
   el.innerHTML = `
-    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="chart">
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="chart ${animate ? 'draw' : ''}">
       <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stop-color="${color}" stop-opacity="0.28"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>
       </linearGradient></defs>
       <line x1="0" x2="${w}" y1="${base}" y2="${base}" stroke="var(--line)" stroke-dasharray="2 4"/>
-      <path d="${d}L${x(t1)},${h}L${x(t0)},${h}Z" fill="url(#${gid})"/>
-      <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <path class="area" d="${d}L${x(t1)},${h}L${x(t0)},${h}Z" fill="url(#${gid})"/>
+      ${bars}
+      <path class="ln" pathLength="1" d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       <circle cx="${x(last[0])}" cy="${y(last[1])}" r="3.5" fill="${color}"/>
       <g class="cursor" style="display:none">
         <line y1="0" y2="${h}" stroke="var(--muted)" stroke-width="1"/>
