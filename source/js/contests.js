@@ -147,7 +147,7 @@ function settleContests(state, now) {
     addXP(state, 10 + [40, 25, 15, 5, 0, 0][place - 1], now);
     if (place === 1) addCoins(state, 50);
     const tier = CONTEST_TIERS.find((t) => t.key === c.tier)?.name || '';
-    notify(state, 'contest', `${LEAGUES[c.league].name} ${tier} contest: you finished ${ordinal(place)} of 6${payout ? ` · won $${payout.toFixed(2)}` : ''}${place === 1 ? ' · +50 coins' : ''}`, null, now);
+    notify(state, 'contest', `${LEAGUES[c.league].name} ${tier} contest: you finished ${ordinal(place)} of 6${payout ? ` · won $${payout.toFixed(2)}` : ''}${place === 1 ? ' · +$0.50 bonus' : ''}`, null, now);
   }
   // Keep about five weeks of history.
   for (const [id, c] of Object.entries(state.contests || {})) if (c.done && now - c.end > 35 * DAY) delete state.contests[id];

@@ -451,7 +451,7 @@ details .prose { padding: 12px 14px 4px; }
 .xpbar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
 .tierbar i { display: block; height: 100%; background: var(--tc); border-radius: 4px; }
 .capbar i { display: block; height: 100%; background: var(--accent); } .capbar i.over { background: var(--down); }
-.coins { font-weight: 800; font-size: 13px; background: color-mix(in srgb, #ffd60a 16%, var(--card2)); color: #ffd60a; padding: 4px 10px; border-radius: 999px; flex: none; }
+.coins { font-weight: 800; font-size: 13px; background: color-mix(in srgb, var(--up) 16%, var(--card2)); color: var(--up); padding: 4px 10px; border-radius: 999px; flex: none; }
 .coins.big { font-size: 15px; }
 .season-strip { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 8px; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; text-align: left;
   background: linear-gradient(90deg, color-mix(in srgb, var(--tc) 18%, var(--card)), var(--card) 70%); }

@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 30;
+const APP_VERSION = 31;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -792,7 +792,8 @@ function resultRow(r) {
 // ---------- Games tab: career header + Season / Contests / Props / Pick'em / Locker ----------
 
 const GTABS = [['season', 'Season'], ['contests', 'Contests'], ['props', 'Props'], ['pickem', "Pick'em"], ['locker', 'Locker']];
-const coinFmt = (n) => Math.round(n).toLocaleString();
+const cm = (cents) => money(Math.round(cents) / 100); // card and reward amounts are kept in cents
+const toCents = (v) => Math.round(parseFloat(String(v).replace(/[^0-9.]/g, '')) * 100);
 const daysLeft = (t) => { const d = (t - Date.now()) / DAY; return d >= 1 ? `${Math.ceil(d)} days left` : `${Math.max(1, Math.round(d * 24))}h left`; };
 const pctTxt = (x) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
 
@@ -809,7 +810,7 @@ function careerHeader() {
   return `<div class="career card">
     <div class="lvl"><b>${p.level}</b><span>LEVEL</span></div>
     <div class="grow">
-      <div class="row between"><div class="name ellipsis">${esc(c.title)}</div><button class="coins" data-gtab="locker">🪙 ${coinFmt(c.coins)}</button></div>
+      <div class="row between"><div class="name ellipsis">${esc(c.title)}</div></div>
       <div class="xpbar"><i style="width:${Math.round(p.frac * 100)}%"></i></div>
       <div class="tiny muted row between"><span>${p.into} / ${p.need} XP</span><span>${UNLOCKS[p.level + 1] ? `Lv ${p.level + 1}: ${esc(UNLOCKS[p.level + 1])}` : ''}</span></div>
     </div></div>
@@ -844,16 +845,16 @@ function gamesSeason() {
         <div class="name" style="font-size:20px">${tier.name}</div>
         <div class="small"><span class="${cls(ret)}">${pctTxt(ret)}</span> <span class="muted">since ${fmtDate(s.start)}</span></div></div></div>
       <div class="tierbar"><i style="width:${frac * 100}%"></i></div>
-      <div class="tiny muted">${next ? `${pctTxt(next.min - ret).replace('+', '')} more to reach <b style="color:${next.color}">${next.name}</b> (${next.coins} coins at season end)` : 'Top tier! Hold it to the end of the season.'}</div>
+      <div class="tiny muted">${next ? `${pctTxt(next.min - ret).replace('+', '')} more to reach <b style="color:${next.color}">${next.name}</b> (${cm(next.coins)} at season end)` : 'Top tier! Hold it to the end of the season.'}</div>
       <div class="tiers">${TIERS.map((t) => `<div class="${t.key === tier.key ? 'on' : ''}" style="--tc:${t.color}"><i></i><span>${t.name}</span><small>${Number.isFinite(t.min) ? pctTxt(t.min).replace('.0', '') : '<0%'}</small></div>`).join('')}</div>
-      <div class="tiny faint" style="margin-top:8px">When the season ends you get coins and XP for your tier (+100 more if you top the leaderboard), then everyone restarts with a fresh bankroll: ${money(seasonBalance(state))} at your level.</div>
+      <div class="tiny faint" style="margin-top:8px">When the season ends you get cash and XP for your tier (+$1.00 more if you top the leaderboard), then everyone restarts with a fresh bankroll: ${money(seasonBalance(state))} at your level.</div>
     </div>
 
     ${dailyCard()}
 
     <h2>Weekly goals <span class="faint small">resets Monday</span></h2>
     <div class="list">${w.goals.map((g) => { const def = GOALS.find((x) => x.key === g.key); return `<div class="item goal ${g.done ? 'done' : ''}">
-      <div class="check">${g.done ? '✓' : ''}</div><div class="grow"><div class="name">${esc(def.text)}</div><div class="sub">+${def.coins} coins · +${def.xp} XP</div></div></div>`; }).join('')}</div>
+      <div class="check">${g.done ? '✓' : ''}</div><div class="grow"><div class="name">${esc(def.text)}</div><div class="sub">+${cm(def.coins)} · +${def.xp} XP</div></div></div>`; }).join('')}</div>
 
     <h2>Leaderboard</h2>
     <p class="small muted" style="margin:-4px 0 10px">This season's return vs. strategy bots.</p>
@@ -863,9 +864,9 @@ function gamesSeason() {
 
     ${c.seasons.length ? `<h2>Past seasons</h2><div class="list">${c.seasons.slice(0, 8).map((r) => { const t = TIERS.find((x) => x.key === r.tier); return `<div class="item">${tierBadge(t, 34)}
       <div class="grow"><div class="name">Season ${r.n} · ${t.name}</div><div class="sub">${fmtDate(r.start)} – ${fmtDate(r.end)} · ${ordinal(r.rank)} of ${r.of}</div></div>
-      <div class="price-col"><div class="price ${cls(r.ret)}">${pctTxt(r.ret)}</div><div class="tiny muted">+${r.coins} 🪙</div></div></div>`; }).join('')}</div>` : ''}
+      <div class="price-col"><div class="price ${cls(r.ret)}">${pctTxt(r.ret)}</div><div class="tiny muted">+${cm(r.coins)}</div></div></div>`; }).join('')}</div>` : ''}
 
-    <h2>Trophies <span class="faint small">${got}/${TROPHIES.length} · +25 coins each</span></h2>
+    <h2>Trophies <span class="faint small">${got}/${TROPHIES.length} · +$0.25 each</span></h2>
     <div class="trophies">${TROPHIES.map((t) => `<div class="trophy ${state.trophies[t.id] ? 'got' : ''}"><div class="ic">${t.icon}</div>
       <div class="t">${esc(t.name)}</div><div class="d">${esc(t.desc)}</div></div>`).join('')}</div>`;
 }
@@ -1050,10 +1051,10 @@ function gamesLocker() {
   const cards = Object.keys(state.collection).map((id) => state.assets[id]).filter((a) => a && a.kind !== 'fund')
     .sort((x, y) => rarRank(rarity(state, x)) - rarRank(rarity(state, y)) || cardLevel(state, y.id) - cardLevel(state, x.id));
   return `
-    <div class="row between" style="margin-top:14px"><h2 style="margin:0">Moment packs</h2><span class="coins big">🪙 ${coinFmt(c.coins)}</span></div>
-    <p class="small muted" style="margin:6px 0 10px">Packs hold real plays from recent games. Earn coins from season tiers, weekly goals, trophies, contests and level-ups, or by selling cards in the Marketplace.</p>
+    <div class="row between" style="margin-top:14px"><h2 style="margin:0">Moment packs</h2><span class="coins big">Cash ${money(state.cash)}</span></div>
+    <p class="small muted" style="margin:6px 0 10px">Packs hold real plays from recent games. Packs cost cash. Money spent on cards, and reward money from goals, trophies and level-ups, doesn't count toward your season return.</p>
     <div class="packs">${B_PACKS.map((p) => { const locked = L < p.level; return `<button class="pack ${p.key} ${locked ? 'locked' : ''}" data-bpack="${p.key}">
-      <div class="pk-name">${p.name}</div><div class="tiny">${p.blurb}</div><div class="pk-cost">${locked ? `🔒 Level ${p.level}` : `🪙 ${p.cost}`}</div></button>`; }).join('')}</div>
+      <div class="pk-name">${p.name}</div><div class="tiny">${p.blurb}</div><div class="pk-cost">${locked ? `🔒 Level ${p.level}` : `${cm(p.cost)}`}</div></button>`; }).join('')}</div>
 
     ${boostersSection()}
 
@@ -1065,13 +1066,13 @@ function gamesLocker() {
 
     <h2>Themes</h2>
     <div class="themes">${THEMES.map((t) => { const own = c.owned.themes.includes(t.key); const on = c.theme === t.key; const locked = L < t.level; return `<button class="theme ${on ? 'on' : ''}" data-theme="${t.key}" style="--ta:${t.accent};--tb:${t.bg || '#0b0d10'}">
-      <div class="sw"><i></i></div><div class="t">${t.name}</div><div class="tiny muted">${on ? 'In use' : own ? 'Tap to use' : locked ? `🔒 Lv ${t.level}` : `🪙 ${t.cost}`}</div></button>`; }).join('')}</div>
+      <div class="sw"><i></i></div><div class="t">${t.name}</div><div class="tiny muted">${on ? 'In use' : own ? 'Tap to use' : locked ? `🔒 Lv ${t.level}` : `${cm(t.cost)}`}</div></button>`; }).join('')}</div>
 
     <h2>Titles</h2>
     <p class="small muted" style="margin:-4px 0 10px">Shown on the leaderboard and your share card.</p>
     <div class="list">${TITLES.map((t) => { const own = c.owned.titles.includes(t.key); const on = c.title === t.key; const locked = L < t.level; return `<div class="item">
-      <div class="grow"><div class="name">${esc(t.key)}</div><div class="sub">${locked ? `Unlocks at level ${t.level}` : own ? 'Owned' : `${t.cost} coins`}</div></div>
-      ${on ? '<span class="pk won">Equipped</span>' : own ? `<button class="btn ghost small" data-title="${esc(t.key)}">Use</button>` : locked ? '<span class="pk">🔒</span>' : `<button class="btn buy small" data-title="${esc(t.key)}">🪙 ${t.cost}</button>`}</div>`; }).join('')}</div>`;
+      <div class="grow"><div class="name">${esc(t.key)}</div><div class="sub">${locked ? `Unlocks at level ${t.level}` : own ? 'Owned' : cm(t.cost)}</div></div>
+      ${on ? '<span class="pk won">Equipped</span>' : own ? `<button class="btn ghost small" data-title="${esc(t.key)}">Use</button>` : locked ? '<span class="pk">🔒</span>' : `<button class="btn buy small" data-title="${esc(t.key)}">${cm(t.cost)}</button>`}</div>`; }).join('')}</div>`;
 }
 
 // Pack opening: cards face down, tap to flip each, best card last.
@@ -1098,7 +1099,7 @@ function showRecap(rec) {
     <div class="big-value ${cls(rec.ret)}" style="margin:0">${pctTxt(rec.ret)}</div>
     <div class="muted small">${ordinal(rec.rank)} of ${rec.of} on the leaderboard</div>
     <div class="recap-rows">
-      <div><span>Coins earned</span><b>🪙 ${rec.coins}</b></div>
+      <div><span>Prize</span><b>${cm(rec.coins)}</b></div>
       <div><span>Final value</span><b>${money(rec.nw)}</b></div>
       ${rec.best ? `<div><span>Best holding</span><b>${esc(rec.best.name)} ${pctTxt(rec.best.ret)}</b></div>` : ''}
       <div><span>New bankroll</span><b>${money(state.season.bal)}</b></div>
@@ -1201,7 +1202,7 @@ function renderBoosterSheet() {
     <div class="mc-solo">${momentCard(b)}</div>
     <div class="small muted" style="text-align:center;margin:8px 0 2px">${esc(describe(b))}</div>
     ${au ? `<div class="card" style="margin-top:12px"><div class="row between"><b>On auction</b><span class="tiny muted">${fmtLeft(av.left)} left</span></div>
-      <div class="small muted" style="margin-top:4px">${av.bids ? `${av.bids} bid${av.bids > 1 ? 's' : ''} · top 🪙 ${av.current}` : `No bids yet · starts at 🪙 ${au.start}`}</div>
+      <div class="small muted" style="margin-top:4px">${av.bids ? `${av.bids} bid${av.bids > 1 ? 's' : ''} · top ${cm(av.current)}` : `No bids yet · starts at ${cm(au.start)}`}</div>
       ${av.bids ? '' : '<button class="btn ghost" data-act="bcancel" style="width:100%;margin-top:10px">Cancel auction</button>'}</div>` : `
     <div class="btn-row">
       ${b.on ? '<button class="btn ghost" data-act="bunequip">Turn off</button>'
@@ -1209,10 +1210,10 @@ function renderBoosterSheet() {
           : a ? `<button class="btn buy" data-open="${b.assetId}">Buy ${esc(a.ticker)} shares to use it</button>` : '<div class="small muted">This player isn\'t listed right now.</div>'}
     </div>
     <h3>Sell</h3>
-    <button class="btn ghost" data-act="bsell" style="width:100%">Quick sell · 🪙 ${quickSellPrice(b)}</button>
+    <button class="btn ghost" data-act="bsell" style="width:100%">Quick sell · ${cm(quickSellPrice(b))}</button>
     ${b.on ? '' : `<div class="card" style="margin-top:10px">
-      <div class="row between"><b>Auction it</b><span class="tiny muted">Worth about 🪙 ${mv}</span></div>
-      <label class="price-field"><span class="small muted">Starting bid 🪙</span><input id="bstart" inputmode="numeric" value="${Math.max(1, Math.round(mv * 0.6))}"></label>
+      <div class="row between"><b>Auction it</b><span class="tiny muted">Worth about ${cm(mv)}</span></div>
+      <label class="price-field"><span class="small muted">Starting bid ($)</span><input id="bstart" inputmode="decimal" value="${(Math.max(1, Math.round(mv * 0.6)) / 100).toFixed(2)}"></label>
       <div class="seg" style="margin-top:10px">${AUCTION_LENGTHS.map((L) => `<button data-blen="${L.key}" class="${o.len === L.key ? 'on' : ''}">${L.label}</button>`).join('')}</div>
       <div class="tiny faint" style="margin-top:6px">Longer auctions draw more bidders. If no bid reaches your starting price, the card comes back.</div>
       <button class="btn buy" data-act="blist" style="width:100%;margin-top:10px">List in the Marketplace</button></div>`}`}
@@ -1264,7 +1265,7 @@ function renderMarketplace() {
   const f = ui.mp;
   const lgs = enabledLeagues();
   const head = `${topbar(`<h1>Marketplace</h1>`)}
-    <div class="row between" style="margin:2px 0 10px"><span class="coins">🪙 ${coinFmt(c.coins)}</span>
+    <div class="row between" style="margin:2px 0 10px"><span class="coins">Cash ${money(state.cash)}</span>
       <button class="chip ${f.view === 'mine' ? 'on' : ''}" data-act="mymarket">${f.view === 'mine' ? '← Browse' : 'My bids & listings'}</button></div>`;
   if (f.view === 'mine') { $('#view').innerHTML = head + myMarket(now); return; }
   let list = marketListings(state, now);
@@ -1286,7 +1287,7 @@ function renderMarketplace() {
     ${list.length ? `<div class="mp-grid">${list.map((l) => { const v = views.get(l.id); return `<div class="mp-item">
       <div class="mp-meta" data-lotmeta="${l.id}"><span>⏱ ${fmtLeft(v.left)}</span><span>${v.bids} bid${v.bids === 1 ? '' : 's'}</span></div>
       <button class="mp-cardbtn" data-lot="${l.id}">${momentCard(l.card, { mini: true })}</button>
-      <div class="mp-actions"><div class="mp-price" data-lotprice="${l.id}"><span class="tiny muted">${v.bids ? 'Top bid' : 'Starts at'}</span><b>🪙 ${v.current}</b>${v.leading ? '<span class="tiny up">You lead</span>' : ''}</div>
+      <div class="mp-actions"><div class="mp-price" data-lotprice="${l.id}"><span class="tiny muted">${v.bids ? 'Top bid' : 'Starts at'}</span><b>${cm(v.current)}</b>${v.leading ? '<span class="tiny up">You lead</span>' : ''}</div>
         <button class="btn buy small" data-lot="${l.id}" data-bidbtn="1">Bid</button></div>
     </div>`; }).join('')}</div>`
       : `<div class="card empty" style="margin-top:14px">${total ? 'No auctions match these filters.' : 'No auctions yet. Listings appear as real games are played and moments come in.'}</div>`}`;
@@ -1305,7 +1306,7 @@ function updateMarketplaceNumbers(now) {
     const v = listingView(state, l, now);
     meta.innerHTML = `<span>⏱ ${fmtLeft(v.left)}</span><span>${v.bids} bid${v.bids === 1 ? '' : 's'}</span>`;
     const pr = document.querySelector(`[data-lotprice="${l.id}"]`);
-    if (pr) pr.innerHTML = `<span class="tiny muted">${v.bids ? 'Top bid' : 'Starts at'}</span><b>🪙 ${v.current}</b>${v.leading ? '<span class="tiny up">You lead</span>' : ''}`;
+    if (pr) pr.innerHTML = `<span class="tiny muted">${v.bids ? 'Top bid' : 'Starts at'}</span><b>${cm(v.current)}</b>${v.leading ? '<span class="tiny up">You lead</span>' : ''}`;
   }
 }
 
@@ -1319,10 +1320,10 @@ function myMarket(now) {
   const row = (l, right) => `<div class="item"><div class="mc-thumb" style="--rc:${bRarity(l.card.rarity).color}">${KIND_ICON[l.card.m.kind] || '⭐'}</div>
     <div class="grow"><div class="name ellipsis">${esc(cardName(l.card))}</div><div class="sub">${bRarity(l.card.rarity).name} · ⩔ ${l.card.m.rating.toFixed(1)} · #${l.card.serial}</div></div>${right}</div>`;
   return `
-    <h2>Your bids</h2>${bids.length ? `<div class="list">${bids.map((l) => { const v = listingView(state, l, now); return row(l, `<div class="price-col"><div class="price">🪙 ${v.current}</div><div class="tiny ${v.leading ? 'up' : 'down'}">${v.leading ? 'Leading' : 'Outbid'} · ${fmtLeft(v.left)}</div></div>`); }).join('')}</div>` : '<div class="card empty">No active bids.</div>'}
-    <h2>Your listings</h2>${live.length ? `<div class="list">${live.map((l) => { const v = listingView(state, l, now); return row(l, `<div class="price-col"><div class="price">${v.bids ? `🪙 ${v.current}` : `from 🪙 ${l.start}`}</div><div class="tiny muted">${v.bids} bids · ${fmtLeft(v.left)}</div></div>`); }).join('')}</div>` : '<div class="card empty">List cards from your Locker.</div>'}
-    ${won.length ? `<h2>Won</h2><div class="list">${won.map((l) => row(l, `<div class="price up">🪙 ${l.price ?? buyNowPrice(l)}</div>`)).join('')}</div>` : ''}
-    ${done.length ? `<h2>Sold & returned</h2><div class="list">${done.map((l) => row(l, `<div class="price ${l.status === 'sold' ? 'up' : 'muted'}">${l.status === 'sold' ? `+🪙 ${l.price}` : l.status === 'cancelled' ? 'Cancelled' : 'Unsold'}</div>`)).join('')}</div>` : ''}`;
+    <h2>Your bids</h2>${bids.length ? `<div class="list">${bids.map((l) => { const v = listingView(state, l, now); return row(l, `<div class="price-col"><div class="price">${cm(v.current)}</div><div class="tiny ${v.leading ? 'up' : 'down'}">${v.leading ? 'Leading' : 'Outbid'} · ${fmtLeft(v.left)}</div></div>`); }).join('')}</div>` : '<div class="card empty">No active bids.</div>'}
+    <h2>Your listings</h2>${live.length ? `<div class="list">${live.map((l) => { const v = listingView(state, l, now); return row(l, `<div class="price-col"><div class="price">${v.bids ? `${cm(v.current)}` : `from ${cm(l.start)}`}</div><div class="tiny muted">${v.bids} bids · ${fmtLeft(v.left)}</div></div>`); }).join('')}</div>` : '<div class="card empty">List cards from your Locker.</div>'}
+    ${won.length ? `<h2>Won</h2><div class="list">${won.map((l) => row(l, `<div class="price up">${cm(l.price ?? buyNowPrice(l))}</div>`)).join('')}</div>` : ''}
+    ${done.length ? `<h2>Sold & returned</h2><div class="list">${done.map((l) => row(l, `<div class="price ${l.status === 'sold' ? 'up' : 'muted'}">${l.status === 'sold' ? `+${cm(l.price)}` : l.status === 'cancelled' ? 'Cancelled' : 'Unsold'}</div>`)).join('')}</div>` : ''}`;
 }
 
 function openLot(id, focusBid = false) {
@@ -1346,15 +1347,15 @@ function renderLot(focusBid = false) {
     <div class="mc-solo">${momentCard(l.card)}</div>
     <div class="small muted" style="text-align:center;margin:8px 0 0">${esc(describe(l.card))}</div>
     <div class="grid3" style="margin-top:12px">
-      <div class="stat"><div class="k">${v.bids ? 'Top bid' : 'Starts at'}</div><div class="v">🪙 ${v.current}</div></div>
+      <div class="stat"><div class="k">${v.bids ? 'Top bid' : 'Starts at'}</div><div class="v">${cm(v.current)}</div></div>
       <div class="stat"><div class="k">Bids</div><div class="v">${v.bids}</div></div>
       <div class="stat"><div class="k">Ends in</div><div class="v">${fmtLeft(v.left)}</div></div>
     </div>
-    ${my ? `<div class="small ${v.leading ? 'up' : 'down'}" style="margin-top:8px">${v.leading ? `You're winning. Your max bid is 🪙 ${my.amount}; you'll pay just over the next bidder.` : 'You were outbid.'}</div>` : ''}
-    <label class="price-field"><span class="small muted">Your max bid 🪙</span><input id="bidamt" inputmode="numeric" value="${v.minBid}"></label>
-    <div class="quick" style="margin-top:10px">${[v.minBid, v.minBid + inc, v.minBid + inc * 3].map((x) => `<button data-bidq="${x}">🪙 ${x}</button>`).join('')}</div>
+    ${my ? `<div class="small ${v.leading ? 'up' : 'down'}" style="margin-top:8px">${v.leading ? `You're winning. Your max bid is ${cm(my.amount)}; you'll pay just over the next bidder.` : 'You were outbid.'}</div>` : ''}
+    <label class="price-field"><span class="small muted">Your max bid ($)</span><input id="bidamt" inputmode="decimal" value="${(v.minBid / 100).toFixed(2)}"></label>
+    <div class="quick" style="margin-top:10px">${[v.minBid, v.minBid + inc, v.minBid + inc * 3].map((x) => `<button data-bidq="${(x / 100).toFixed(2)}">${cm(x)}</button>`).join('')}</div>
     <button class="btn buy" data-act="placebid" style="width:100%">Place bid</button>
-    <button class="btn ghost" data-act="buynow" style="width:100%;margin-top:8px">Buy now · 🪙 ${buyNowPrice(l)}</button>
+    <button class="btn ghost" data-act="buynow" style="width:100%;margin-top:8px">Buy now · ${cm(buyNowPrice(l))}</button>
     <div class="tiny faint" style="margin-top:8px;text-align:center">Listed by ${esc(l.seller)} · ${a ? `${esc(a.name)} trades at ${money(a.price)}` : ''}</div>
     <div class="err" id="terr"></div>
     <button class="link-btn" data-act="tcancel">Close</button>`;
@@ -2399,12 +2400,12 @@ document.addEventListener('click', async (e) => {
     case 'gameback': if (history.state?.game) history.back(); else closeGame(); break;
     case 'bunequip': if (ui.order?.mode === 'booster') { unequip(state, ui.order.id); dirty = true; save(); closeOrder(); afterBoostChange(); } break;
     case 'bsell':
-      if (ui.order?.mode === 'booster' && armed(el, `Tap again to sell for 🪙 ${quickSellPrice(boosterState(state).inv.find((x) => x.id === ui.order.id))}`)) {
-        try { const p = quickSell(state, ui.order.id); dirty = true; save(); haptic(); toast(`Sold for ${p} coins`); closeOrder(); afterBoostChange(); } catch (err) { $('#terr').textContent = err.message; }
+      if (ui.order?.mode === 'booster' && armed(el, `Tap again to sell for ${cm(quickSellPrice(boosterState(state).inv.find((x) => x.id === ui.order.id)))}`)) {
+        try { const p = quickSell(state, ui.order.id); dirty = true; save(); haptic(); toast(`Sold for ${cm(p)}`); closeOrder(); afterBoostChange(); } catch (err) { $('#terr').textContent = err.message; }
       }
       break;
     case 'blist':
-      try { const au = listAuction(state, ui.order.id, { start: $('#bstart').value, length: ui.order.len }); dirty = true; save(); haptic(); toast(`Listed! Bidding ends in ${AUCTION_LENGTHS.find((x) => x.key === ui.order.len).label}`); closeOrder(); afterBoostChange(); void au; }
+      try { const au = listAuction(state, ui.order.id, { start: toCents($('#bstart').value), length: ui.order.len }); dirty = true; save(); haptic(); toast(`Listed! Bidding ends in ${AUCTION_LENGTHS.find((x) => x.key === ui.order.len).label}`); closeOrder(); afterBoostChange(); void au; }
       catch (err) { $('#terr').textContent = err.message; }
       break;
     case 'bcancel': {
@@ -2417,15 +2418,15 @@ document.addEventListener('click', async (e) => {
     case 'mymarket': ui.mp.view = ui.mp.view === 'mine' ? 'browse' : 'mine'; renderMarketplace(); view().scrollTop = 0; break;
     case 'placebid': {
       try {
-        const r = placeBid(state, ui.order.id, $('#bidamt').value); dirty = true; save(); haptic();
-        if (r.leading) { toast(`You're the top bidder at 🪙 ${r.price}`); closeOrder(); renderMarketplace(); }
-        else { $('#terr').textContent = `Outbid right away: another collector went to 🪙 ${r.price}. Your coins are back.`; renderLot(); }
+        const r = placeBid(state, ui.order.id, toCents($('#bidamt').value)); dirty = true; save(); haptic();
+        if (r.leading) { toast(`You're the top bidder at ${cm(r.price)}`); closeOrder(); renderMarketplace(); }
+        else { $('#terr').textContent = `Outbid right away: another collector went to ${cm(r.price)}. Your money is back.`; renderLot(); }
       } catch (err) { $('#terr').textContent = err.message; }
       break;
     }
     case 'buynow':
       if (armed(el, 'Tap again to buy now')) {
-        try { const p = buyNow(state, ui.order.id); dirty = true; save(); haptic(); confetti(); toast(`Bought for ${p} coins — it's in your Locker`); closeOrder(); renderMarketplace(); }
+        try { const p = buyNow(state, ui.order.id); dirty = true; save(); haptic(); confetti(); toast(`Bought for ${cm(p)} — it's in your Locker`); closeOrder(); renderMarketplace(); }
         catch (err) { $('#terr').textContent = err.message; }
       }
       break;

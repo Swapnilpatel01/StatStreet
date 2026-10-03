@@ -70,14 +70,14 @@ export function newState(startCash = START_CASH) {
   };
 }
 
-// Start a fresh portfolio with `start` dollars. Career progress (levels, coins, cards from
+// Start a fresh portfolio with `start` dollars. Career progress (levels, cards from
 // packs, trophies) is kept; the current season restarts from the new balance.
 export function resetPortfolio(state, start, now = Date.now()) {
   Object.assign(state, {
     cash: start, startCash: start, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [],
     picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, startedAt: now, contests: {}, props: [],
   });
-  if (state.season) Object.assign(state.season, { start: now, nw0: start, bal: start });
+  if (state.season) Object.assign(state.season, { start: now, nw0: start, bal: start, flow0: state.flow || 0 });
   state.week = null;
   // Cards you only had because you owned the player go with the shares.
   for (const [id, c] of Object.entries(state.collection || {})) { if (c.pulls) c.peak = 0; else delete state.collection[id]; }
@@ -106,7 +106,7 @@ export function migrate(state) {
     state.settings.startCashV = 2;
     state.settings.startCash = START_CASH;
     resetPortfolio(state, START_CASH);
-    notify(state, 'info', 'Fresh start: your portfolio was reset to $5. Levels, coins and trophies are kept.');
+    notify(state, 'info', 'Fresh start: your portfolio was reset to $5. Levels, cards and trophies are kept.');
   }
   for (const h of Object.values(state.holdings || {})) h.since ??= 0;
   return state;

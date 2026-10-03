@@ -84,7 +84,7 @@ export function claimDaily(state, now = Date.now()) {
   state.daily = { last: dayKey(now), streak: s.nextStreak, best: Math.max(state.daily.best || 0, s.nextStreak) };
   state.cash = round2(state.cash + s.reward);
   addXP(state, 20, now);
-  const bonus = s.nextStreak % 7 === 0 ? 50 : 0; // a full week of check-ins pays coins too
+  const bonus = s.nextStreak % 7 === 0 ? 50 : 0; // a full week of check-ins pays a cash bonus too
   if (bonus) addCoins(state, bonus);
   return { reward: s.reward, streak: s.nextStreak, coins: bonus };
 }
@@ -166,7 +166,7 @@ export function leaderboard(state, now = Date.now()) {
   // Measured over the current season.
   const start = state.season?.start || state.startedAt || now;
   const base = state.season?.nw0 || state.startCash;
-  const rows = [{ name: 'You', you: true, ret: netWorth(state, now) / base - 1, style: 'Includes daily rewards, Pick\'em, props and contests' }];
+  const rows = [{ name: 'You', you: true, ret: (netWorth(state, now) - ((state.flow || 0) - (state.season?.flow0 || 0))) / base - 1, style: 'Includes daily rewards, Pick\'em, props and contests' }];
   for (const r of RIVALS) {
     const f = state.assets[`fund:${r.fund}`];
     if (!f?.hist?.length) continue;
@@ -201,7 +201,7 @@ function checkTrophies(state, now) {
     if (state.trophies[t.id]) continue;
     let ok = false;
     try { ok = t.check(state, now); } catch { ok = false; }
-    if (ok) { state.trophies[t.id] = now; notify(state, 'trophy', `Trophy unlocked: ${t.icon} ${t.name} · +25 coins`, null, now); }
+    if (ok) { state.trophies[t.id] = now; notify(state, 'trophy', `Trophy unlocked: ${t.icon} ${t.name} · +$0.25`, null, now); }
   }
 }
 

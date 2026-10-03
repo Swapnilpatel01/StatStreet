@@ -71,7 +71,7 @@ function withPool(st) {
 
 t('packs pull real moments; a card only boosts its own player', () => {
   const st = withPool(build());
-  assert.throws(() => B.openBoosterPack(st, 'mstarter', now), /coins/);
+  { const c0 = st.cash; st.cash = 0; assert.throws(() => B.openBoosterPack(st, 'mstarter', now), /cash/); st.cash = c0; }
   X.addCoins(st, 5000);
   const got = B.openBoosterPack(st, 'mstarter', now);
   assert.equal(got.length, 3);
@@ -123,16 +123,16 @@ t('marketplace: listings appear hourly, proxy bids, outbid refunds, winning deli
   const l = L[0];
   const v = B.listingView(st, l, now);
   assert.throws(() => B.placeBid(st, l.id, v.minBid - 1, now), /at least/);
-  const coins = X.career(st).coins;
+  const coins = X.wallet(st);
   const low = B.placeBid(st, l.id, Math.max(v.minBid, 1), now);
-  if (!low.leading) assert.equal(X.career(st).coins, coins, 'outbid → refunded');
+  if (!low.leading) assert.equal(X.wallet(st), coins, 'outbid → refunded');
   const r = B.placeBid(st, l.id, l.npcMax + 1000, now);
   assert.ok(r.leading);
-  assert.equal(X.career(st).coins, coins - (l.npcMax + 1000));
+  assert.equal(X.wallet(st), coins - (l.npcMax + 1000));
   const n0 = B.boosterState(st).inv.length;
   B.runMarket(st, l.end + 1);
   assert.equal(B.boosterState(st).inv.length, n0 + 1);
-  assert.ok(l.price <= l.npcMax + 1000 && X.career(st).coins === coins - l.price, 'paid second price, rest refunded');
+  assert.ok(l.price <= l.npcMax + 1000 && X.wallet(st) === coins - l.price, 'paid second price, rest refunded');
   // buy now
   const l2 = B.marketListings(st, now).find((x) => x.id !== l.id);
   const p = B.buyNow(st, l2.id, now);
@@ -144,10 +144,10 @@ t('your auctions sell to the bidders or come back', () => {
   const c = B.makeCard(st, st.moments[0], { now, rarity: 'legendary' });
   const au = B.listAuction(st, c.id, { start: 1, length: '1h' }, now);
   assert.throws(() => B.equip(st, c.id, c.assetId), /auction/);
-  const coins = X.career(st).coins;
+  const coins = X.wallet(st);
   B.runMarket(st, now + 2 * HOUR);
   assert.equal(au.status, 'sold');
-  assert.equal(X.career(st).coins, coins + au.price);
+  assert.equal(X.wallet(st), coins + au.price);
   const c2 = B.makeCard(st, st.moments[0], { now, rarity: 'common' });
   const au2 = B.listAuction(st, c2.id, { start: 99999, length: '1h' }, now);
   B.runMarket(st, now + 2 * HOUR);
@@ -158,10 +158,10 @@ t('your auctions sell to the bidders or come back', () => {
 t('old generic boosters are traded in for coins', () => {
   const st = build();
   st.boosters = { inv: [{ id: 'old', type: 'div', rarity: 'rare', charges: 5, max: 5 }], seq: 1 };
-  const coins = X.career(st).coins;
+  const coins = X.wallet(st);
   C.runCareer(st, now);
   assert.equal(B.boosterState(st).inv.length, 0);
-  assert.equal(X.career(st).coins, coins + 55);
+  assert.equal(X.wallet(st), coins + 55);
 });
 
 console.log(`\n${passed} moment-card tests passed`);

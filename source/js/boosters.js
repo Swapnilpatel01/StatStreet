@@ -9,7 +9,7 @@
 
 import { DAY, HOUR, clamp, seeded } from './util.js';
 import { notify, boostHooks, gameHooks } from './engine.js';
-import { career, addXP, addCoins, spendCoins, hasLevel, level } from './xp.js';
+import { career, addXP, addCoins, spendCoins, hasLevel, level, centsFmt } from './xp.js';
 import { TRAITS } from './moments.js';
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -291,9 +291,9 @@ export function placeBid(state, id, amount, now = Date.now()) {
   if (!l || now >= l.end) throw new Error('This auction has ended');
   const v = listingView(state, l, now);
   amount = Math.round(Number(amount));
-  if (!(amount >= v.minBid)) throw new Error(`Bid at least 🪙 ${v.minBid}`);
+  if (!(amount >= v.minBid)) throw new Error(`Bid at least ${centsFmt(v.minBid)}`);
   const prev = mp(state).bids[id];
-  if (prev && amount <= prev.amount) throw new Error(`You already bid 🪙 ${prev.amount} — raise it to bid again`);
+  if (prev && amount <= prev.amount) throw new Error(`You already bid ${centsFmt(prev.amount)} — raise it to bid again`);
   const extra = amount - (prev?.amount || 0);
   if (extra > 0) spendCoins(state, extra);
   if (amount <= l.npcMax) {
@@ -375,11 +375,11 @@ export function runMarket(state, now = Date.now()) {
         bs.inv = bs.inv.filter((x) => x.id !== b.id);
         l.status = 'sold'; l.price = l.npcMax;
         addCoins(state, l.npcMax); addXP(state, 10, now);
-        notify(state, 'market', `Sold at auction: ${name} card for ${l.npcMax} coins`, null, now);
+        notify(state, 'market', `Sold at auction: ${name} card for ${centsFmt(l.npcMax)}`, null, now);
       } else {
         l.status = 'unsold';
         if (b) delete b.listed;
-        notify(state, 'market', `No bids reached ${l.start} coins for your ${name} card — it's back in your Locker`, null, now);
+        notify(state, 'market', `No bids reached ${centsFmt(l.start)} for your ${name} card — it's back in your Locker`, null, now);
       }
       continue;
     }
@@ -392,7 +392,7 @@ export function runMarket(state, now = Date.now()) {
     l.won = true; l.price = price;
     makeCard(state, l.card.m, { now, rarity: l.card.rarity, serial: l.card.serial, charges: l.card.charges });
     addXP(state, 10, now);
-    notify(state, 'market', `You won the ${l.card.m.player.name} ${l.card.m.kind.toLowerCase()} card for ${price} coins!`, null, now);
+    notify(state, 'market', `You won the ${l.card.m.player.name} ${l.card.m.kind.toLowerCase()} card for ${centsFmt(price)}!`, null, now);
   }
 }
 
@@ -407,7 +407,7 @@ export function migrateBoosters(state, now = Date.now()) {
   delete state.auctions;
   if (coins) {
     addCoins(state, coins);
-    notify(state, 'market', `Boosters are now player moment cards. Your old boosters were traded in for ${coins} coins.`, null, now);
+    notify(state, 'market', `Boosters are now player moment cards. Your old boosters were traded in for ${centsFmt(coins)}.`, null, now);
   }
   return coins;
 }

@@ -1,13 +1,13 @@
 // Seasons, weekly goals and the shop: the reasons to keep playing.
 // - Seasons last about 4 weeks. Your return decides your tier (Bronze → Legend), which pays
-//   coins and XP. Then everyone starts fresh, with a bigger bankroll the higher your level.
-// - Three weekly goals pay coins and XP the moment you hit them.
+//   cash and XP. Then everyone starts fresh, with a bigger bankroll the higher your level.
+// - Three weekly goals pay cash and XP the moment you hit them.
 // - Coins buy card packs (duplicates level cards up, which boosts their dividends),
 //   app themes and titles.
 
 import { DAY, weekStart, weekId, addDays, seeded } from './util.js';
 import { netWorth, priceAt, notify, cardLevel } from './engine.js';
-import { career, addXP, addCoins, spendCoins, level, hasLevel } from './xp.js';
+import { career, addXP, addCoins, spendCoins, level, hasLevel, centsFmt, convertCoins } from './xp.js';
 import { leaderboard, rarity, RARITY, TROPHIES } from './social.js';
 import { runContests } from './contests.js';
 import { runMarket, migrateBoosters } from './boosters.js';
@@ -40,13 +40,15 @@ export const seasonBalance = (state) => round2((state.settings?.startCash || 100
 export function ensureSeason(state, now = Date.now()) {
   if (!state.season) {
     // The first season starts from wherever your portfolio is today.
-    state.season = { n: 1, start: now, end: seasonEnd(now), nw0: round2(netWorth(state, now)), bal: state.startCash };
+    state.season = { n: 1, start: now, end: seasonEnd(now), nw0: round2(netWorth(state, now)), bal: state.startCash, flow0: state.flow || 0 };
     state.startedAt = now;
   }
   return state.season;
 }
 
-export const seasonReturn = (state, now = Date.now()) => netWorth(state, now) / (state.season?.nw0 || state.startCash) - 1;
+// Money in and out for cards and rewards since a starting point (see xp.js).
+export const flowSince = (state, f0) => (state.flow || 0) - (f0 || 0);
+export const seasonReturn = (state, now = Date.now()) => (netWorth(state, now) - flowSince(state, state.season?.flow0)) / (state.season?.nw0 || state.startCash) - 1;
 
 export function endSeason(state, now = Date.now()) {
   const s = state.season;
@@ -58,8 +60,9 @@ export function endSeason(state, now = Date.now()) {
   const beatAll = rank === 1;
   const c = career(state);
   const coins = tier.coins + (beatAll ? 100 : 0);
-  addCoins(state, coins);
-  addXP(state, tier.xp + (beatAll ? 100 : 0), now);
+  const f0 = state.flow || 0;
+  addXP(state, tier.xp + (beatAll ? 100 : 0), now); // levels first: they set the next bankroll
+  const lvlBonus = Math.round(((state.flow || 0) - f0) * 100);
   const best = Object.entries(state.holdings).map(([id, h]) => ({ a: state.assets[id], h }))
     .filter((x) => x.a && x.h.cost > 0).sort((x, y) => (y.a.price * y.h.qty / y.h.cost) - (x.a.price * x.h.qty / x.h.cost))[0];
   const rec = {
@@ -68,18 +71,20 @@ export function endSeason(state, now = Date.now()) {
   };
   c.seasons.unshift(rec);
   c.recap = rec;
-  notify(state, 'season', `Season ${s.n} over: ${tier.name} (${(ret >= 0 ? '+' : '') + (ret * 100).toFixed(1)}%) · +${coins} coins`, null, now);
+  notify(state, 'season', `Season ${s.n} over: ${tier.name} (${(ret >= 0 ? '+' : '') + (ret * 100).toFixed(1)}%) · +${centsFmt(coins)}`, null, now);
   // Fresh start for the new season.
   const bal = seasonBalance(state);
   Object.assign(state, { cash: bal, startCash: bal, holdings: {}, options: {}, orders: [], recurring: [], nw: [], startedAt: now });
-  state.season = { n: s.n + 1, start: now, end: seasonEnd(now), nw0: bal, bal };
+  state.season = { n: s.n + 1, start: now, end: seasonEnd(now), nw0: bal, bal, flow0: state.flow || 0 };
   state.week = null; // new week goals measured from the new bankroll
+  // The tier prize (and any level-up bonus it triggered) lands on top of the fresh bankroll.
+  addCoins(state, coins + lvlBonus);
   return rec;
 }
 
 // ---------- weekly goals ----------
 
-const wkRet = (s, w, now) => netWorth(s, now) / (w.nw0 || 1) - 1;
+const wkRet = (s, w, now) => (netWorth(s, now) - flowSince(s, w.flow0)) / (w.nw0 || 1) - 1;
 export const GOALS = [
   { key: 'ret3', text: 'Grow your portfolio 3% this week', coins: 60, xp: 60, check: (s, w, now) => wkRet(s, w, now) >= 0.03 },
   { key: 'beat', text: 'Beat Index Ian this week', coins: 50, xp: 50, check: (s, w, now) => {
@@ -109,7 +114,7 @@ export function ensureWeek(state, now = Date.now()) {
     const g = rest.splice(Math.floor(rnd() * rest.length), 1)[0];
     keys.push(g.key);
   }
-  state.week = { id, start: Math.max(weekStart(now), state.season?.start || 0), nw0: round2(netWorth(state, now)), goals: keys.map((k) => ({ key: k, done: false })) };
+  state.week = { id, start: Math.max(weekStart(now), state.season?.start || 0), nw0: round2(netWorth(state, now)), flow0: state.flow || 0, goals: keys.map((k) => ({ key: k, done: false })) };
   return state.week;
 }
 
@@ -123,7 +128,7 @@ function checkGoals(state, now) {
     if (ok) {
       g.done = now;
       addCoins(state, def.coins); addXP(state, def.xp, now);
-      notify(state, 'goal', `Weekly goal done: ${def.text} · +${def.coins} coins`, null, now);
+      notify(state, 'goal', `Weekly goal done: ${def.text} · +${centsFmt(def.coins)}`, null, now);
     }
   }
 }
@@ -146,13 +151,14 @@ function scanActivity(state, now) {
   }
   for (const [id, t] of Object.entries(state.trophies || {})) {
     if (t <= since) continue;
-    addXP(state, 50, now); addCoins(state, 25); // trophy notices already say "+25 coins" in the Season tab
+    addXP(state, 50, now); addCoins(state, 25); 
   }
   c.cursor = now;
 }
 
 // Called on every tick.
 export function runCareer(state, now = Date.now()) {
+  convertCoins(state, now);
   career(state);
   ensureSeason(state, now);
   runContests(state, now);

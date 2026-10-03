@@ -33,9 +33,11 @@ const row = (id, pts) => ({ id, name: `Player ${id}`, pos: 'G', teamId: '1', lin
 t('XP levels up, pays coins and announces unlocks', () => {
   const st = build();
   assert.equal(X.level(st), 1);
+  const w0 = X.wallet(st);
   X.addXP(st, X.LEVEL_XP(3), now);
   assert.equal(X.level(st), 3);
-  assert.equal(X.career(st).coins, 100);
+  assert.equal(X.wallet(st), w0 + 100);
+  assert.equal(st.flow, 1, 'reward money is tallied so it stays out of returns');
   assert.ok(st.inbox.some((n) => /Level 3! .*Rare packs/.test(n.text)));
   assert.ok(X.LEVEL_XP(10) > 3000 && X.LEVEL_XP(10) < 4000);
 });
@@ -58,16 +60,16 @@ t('weekly goals: three per week, paid once when met', () => {
   C.runCareer(st, now);
   assert.equal(st.week.goals.length, 3);
   assert.ok(['ret3', 'beat'].includes(st.week.goals[0].key));
-  const coins = X.career(st).coins;
+  const coins = Math.round((st.flow || 0) * 100);
   // Force a trades goal and meet it.
   st.week.goals[1] = { key: 'trades5', done: false };
   for (let i = 0; i < 5; i++) E.trade(st, 'nba:p:b2', 'buy', 1, now + 10 + i);
   C.runCareer(st, now + 100);
   assert.ok(st.week.goals[1].done);
-  assert.ok(X.career(st).coins >= coins + 25);
-  const after = X.career(st).coins;
+  assert.ok(Math.round((st.flow || 0) * 100) >= coins + 25);
+  const after = Math.round((st.flow || 0) * 100);
   C.runCareer(st, now + 200);
-  assert.equal(X.career(st).coins, after);
+  assert.equal(Math.round((st.flow || 0) * 100), after);
   // A new week brings new goals
   C.runCareer(st, weekEnd(now) + HOUR);
   assert.notEqual(st.week.id, new Date(weekStart(now)).toLocaleDateString('en-CA'));
@@ -89,14 +91,14 @@ t('season ends: tier, rewards, recap and a fresh bankroll', () => {
   assert.ok(X.career(st).recap);
   assert.equal(st.season.n, 2);
   assert.deepEqual(st.holdings, {});
-  assert.equal(st.cash, C.seasonBalance(st)); assert.ok(st.cash > 1000, 'higher level → bigger bankroll');
+  assert.ok(st.cash > C.seasonBalance(st) && st.cash < C.seasonBalance(st) + 30, 'new bankroll plus the prize'); assert.ok(st.cash > 1000, 'higher level → bigger bankroll');
   assert.equal(C.tierFor(-0.05).key, 'bronze');
   assert.equal(C.tierFor(1.2).key, 'legend');
 });
 
 t('card packs: coins, guaranteed rarity, duplicates level cards and boost dividends', () => {
   const st = build();
-  assert.throws(() => C.openPack(st, 'starter', now), /coins/);
+  { const c0 = st.cash; st.cash = 0; assert.throws(() => C.openPack(st, 'starter', now), /cash/); st.cash = c0; }
   X.addCoins(st, 2000);
   assert.throws(() => C.openPack(st, 'elite', now), /level 5/);
   X.addXP(st, X.LEVEL_XP(5), now);
@@ -206,6 +208,24 @@ t('a $5 bankroll scales rewards, fees and minimums', () => {
   assert.ok(pk.reward <= 0.15 && pk.reward >= 0.01, `pick reward ${pk.reward}`);
   E.trade(st, 'nba:p:b0', 'buy', 0.1 / st.assets['nba:p:b0'].price, now);
   assert.throws(() => E.trade(st, 'nba:p:b0', 'buy', 0.03 / st.assets['nba:p:b0'].price, now), /0\.05/);
+});
+
+t('cards cost cash; card money and rewards stay out of the season return; old coins convert', () => {
+  const st = build();
+  C.runCareer(st, now);
+  const r0 = C.seasonReturn(st, now);
+  X.addCoins(st, 300);            // a reward
+  assert.ok(Math.abs(C.seasonReturn(st, now) - r0) < 1e-9);
+  const cash = st.cash;
+  X.spendCoins(st, 150);          // a pack
+  assert.equal(Math.round((cash - st.cash) * 100), 150);
+  assert.ok(Math.abs(C.seasonReturn(st, now) - r0) < 1e-9);
+  X.career(st).coins = 420;
+  const c1 = st.cash;
+  C.runCareer(st, now + 1000);
+  assert.equal(X.career(st).coins, 0);
+  assert.equal(Math.round((st.cash - c1) * 100), 420);
+  assert.ok(st.inbox.some((n) => /420 coins became \$4\.20/.test(n.text)));
 });
 
 console.log(`\n${passed} career tests passed`);
