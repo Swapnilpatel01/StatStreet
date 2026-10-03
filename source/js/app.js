@@ -40,6 +40,13 @@ import {
   closedTrades, journalStats, lineupToday, calendar, moverAlerts, dailyChallenge, answerChallenge, collections, SET_SIZE, SET_BONUS,
   achievements, searchAll, sinceLastOpen, markOpen, compareRows,
 } from './extras.js';
+import {
+  runExtras, openShort, coverShort, shortEquity, shortExposure, BORROW_DAILY, SHORT_CAP, protection, protect, clearProtection, riskReport, scenarios, breakouts,
+  weeklyRecap, recapDue, chooseRival, rivalStatus, futuresMarkets, futuresOpen, betFuture, cardHistory, recentSales, wantedOffers, fillWanted,
+  showcase, toggleShowcase, SHOWCASE_MAX,
+} from './extras2.js';
+import { RIVALS } from './social.js';
+import { weekId } from './util.js';
 
 // ---------- state ----------
 
@@ -50,7 +57,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 34;
+const APP_VERSION = 35;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -243,6 +250,34 @@ function renderHome() {
   const myGames = upcoming.filter((g) => g.teams.some((t) => mine.has(`${g.lg}:${t.id}`)));
   const games = (myGames.length ? myGames : upcoming).slice(0, 6);
 
+  const hx = homeParts(now, holdings, movers);
+  // Every block of the page by name, so you can hide and reorder them (Account → Portfolio page).
+  const SEC = {
+    ...hx,
+    alloc: `${holdings.length || opts.length ? `<div class="alloc">${parts.map(([, v, c]) => `<i style="width:${(v / tot) * 100}%;background:${c}"></i>`).join('')}</div>
+    <div class="legend">${parts.map(([n, v, c]) => { const pc = (v / tot) * 100; return `<span style="--c:${c}">${n} ${pc > 0 && pc < 1 ? '<1' : Math.round(pc)}%</span>`; }).join('')}</div>` : ''}`,
+    season: `${state.season ? (() => { const r = seasonReturn(state, now); const tr = tierFor(r); return `<button class="season-strip" data-gtab="season" style="--tc:${tr.color};margin-top:12px"><span class="dot"></span>Season ${state.season.n} · <b>${tr.name}</b> · <span class="${cls(r)}">${pctTxt(r)}</span><span class="grow"></span><span class="muted">${daysLeft(state.season.end)} ›</span></button>`; })() : ''}
+    ${(() => { const dly = dailyStatus(state, now); return dly.claimed ? '' : `<button class="card promo" data-tab="games"><span class="e">🎁</span><div class="grow"><div class="name">Daily reward ready</div>
+      <div class="tiny muted">${dly.nextStreak > 1 ? `Day ${dly.nextStreak} of your streak` : 'Start a streak'} · tap to claim ${money(dly.reward)}</div></div><span class="muted">›</span></button>`; })()}`,
+    live: `${live.length ? `<h3>Live now</h3><div class="live-strip">${live.map(([id, g]) => `
+      <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
+        ${g.teams.map((t) => `<div class="t"><span>${esc(t.abbr)}</span><span>${t.score}</span></div>`).join('')}
+        <div class="tiny muted">${esc(g.detail)}</div></button>`).join('')}</div>` : ''}`,
+    orders: `${state.orders.length ? `<h2>Open orders</h2><div class="list">${state.orders.map(orderRow).join('')}</div>` : ''}
+    ${opts.length ? `<h2>Options</h2><div class="list">${opts.map(optPositionRow).join('')}</div>` : ''}`,
+    stocks: `<h2>Stocks</h2>
+    ${stocks.length ? `<div class="list">${stocks.map(({ a, h }) => positionRow(a, h)).join('')}</div>`
+      : `<div class="card empty">You don't own any players or teams yet. You start with ${money(state.startCash)} of play money.
+      <button class="more" data-tab="market">Browse the market →</button></div>`}`,
+    shorts: shortsSection(now),
+    funds: `${funds.length ? `<h2>Index funds</h2><div class="list">${funds.map(({ a, h }) => positionRow(a, h)).join('')}</div>` : ''}`,
+    watch: watchSection(watch),
+    upcoming: `${games.length ? `<h2>${myGames.length ? 'Your upcoming games' : 'Upcoming games'}</h2><div class="list">${games.map((g) => `
+      <button class="item" data-game="${g.lg}|${g.id}">${lgTag(g.lg)}<div class="grow"><div class="name">${esc(g.name)}</div><div class="sub">${fmtDateTime(g.date)}${g.preseason ? ' · preseason' : ''}</div></div>${state.picks[g.id] ? `<span class="pk">Picked ${esc(state.picks[g.id].abbr)}</span>` : '<span class="muted">›</span>'}</button>`).join('')}</div>` : ''}`,
+    discover: `<h2>Discover</h2>
+    <div class="collections">${COLLECTIONS.map((c) => `<button class="coll" data-coll="${c.key}"><div class="e">${c.e}</div><div class="t">${c.t}</div><div class="d">${c.d}</div></button>`).join('')}
+      <button class="coll" data-coll="funds"><div class="e">🧺</div><div class="t">Index funds</div><div class="d">Whole leagues in one tap</div></button></div>`,
+  };
   $('#view').innerHTML = `
     ${topbar('<div class="brand">Stat<b>Street</b></div>')}
     <div class="row between"><div class="muted small">Net worth</div><button class="share-btn" data-act="sharepf" aria-label="Share"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>Share</button></div>
@@ -256,39 +291,7 @@ function renderHome() {
       <div class="stat"><div class="k">Buying power</div><div class="v">${money(buyingPower(state))}</div></div>
       <div class="stat"><div class="k">Dividends earned</div><div class="v up">${money(state.divTotal || 0)}</div></div>
     </div>
-    ${homeExtras(now, holdings, movers)}
-    ${holdings.length || opts.length ? `<div class="alloc">${parts.map(([, v, c]) => `<i style="width:${(v / tot) * 100}%;background:${c}"></i>`).join('')}</div>
-    <div class="legend">${parts.map(([n, v, c]) => { const pc = (v / tot) * 100; return `<span style="--c:${c}">${n} ${pc > 0 && pc < 1 ? '<1' : Math.round(pc)}%</span>`; }).join('')}</div>` : ''}
-
-    ${state.season ? (() => { const r = seasonReturn(state, now); const tr = tierFor(r); return `<button class="season-strip" data-gtab="season" style="--tc:${tr.color};margin-top:12px"><span class="dot"></span>Season ${state.season.n} · <b>${tr.name}</b> · <span class="${cls(r)}">${pctTxt(r)}</span><span class="grow"></span><span class="muted">${daysLeft(state.season.end)} ›</span></button>`; })() : ''}
-    ${(() => { const dly = dailyStatus(state, now); return dly.claimed ? '' : `<button class="card promo" data-tab="games"><span class="e">🎁</span><div class="grow"><div class="name">Daily reward ready</div>
-      <div class="tiny muted">${dly.nextStreak > 1 ? `Day ${dly.nextStreak} of your streak` : 'Start a streak'} · tap to claim ${money(dly.reward)}</div></div><span class="muted">›</span></button>`; })()}
-
-    ${live.length ? `<h3>Live now</h3><div class="live-strip">${live.map(([id, g]) => `
-      <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
-        ${g.teams.map((t) => `<div class="t"><span>${esc(t.abbr)}</span><span>${t.score}</span></div>`).join('')}
-        <div class="tiny muted">${esc(g.detail)}</div></button>`).join('')}</div>` : ''}
-
-    ${state.orders.length ? `<h2>Open orders</h2><div class="list">${state.orders.map(orderRow).join('')}</div>` : ''}
-
-    ${opts.length ? `<h2>Options</h2><div class="list">${opts.map(optPositionRow).join('')}</div>` : ''}
-
-    <h2>Stocks</h2>
-    ${stocks.length ? `<div class="list">${stocks.map(({ a, h }) => positionRow(a, h)).join('')}</div>`
-      : `<div class="card empty">You don't own any players or teams yet. You start with ${money(state.startCash)} of play money.
-      <button class="more" data-tab="market">Browse the market →</button></div>`}
-
-    ${funds.length ? `<h2>Index funds</h2><div class="list">${funds.map(({ a, h }) => positionRow(a, h)).join('')}</div>` : ''}
-
-    ${watchSection(watch)}
-
-    ${games.length ? `<h2>${myGames.length ? 'Your upcoming games' : 'Upcoming games'}</h2><div class="list">${games.map((g) => `
-      <button class="item" data-game="${g.lg}|${g.id}">${lgTag(g.lg)}<div class="grow"><div class="name">${esc(g.name)}</div><div class="sub">${fmtDateTime(g.date)}${g.preseason ? ' · preseason' : ''}</div></div>${state.picks[g.id] ? `<span class="pk">Picked ${esc(state.picks[g.id].abbr)}</span>` : '<span class="muted">›</span>'}</button>`).join('')}</div>` : ''}
-
-    <h2>Discover</h2>
-    <div class="collections">${COLLECTIONS.map((c) => `<button class="coll" data-coll="${c.key}"><div class="e">${c.e}</div><div class="t">${c.t}</div><div class="d">${c.d}</div></button>`).join('')}
-      <button class="coll" data-coll="funds"><div class="e">🧺</div><div class="t">Index funds</div><div class="d">Whole leagues in one tap</div></button></div>
-
+    ${homeOrder().filter((k) => !state.settings.home?.hide?.[k]).map((k) => SEC[k] || '').join('\n')}
   `;
   drawNwChart();
 }
@@ -629,9 +632,9 @@ function activityRow(i) {
       <div class="sub ellipsis">${when} · ${esc(d.reason)}${d.drip ? ' · reinvested' : ''}</div></div><div class="price up">+${money(d.amt)}</div></button>`;
   }
   const t = i.x;
-  const verb = { buy: 'Bought', sell: 'Sold', exercise: 'Settled', expire: 'Expired' }[t.side] || t.side;
+  const verb = { buy: 'Bought', sell: 'Sold', exercise: 'Settled', expire: 'Expired', short: 'Shorted', cover: 'Closed short' }[t.side] || t.side;
   const what = t.kind === 'option' ? `${t.qty} × ${esc(t.opt)}` : `${fmtQty(t.qty)} ${esc(t.ticker)}`;
-  const amt = t.side === 'buy' ? `-${money(t.total)}` : `+${money(t.total)}`;
+  const amt = t.side === 'buy' || t.side === 'short' ? `-${money(t.total)}` : `+${money(t.total)}`;
   return `<button class="item" data-open="${t.id}"><div class="grow"><div class="name">${verb} ${what}</div>
     <div class="sub">${when} · ${money(t.price)}${t.kind === 'option' ? '/sh' : '/sh'}${t.via ? ` · ${t.via}` : ''}</div></div>
     <div class="price ${t.side === 'buy' || t.side === 'expire' ? '' : 'up'}">${amt}</div></button>`;
@@ -676,6 +679,14 @@ function renderAccount() {
       <span class="switch"><input type="checkbox" id="setlight" ${state.settings.light ? 'checked' : ''}><span></span></span></label>
       <label class="toggle"><span>Larger text<div class="tiny faint">Bigger type across the app</div></span>
       <span class="switch"><input type="checkbox" id="setbig" ${state.settings.bigText ? 'checked' : ''}><span></span></span></label></div>
+
+      <div class="list" style="margin-top:8px"><label class="toggle"><span>Colour-blind friendly<div class="tiny faint">Blue for up and orange for down, instead of green and red</div></span>
+      <span class="switch"><input type="checkbox" id="setcb" ${state.settings.cb ? 'checked' : ''}><span></span></span></label>
+      <label class="toggle"><span>Sounds<div class="tiny faint">Short tones on trades, dividends and card packs</div></span>
+      <span class="switch"><input type="checkbox" id="setsound" ${state.settings.sound !== false ? 'checked' : ''}><span></span></span></label>
+      <label class="toggle"><span>Haptics<div class="tiny faint">A light tap on your actions</div></span>
+      <span class="switch"><input type="checkbox" id="sethaptic" ${state.settings.haptics !== false ? 'checked' : ''}><span></span></span></label>
+      <button class="item" data-page="layout"><div class="grow"><div class="name">Customize the Portfolio page</div><div class="sub">Show, hide and reorder its sections</div></div><span class="muted">›</span></button></div>
 
     <h2>Move alerts</h2>
     <p class="small muted" style="margin:4px 0 8px">A banner while the app is open when something you own or watch moves this much in a day, or when its game starts.</p>
@@ -1093,6 +1104,7 @@ function gamesLocker() {
 
 // Pack opening: cards face down, tap to flip each, best card last.
 function showPack(cards, pack) {
+  sfx('pack');
   const el = $('#packview');
   ui.packView = { cards, flipped: 0 };
   el.hidden = false;
@@ -1186,6 +1198,7 @@ function boostersSection() {
   const fusable = B_RARITY.slice(0, -1).filter((r) => (counts[r.key] || 0) >= 3);
   const sorted = [...inv].sort((x, y) => (y.on ? 1 : 0) - (x.on ? 1 : 0) || rIdx(y.rarity) - rIdx(x.rarity) || y.m.rating - x.m.rating);
   return `
+    ${showcaseSection()}
     ${collectionsSection()}
     <div class="row between"><h2>Your moment cards <span class="faint small">${inv.length}</span></h2><span class="tiny muted">${used}/${slots(state)} active</span></div>
     <p class="small muted" style="margin:-4px 0 10px">Each card is a real play. Put it on that player (you need some of his shares) to boost your earnings from him. Each game he plays uses one charge. You get another slot every 3 levels.</p>
@@ -1228,6 +1241,7 @@ function renderBoosterSheet() {
           : a ? `<button class="btn buy" data-open="${b.assetId}">Buy ${esc(a.ticker)} shares to use it</button>` : '<div class="small muted">This player isn\'t listed right now.</div>'}
     </div>
     <h3>Sell</h3>
+    ${cardExtras(b)}
     <button class="btn ghost" data-act="bsell" style="width:100%">Quick sell · ${cm(quickSellPrice(b))}</button>
     ${b.on ? '' : `<div class="card" style="margin-top:10px">
       <div class="row between"><b>Auction it</b> <span class="tiny faint">${SELLER_FEE * 100}% fee on a sale</span><span class="tiny muted">Worth about ${cm(mv)}</span></div>
@@ -1301,6 +1315,7 @@ function renderMarketplace() {
     <div class="chips" style="margin-top:10px">${[['all', 'All rarities'], ...B_RARITY.map((r) => [r.key, r.name])].map(([k, n]) => `<button class="chip ${f.rarity === k ? 'on' : ''}" data-mprar="${k}">${n}</button>`).join('')}</div>
     <div class="chips" style="margin-top:6px">${MP_SORTS.map(([k, n]) => `<button class="chip ${f.sort === k ? 'on' : ''}" data-mpsort="${k}">${n}</button>`).join('')}</div>
     <input class="search" id="mpq" type="search" placeholder="Search player or team (e.g. PHI)" value="${esc(f.q)}" autocomplete="off" style="margin-top:8px">
+    ${wantedSection()}
     <p class="tiny faint" style="margin:8px 0 0">${total} live auctions · bids are max bids; the highest when time runs out wins</p>
     ${list.length ? `<div class="mp-grid">${list.map((l) => { const v = views.get(l.id); return `<div class="mp-item">
       <div class="mp-meta" data-lotmeta="${l.id}"><span>⏱ ${fmtLeft(v.left)}</span><span>${v.bids} bid${v.bids === 1 ? '' : 's'}</span></div>
@@ -1591,6 +1606,8 @@ function renderDetail({ keepScroll = true } = {}) {
       <div class="stat"><div class="k">Today's return</div><div class="v ${cls(change(a, now))}">${signMoney((a.price - priceAt(a, now - DAY)) * h.qty)}</div></div>
       <div class="stat"><div class="k">Dividends earned</div><div class="v up">${money(divEarned)}</div></div>
     </div>` : ''}
+    ${protectCard(a)}
+    ${shortCard(a)}
     ${myOpts.length ? `<h3>Your options</h3><div class="list">${myOpts.map(optPositionRow).join('')}</div>` : ''}
     ${myOrders.length ? `<h3>Open orders</h3><div class="list">${myOrders.map(orderRow).join('')}</div>` : ''}
 
@@ -1609,6 +1626,7 @@ function renderDetail({ keepScroll = true } = {}) {
 
     </div><div class="dsec" data-sec="research">
     ${researchSection(a)}
+    ${whatIfSection(a)}
     </div><div class="dsec" data-sec="overview">
     <h3>Why it's moving</h3>
     <div class="list">${(a.events || []).slice(0, 10).map((e) => `<div class="driver">
@@ -2070,10 +2088,10 @@ function submitOrder() {
         runAutomation(state);
       }
     }
-    haptic();
+    buzz();
     closeOrder();
     const n0 = state.inbox.length;
-    runSocial(state); runCareer(state);
+    runSocial(state); runExtras(state); runCareer(state);
     const fresh = state.inbox.slice(0, state.inbox.length - n0);
     const lvl = fresh.find((n) => n.kind === 'level');
     if (fresh.some((n) => n.kind === 'card' && /^New/.test(n.text))) msg += ' · 🃏 New card';
@@ -2082,7 +2100,7 @@ function submitOrder() {
     if (lvl) msg += ` · ⭐ ${lvl.text.split('!')[0]}`;
     dirty = true; save();
     ui.seenInbox = state.inbox.length;
-    toast(msg);
+    toast(msg); sfx(/^Sold/.test(msg) ? 'sell' : 'trade');
     if (firstTrade && state.txns.length) confetti();
     if (ui.chain) renderChain();
     if (ui.detail) renderDetail();
@@ -2206,6 +2224,7 @@ function announce() {
   ui.seenInbox = state.inbox.length;
   if (!fresh.length) return;
   toast(fresh.length === 1 ? fresh[0].text : `${fresh[0].text} (+${fresh.length - 1} more)`);
+  sfx(fresh.some((n) => ['level', 'trophy', 'season'].includes(n.kind)) ? 'level' : fresh.some((n) => n.kind === 'div') ? 'coin' : 'tap');
   refreshBadge();
 }
 
@@ -2221,7 +2240,12 @@ document.addEventListener('click', async (e) => {
   if (d.cmprange && ui.page) { ui.page.range = d.cmprange; renderPage(); return; }
   if (d.dtab) { ui.dtab = d.dtab; const inner = $('#dinner'); if (inner) { inner.dataset.dtab = d.dtab; inner.querySelectorAll('.dtabs button').forEach((b) => b.classList.toggle('on', b.dataset.dtab === d.dtab)); } return; }
   if (d.wfolder != null && ui.detail) { (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: d.wfolder }; dirty = true; save(); renderDetail(); return; }
-  if (d.chal) { try { answerChallenge(state, d.chal === 'yes'); dirty = true; save(); haptic(); toast('Locked in. Good luck!'); renderHome(); } catch (err) { toast(err.message); } return; }
+  if (d.chal) { try { answerChallenge(state, d.chal === 'yes'); dirty = true; save(); buzz(); toast('Locked in. Good luck!'); renderHome(); } catch (err) { toast(err.message); } return; }
+  if (d.rival) { try { chooseRival(state, d.rival); dirty = true; save(); buzz(); toast('Rival set. The match runs to Sunday night.'); renderPage(); if (ui.tab === 'home') renderHome(); } catch (err) { toast(err.message); } return; }
+  if (d.fut && ui.page) { ui.page.sel = d.fut; const y = $('#page').scrollTop; renderPage(); $('#page').scrollTop = y; return; }
+  if (d.laymove) { const [k, dir] = d.laymove.split('|'); const o = homeOrder(); const i = o.indexOf(k); const j = i + Number(dir);
+    if (j >= 0 && j < o.length) { [o[i], o[j]] = [o[j], o[i]]; state.settings.home = { ...(state.settings.home || {}), order: o }; dirty = true; save(); const y = $('#page').scrollTop; renderPage(); $('#page').scrollTop = y; if (ui.tab === 'home') renderHome(); } return; }
+  if (d.wanted != null) { try { const r = fillWanted(state, Number(d.wanted)); dirty = true; save(); buzz(); sfx('coin'); toast(`Sold ${r.card.m.player.name}'s card for ${cm(r.pays)}`); renderMarketplace(); } catch (err) { toast(err.message); } return; }
   if (d.movealert != null) { state.settings.moveAlert = Number(d.movealert); dirty = true; save(); const y = view().scrollTop; renderAccount(); view().scrollTop = y; return; }
   if (el.disabled) return;
   if (d.tab) {
@@ -2246,7 +2270,7 @@ document.addEventListener('click', async (e) => {
     const g = upcomingPickGames(state, Date.now(), [lg]).find((x) => x.id === gid);
     if (!g) { toast('This game has started — picks are locked'); softRefresh(); return; }
     try {
-      haptic();
+      buzz();
       if (state.picks[gid]?.teamId === d.team) { clearPick(state, gid); toast('Pick removed'); }
       else { const pk = makePick(state, g, d.team); toast(`Picked ${pk.abbr} · win pays ${money(pickPayout(state, pk))}`); }
       dirty = true;
@@ -2260,7 +2284,7 @@ document.addEventListener('click', async (e) => {
   if (d.dpick && ui.draft) {
     const p = ui.draft.picks; const i = p.indexOf(d.dpick);
     if (i >= 0) p.splice(i, 1); else if (p.length < LINEUP) p.push(d.dpick); else { toast(`Lineups have ${LINEUP} players — remove one first`); return; }
-    ui.draft.err = ''; haptic(); renderDraft(true); return;
+    ui.draft.err = ''; buzz(); renderDraft(true); return;
   }
   if (d.prop) {
     const cut = d.prop.lastIndexOf('|');
@@ -2273,7 +2297,7 @@ document.addEventListener('click', async (e) => {
     else if (i >= 0) slip.legs[i] = { ...p, side };
     else if (slip.legs.length >= MAX_LEGS(state)) { if (MAX_LEGS(state) === 1) slip.legs = [{ ...p, side }]; else { toast('Up to 3 picks per parlay'); return; } }
     else slip.legs.push({ ...p, side });
-    slip.err = ''; haptic(); const y = view().scrollTop; renderGames(); view().scrollTop = y; return;
+    slip.err = ''; buzz(); const y = view().scrollTop; renderGames(); view().scrollTop = y; return;
   }
   if (d.rmleg) { ui.slip.legs.splice(Number(d.rmleg), 1); const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
   if (d.stake) {
@@ -2282,12 +2306,12 @@ document.addEventListener('click', async (e) => {
   }
   if (d.pack) {
     const pack = PACKS.find((x) => x.key === d.pack);
-    try { const cards = openPack(state, d.pack); dirty = true; save(); haptic(); showPack(cards, pack); } catch (err) { toast(err.message); }
+    try { const cards = openPack(state, d.pack); dirty = true; save(); buzz(); showPack(cards, pack); } catch (err) { toast(err.message); }
     return;
   }
   if (d.flip != null && ui.packView) {
     if (el.classList.contains('flipped')) return;
-    el.classList.add('flipped'); haptic();
+    el.classList.add('flipped'); buzz();
     const c = ui.packView.cards[Number(d.flip)];
     if (['legendary', 'epic', 'iconic'].includes(c.rarity.key)) confetti();
     if (!$('#packview').querySelectorAll('.pv-card:not(.flipped)').length) $('#packview [data-act=packdone]').textContent = 'Done';
@@ -2295,36 +2319,36 @@ document.addEventListener('click', async (e) => {
   }
   if (d.theme) {
     const c = career(state);
-    try { if (c.owned.themes.includes(d.theme)) equipItem(state, 'theme', d.theme); else buyItem(state, 'theme', d.theme); applyTheme(); dirty = true; save(); haptic(); const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+    try { if (c.owned.themes.includes(d.theme)) equipItem(state, 'theme', d.theme); else buyItem(state, 'theme', d.theme); applyTheme(); dirty = true; save(); buzz(); const y = view().scrollTop; renderGames(); view().scrollTop = y; }
     catch (err) { toast(err.message); }
     return;
   }
   if (d.title) {
     const c = career(state);
-    try { if (c.owned.titles.includes(d.title)) equipItem(state, 'title', d.title); else buyItem(state, 'title', d.title); dirty = true; save(); haptic(); toast(`Title: ${d.title}`); const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+    try { if (c.owned.titles.includes(d.title)) equipItem(state, 'title', d.title); else buyItem(state, 'title', d.title); dirty = true; save(); buzz(); toast(`Title: ${d.title}`); const y = view().scrollTop; renderGames(); view().scrollTop = y; }
     catch (err) { toast(err.message); }
     return;
   }
   if (d.booster) { openBoosterSheet(d.booster); return; }
   if (d.bequip && ui.order?.mode === 'booster') {
-    try { equip(state, ui.order.id, d.bequip); dirty = true; save(); haptic(); toast(`Boosting ${state.assets[d.bequip].ticker}`); closeOrder(); afterBoostChange(); }
+    try { equip(state, ui.order.id, d.bequip); dirty = true; save(); buzz(); toast(`Boosting ${state.assets[d.bequip].ticker}`); closeOrder(); afterBoostChange(); }
     catch (err) { $('#terr').textContent = err.message; }
     return;
   }
   if (d.bpickone && ui.order?.mode === 'bpick') {
-    try { const aid = ui.order.id; equip(state, d.bpickone, aid); dirty = true; save(); haptic(); toast(`Boosting ${state.assets[aid].ticker}`); closeOrder(); afterBoostChange(); }
+    try { const aid = ui.order.id; equip(state, d.bpickone, aid); dirty = true; save(); buzz(); toast(`Boosting ${state.assets[aid].ticker}`); closeOrder(); afterBoostChange(); }
     catch (err) { $('#terr').textContent = err.message; }
     return;
   }
   if (d.blen && ui.order?.mode === 'booster') { ui.order.len = d.blen; const v = $('#bstart')?.value; renderBoosterSheet(); if (v && $('#bstart')) $('#bstart').value = v; return; }
   if (d.fuse) {
-    try { const nb = fuse(state, d.fuse); dirty = true; save(); haptic(); confetti(); toast(`${nb.m.player.name}'s card is now ${bRarity(nb.rarity).name}!`); afterBoostChange(); }
+    try { const nb = fuse(state, d.fuse); dirty = true; save(); buzz(); confetti(); toast(`${nb.m.player.name}'s card is now ${bRarity(nb.rarity).name}!`); afterBoostChange(); }
     catch (err) { toast(err.message); }
     return;
   }
   if (d.bpack) {
     const pack = B_PACKS.find((x) => x.key === d.bpack);
-    try { const got = openBoosterPack(state, d.bpack); dirty = true; save(); haptic(); showBoosterPack(got, pack); } catch (err) { toast(err.message); }
+    try { const got = openBoosterPack(state, d.bpack); dirty = true; save(); buzz(); showBoosterPack(got, pack); } catch (err) { toast(err.message); }
     return;
   }
   if (d.lot) { openLot(d.lot, !!d.bidbtn); return; }
@@ -2418,7 +2442,7 @@ document.addEventListener('click', async (e) => {
     case 'watch': {
       const i = state.watch.indexOf(ui.detail);
       if (i >= 0) state.watch.splice(i, 1); else state.watch.unshift(ui.detail);
-      haptic(); dirty = true; renderDetail(); toast(i >= 0 ? 'Removed from watchlist' : 'Added to watchlist'); break;
+      buzz(); dirty = true; renderDetail(); toast(i >= 0 ? 'Removed from watchlist' : 'Added to watchlist'); break;
     }
     case 'alert': openAlert(); break;
     case 'setalert': {
@@ -2434,7 +2458,7 @@ document.addEventListener('click', async (e) => {
     case 'allcards': { ui.allCards = true; const y = view().scrollTop; renderGames(); view().scrollTop = y; break; }
     case 'claim': {
       try {
-        const r = claimDaily(state); haptic(); dirty = true; save();
+        const r = claimDaily(state); buzz(); dirty = true; save();
         toast(`+${money(r.reward)} daily reward · ${r.streak}-day streak`);
         if (r.streak % 7 === 0) confetti();
         runSocial(state); const y = view().scrollTop; render(); view().scrollTop = y;
@@ -2443,6 +2467,16 @@ document.addEventListener('click', async (e) => {
     }
     case 'artback': closeArticle(); break;
     case 'pageback': closePage(); break;
+    case 'protect': if (ui.detail) { try { protect(state, ui.detail, { stopPct: (parseFloat($('#pstop')?.value) || 0) / 100, takePct: (parseFloat($('#ptake')?.value) || 0) / 100 }); dirty = true; save(); buzz(); toast('Protection set'); renderDetail(); } catch (err) { toast(err.message); } } break;
+    case 'unprotect': if (ui.detail) { clearProtection(state, ui.detail); dirty = true; save(); renderDetail(); } break;
+    case 'shortmore': if (ui.detail) openPage('short', { a: ui.detail }); break;
+    case 'cover': if (ui.detail && armed(el, 'Tap again to close')) { try { const r = coverShort(state, ui.detail); dirty = true; save(); buzz(); sfx('sell'); toast(`Short closed: ${signMoney(r.pl)}`); renderDetail(); } catch (err) { toast(err.message); } } break;
+    case 'doshort': if (ui.page?.a) { try { const a = state.assets[ui.page.a]; openShort(state, ui.page.a, parseFloat(String($('#shortamt').value).replace(/[^0-9.]/g, ''))); dirty = true; save(); buzz(); sfx('sell'); closePage(); toast(`Shorted ${a.ticker}`); if (ui.detail) renderDetail(); else render(); } catch (err) { $('#perr').textContent = err.message; } } break;
+    case 'betfut': if (ui.page?.sel) { try { const [key, id] = ui.page.sel.split('|'); const f = betFuture(state, key, id, parseFloat(String($('#futstake').value).replace(/[^0-9.]/g, ''))); dirty = true; save(); buzz(); sfx('trade'); ui.page.sel = null; toast(`Bet placed: ${f.name} at ${f.mult}x`); renderPage(); } catch (err) { $('#perr').textContent = err.message; } } break;
+    case 'sharerecap': shareRecap().catch((err) => toast(err.message)); break;
+    case 'shareshow': shareShowcase().catch((err) => toast(err.message)); break;
+    case 'layoutreset': delete state.settings.home; dirty = true; save(); renderPage(); if (ui.tab === 'home') renderHome(); break;
+    case 'showtoggle': if (ui.order?.mode === 'booster') { try { const on = toggleShowcase(state, ui.order.id); dirty = true; save(); buzz(); toast(on ? 'Added to your showcase' : 'Removed from your showcase'); renderBoosterSheet(); } catch (err) { $('#terr').textContent = err.message; } } break;
     case 'compare': if (ui.detail) openPage('compare', { a: ui.detail, b: null }); break;
     case 'shareach': shareAchievements().catch((err) => toast(err.message)); break;
     case 'sincex': ui.since = null; renderHome(); break;
@@ -2450,11 +2484,11 @@ document.addEventListener('click', async (e) => {
     case 'bunequip': if (ui.order?.mode === 'booster') { unequip(state, ui.order.id); dirty = true; save(); closeOrder(); afterBoostChange(); } break;
     case 'bsell':
       if (ui.order?.mode === 'booster' && armed(el, `Tap again to sell for ${cm(quickSellPrice(boosterState(state).inv.find((x) => x.id === ui.order.id)))}`)) {
-        try { const p = quickSell(state, ui.order.id); dirty = true; save(); haptic(); toast(`Sold for ${cm(p)}`); closeOrder(); afterBoostChange(); } catch (err) { $('#terr').textContent = err.message; }
+        try { const p = quickSell(state, ui.order.id); dirty = true; save(); buzz(); toast(`Sold for ${cm(p)}`); closeOrder(); afterBoostChange(); } catch (err) { $('#terr').textContent = err.message; }
       }
       break;
     case 'blist':
-      try { const au = listAuction(state, ui.order.id, { start: toCents($('#bstart').value), length: ui.order.len }); dirty = true; save(); haptic(); toast(`Listed! Bidding ends in ${AUCTION_LENGTHS.find((x) => x.key === ui.order.len).label}`); closeOrder(); afterBoostChange(); void au; }
+      try { const au = listAuction(state, ui.order.id, { start: toCents($('#bstart').value), length: ui.order.len }); dirty = true; save(); buzz(); toast(`Listed! Bidding ends in ${AUCTION_LENGTHS.find((x) => x.key === ui.order.len).label}`); closeOrder(); afterBoostChange(); void au; }
       catch (err) { $('#terr').textContent = err.message; }
       break;
     case 'bcancel': {
@@ -2467,7 +2501,7 @@ document.addEventListener('click', async (e) => {
     case 'mymarket': ui.mp.view = ui.mp.view === 'mine' ? 'browse' : 'mine'; renderMarketplace(); view().scrollTop = 0; break;
     case 'placebid': {
       try {
-        const r = placeBid(state, ui.order.id, toCents($('#bidamt').value)); dirty = true; save(); haptic();
+        const r = placeBid(state, ui.order.id, toCents($('#bidamt').value)); dirty = true; save(); buzz();
         if (r.leading) { toast(`You're the top bidder at ${cm(r.price)}`); closeOrder(); renderMarketplace(); }
         else { $('#terr').textContent = `Outbid right away: another collector went to ${cm(r.price)}. Your money is back.`; renderLot(); }
       } catch (err) { $('#terr').textContent = err.message; }
@@ -2475,7 +2509,7 @@ document.addEventListener('click', async (e) => {
     }
     case 'buynow':
       if (armed(el, 'Tap again to buy now')) {
-        try { const p = buyNow(state, ui.order.id); dirty = true; save(); haptic(); confetti(); toast(`Bought for ${cm(p)} — it's in your Locker`); closeOrder(); renderMarketplace(); }
+        try { const p = buyNow(state, ui.order.id); dirty = true; save(); buzz(); confetti(); toast(`Bought for ${cm(p)} — it's in your Locker`); closeOrder(); renderMarketplace(); }
         catch (err) { $('#terr').textContent = err.message; }
       }
       break;
@@ -2484,7 +2518,7 @@ document.addEventListener('click', async (e) => {
       const dr = ui.draft;
       try {
         const c = enterContest(state, { league: dr.league, tier: dr.tier, lineup: dr.picks });
-        dirty = true; save(); haptic(); confetti();
+        dirty = true; save(); buzz(); confetti();
         ui.gtab = 'contests';
         if (history.state?.draft) history.back(); else closeDraft();
         toast(`You're in! ${money(c.fee)} entry · good luck`);
@@ -2495,7 +2529,7 @@ document.addEventListener('click', async (e) => {
       const slip = ui.slip;
       try {
         const b = placeBet(state, slip.legs, slip.stake);
-        dirty = true; save(); haptic();
+        dirty = true; save(); buzz();
         ui.slip = { legs: [], stake: '' };
         toast(`Bet placed: ${money(b.stake)} to win ${money(potentialPayout(b.stake, b.legs.length))}`);
         const y = view().scrollTop; renderGames(); view().scrollTop = y;
@@ -2584,6 +2618,11 @@ document.addEventListener('change', async (e) => {
     if (f) { state.watchFolders = [...new Set([...(state.watchFolders || []), f])]; (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: f }; dirty = true; save(); renderDetail(); }
     return;
   }
+  if (e.target.dataset.layhide) { const h = { ...(state.settings.home?.hide || {}) }; if (e.target.checked) delete h[e.target.dataset.layhide]; else h[e.target.dataset.layhide] = true;
+    state.settings.home = { ...(state.settings.home || {}), hide: h }; dirty = true; save(); e.target.closest('.lay')?.classList.toggle('off', !e.target.checked); if (ui.tab === 'home') renderHome(); return; }
+  if (e.target.id === 'setcb') { state.settings.cb = e.target.checked; dirty = true; save(); applyLook(); return; }
+  if (e.target.id === 'setsound') { state.settings.sound = e.target.checked; dirty = true; save(); if (e.target.checked) sfx('trade'); return; }
+  if (e.target.id === 'sethaptic') { state.settings.haptics = e.target.checked; dirty = true; save(); buzz(); return; }
   if (e.target.id === 'setlight') { state.settings.light = e.target.checked; dirty = true; save(); applyLook(); applyTheme(); return; }
   if (e.target.id === 'setbig') { state.settings.bigText = e.target.checked; dirty = true; save(); applyLook(); return; }
   if (e.target.dataset.lgtoggle) {
@@ -2794,7 +2833,8 @@ function closePage() {
 function renderPage() {
   const p = ui.page; if (!p) return;
   const el = $('#page');
-  const body = { search: pageSearch, compare: pageCompare, calendar: pageCalendar, journal: pageJournal, achievements: pageAchievements }[p.type]?.(p) || '';
+  const body = { search: pageSearch, compare: pageCompare, calendar: pageCalendar, journal: pageJournal, achievements: pageAchievements, short: pageShort, risk: pageRisk,
+    breakouts: pageBreakouts, recap: pageRecap, rival: pageRival, futures: pageFutures, glance: pageGlance, layout: pageLayout }[p.type]?.(p) || '';
   el.innerHTML = `<div class="sheet-inner">${body}</div>`;
 }
 // Swipe right anywhere on a full-screen page to go back (the page itself only scrolls up and down).
@@ -2947,24 +2987,6 @@ function challengeCard(now) {
     ${open ? `<div class="btn-row" style="margin-top:10px"><button class="btn buy small" data-chal="yes">Yes, he beats it</button><button class="btn ghost small" data-chal="no">No</button></div>
       <div class="tiny faint" style="margin-top:6px">Right answers earn XP and build a streak; every 5th in a row pays $0.50.</div>` : ''}</div>`;
 }
-function homeExtras(now, holdings, movers) {
-  const since = ui.since;
-  const today = holdings.map(({ a, h }) => ({ a, d: (a.price - priceAt(a, now - DAY)) * h.qty, c: change(a, now) })).sort((x, y) => y.d - x.d);
-  const win = today[0] && today[0].d > 0.004 ? today[0] : null; const lose = today.length > 1 && today[today.length - 1].d < -0.004 ? today[today.length - 1] : (today.length === 1 && today[0].d < -0.004 ? today[0] : null);
-  const lineup = lineupToday(state, now);
-  const wl = (x, label) => `<button class="stat wl" data-open="${x.a.id}"><div class="k">${label}</div><div class="v ${cls(x.d)}">${signMoney(x.d)}</div><div class="tiny muted ellipsis">${esc(x.a.kind === 'team' ? x.a.name : x.a.name)} · ${fmtPct(x.c, 1)}</div></button>`;
-  return `
-    ${since ? `<div class="card since"><button class="x-btn" data-act="sincex" aria-label="Dismiss">✕</button><div class="tiny muted">SINCE YOU LAST OPENED · ${timeAgo(since.t)}</div>
-      <div class="s-line">Your portfolio is <b class="${cls(since.change)}">${since.change >= 0 ? 'up' : 'down'} ${money(Math.abs(since.change))}</b> (${fmtPct(since.pct)})${since.top ? `. Biggest mover: <button class="tlink" data-open="${since.top.a.id}">${esc(since.top.a.ticker)}</button> <span class="${cls(since.top.d)}">${signMoney(since.top.d)}</span>` : ''}${since.nDivs ? `. ${since.nDivs} dividend${since.nDivs > 1 ? 's' : ''} paid <span class="up">${money(since.divs)}</span>` : ''}.</div></div>` : ''}
-    ${win || lose ? `<div class="grid2" style="margin-top:12px">${win ? wl(win, 'Top gainer today') : ''}${lose ? wl(lose, 'Top loser today') : ''}</div>` : ''}
-    ${lineup.length ? `<h3>Playing today</h3><div class="hscroll lineup">${lineup.map((g) => `<button class="lu ${g.live ? 'live' : ''}" data-game="${g.league}|${g.id}">
-      <div class="row" style="gap:6px">${lgTag(g.league)}${g.live ? '<span class="tag live">LIVE</span>' : `<span class="tiny muted">${new Date(g.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>`}</div>
-      <div class="name">${esc(g.name)}</div>
-      <div class="tiny muted ellipsis">${g.live && g.detail ? esc(g.detail) + ' · ' : ''}${g.mine.slice(0, 3).map((x) => `${x.own ? '' : '☆'}${esc(x.a.ticker)}`).join(', ')}${g.mine.length > 3 ? ` +${g.mine.length - 3}` : ''}</div></button>`).join('')}</div>` : ''}
-    ${challengeCard(now)}
-    <div class="tools">${[['calendar', '📅', 'Calendar'], ['journal', '📒', 'Journal'], ['achievements', '🏅', 'Achievements'], ['search', '🔎', 'Search']].map(([k, e, t]) => `<button data-page="${k}"><span>${e}</span>${t}</button>`).join('')}</div>
-    ${movers.length ? `<h3>Top movers today</h3><div class="hscroll mv">${movers.map(({ a }) => { const c = change(a, now); return `<button class="mvc" data-open="${a.id}">${avatar(a)}<b>${esc(a.ticker)}</b><span class="${cls(c)}" data-c="${a.id}" data-plain="1" data-r="1D">${fmtPct(c)}</span></button>`; }).join('')}</div>` : ''}`;
-}
 // Watchlist grouped into your folders, with your notes.
 function watchSection(watch) {
   if (!watch.length) return '';
@@ -3015,7 +3037,264 @@ function applyLook() {
   const root = document.documentElement;
   if (s.light) root.dataset.mode = 'light'; else delete root.dataset.mode;
   root.classList.toggle('big-text', !!s.bigText);
+  root.classList.toggle('cb', !!s.cb);
 }
+
+// ====================================================================================
+// v35: customizable Portfolio page, shorts, protection, risk, what-if, breakouts, recap,
+// rival, futures, glance, card extras, sound and accessibility
+// ====================================================================================
+
+const HOME_SECTIONS = [
+  ['since', 'Since you last opened'], ['recap', 'Weekly recap'], ['today', 'Top gainer and loser'], ['lineup', 'Playing today'], ['challenge', 'Daily challenge'],
+  ['rival', 'Rival of the week'], ['tools', 'Shortcuts'], ['movers', 'Top movers'], ['alloc', 'Allocation bar'], ['season', 'Season and daily reward'], ['live', 'Live games'],
+  ['orders', 'Open orders and options', true], ['stocks', 'Stocks', true], ['shorts', 'Short positions', true], ['funds', 'Index funds'], ['watch', 'Watchlist'],
+  ['upcoming', 'Upcoming games'], ['discover', 'Discover'],
+];
+function homeOrder() {
+  const all = HOME_SECTIONS.map((x) => x[0]);
+  const saved = (state.settings.home?.order || []).filter((k) => all.includes(k));
+  // Sections added in later versions slot in at their default place.
+  for (const k of all) if (!saved.includes(k)) { const i = all.indexOf(k); const before = all.slice(0, i).reverse().find((x) => saved.includes(x)); saved.splice(before ? saved.indexOf(before) + 1 : 0, 0, k); }
+  return saved;
+}
+const TOOLS = [['glance', '👀', 'Glance'], ['calendar', '📅', 'Calendar'], ['risk', '🛡️', 'Risk check'], ['breakouts', '🚀', 'Breakouts'], ['futures', '🔮', 'Futures'], ['journal', '📒', 'Journal'],
+  ['recap', '🗓️', 'My week'], ['rival', '⚔️', 'Rival'], ['achievements', '🏅', 'Achievements'], ['layout', '🧩', 'Customize']];
+
+function homeParts(now, holdings, movers) {
+  const since = ui.since;
+  const today = holdings.map(({ a, h }) => ({ a, d: (a.price - priceAt(a, now - DAY)) * h.qty, c: change(a, now) })).sort((x, y) => y.d - x.d);
+  const win = today[0] && today[0].d > 0.004 ? today[0] : null; const lose = today.length > 1 && today[today.length - 1].d < -0.004 ? today[today.length - 1] : (today.length === 1 && today[0].d < -0.004 ? today[0] : null);
+  const lineup = lineupToday(state, now);
+  const wl = (x, label) => `<button class="stat wl" data-open="${x.a.id}"><div class="k">${label}</div><div class="v ${cls(x.d)}">${signMoney(x.d)}</div><div class="tiny muted ellipsis">${esc(x.a.name)} · ${fmtPct(x.c, 1)}</div></button>`;
+  const rv = rivalStatus(state, now);
+  return {
+    since: since ? `<div class="card since"><button class="x-btn" data-act="sincex" aria-label="Dismiss">✕</button><div class="tiny muted">SINCE YOU LAST OPENED · ${timeAgo(since.t)}</div>
+      <div class="s-line">Your portfolio is <b class="${cls(since.change)}">${since.change >= 0 ? 'up' : 'down'} ${money(Math.abs(since.change))}</b> (${fmtPct(since.pct)})${since.top ? `. Biggest mover: <button class="tlink" data-open="${since.top.a.id}">${esc(since.top.a.ticker)}</button> <span class="${cls(since.top.d)}">${signMoney(since.top.d)}</span>` : ''}${since.nDivs ? `. ${since.nDivs} dividend${since.nDivs > 1 ? 's' : ''} paid <span class="up">${money(since.divs)}</span>` : ''}.</div></div>` : '',
+    recap: recapDue(state, now) ? `<button class="card promo" data-page="recap"><span class="e">🗓️</span><div class="grow"><div class="name">Your week in review</div><div class="tiny muted">Best and worst calls, dividends and your rank</div></div><span class="muted">›</span></button>` : '',
+    today: win || lose ? `<div class="grid2" style="margin-top:12px">${win ? wl(win, 'Top gainer today') : ''}${lose ? wl(lose, 'Top loser today') : ''}</div>` : '',
+    lineup: lineup.length ? `<h3>Playing today</h3><div class="hscroll lineup">${lineup.map((g) => `<button class="lu ${g.live ? 'live' : ''}" data-game="${g.league}|${g.id}">
+      <div class="row" style="gap:6px">${lgTag(g.league)}${g.live ? '<span class="tag live">LIVE</span>' : `<span class="tiny muted">${new Date(g.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>`}</div>
+      <div class="name">${esc(g.name)}</div>
+      <div class="tiny muted ellipsis">${g.live && g.detail ? esc(g.detail) + ' · ' : ''}${g.mine.slice(0, 3).map((x) => `${x.own ? '' : '☆'}${esc(x.a.ticker)}`).join(', ')}${g.mine.length > 3 ? ` +${g.mine.length - 3}` : ''}</div></button>`).join('')}</div>` : '',
+    challenge: challengeCard(now),
+    rival: rv ? `<button class="card rivalc" data-page="rival"><div class="tiny muted">RIVAL THIS WEEK · ${rv.w}-${rv.l} all time</div>
+      <div class="vsline"><span>You <b class="${cls(rv.me)}">${fmtPct(rv.me, 1)}</b></span><span class="faint">vs</span><span>${esc(rv.name)} <b class="${cls(rv.him)}">${fmtPct(rv.him, 1)}</b></span></div>
+      <div class="tiny ${rv.ahead ? 'up' : 'down'}">${rv.ahead ? 'You\'re ahead' : 'You\'re behind'} · ${daysLeft(rv.ends)}</div></button>` : '',
+    tools: `<div class="hscroll tools">${TOOLS.map(([k, e, t]) => `<button data-page="${k}"><span>${e}</span>${t}</button>`).join('')}</div>`,
+    movers: movers.length ? `<h3>Top movers today</h3><div class="hscroll mv">${movers.map(({ a }) => { const c = change(a, now); return `<button class="mvc" data-open="${a.id}">${avatar(a)}<b>${esc(a.ticker)}</b><span class="${cls(c)}" data-c="${a.id}" data-plain="1" data-r="1D">${fmtPct(c)}</span></button>`; }).join('')}</div>` : '',
+  };
+}
+function shortsSection(now) {
+  const list = Object.entries(state.shorts || {}).map(([id, s]) => ({ a: state.assets[id], s, id })).filter((x) => x.a);
+  if (!list.length) return '';
+  return `<h2>Shorts</h2><div class="list">${list.map(({ a, s, id }) => { const pl = shortEquity(state, id) - s.margin; return `<button class="item" data-open="${id}">${avatar(a)}
+    <div class="grow"><div class="name ellipsis">${esc(a.name)} <span class="tag short">SHORT</span></div><div class="sub">${fmtQty(s.qty)} sh · from ${money(s.entry)}</div></div>
+    <div class="price-col"><div class="price">${money(s.margin + pl)}</div><div class="small ${cls(pl)}">${signMoney(pl)}</div></div></button>`; }).join('')}</div>`;
+}
+
+// ---------- on the player page ----------
+function protectCard(a) {
+  const h = state.holdings[a.id]; if (!h) return '';
+  const p = protection(state, a.id);
+  if (p.stop || p.take) return `<div class="card prot"><div class="row between"><b>🛟 Protected</b><button class="tlink" data-act="unprotect">Remove</button></div>
+    <div class="small muted" style="margin-top:6px">${p.stop ? `Sells everything if it falls to <b class="down">${money(p.stop.price)}</b>` : ''}${p.stop && p.take ? ', or ' : ''}${p.take ? `${p.stop ? '' : 'Sells everything '}if it rises to <b class="up">${money(p.take.price)}</b>` : ''}. Whichever comes first cancels the other.</div></div>`;
+  return `<div class="card prot"><b>🛟 Protect this position</b><div class="tiny muted" style="margin:4px 0 8px">Sell automatically at a loss limit or a profit target. Leave one blank to skip it.</div>
+    <div class="prot-row"><label>Stop-loss<div class="pf"><span>−</span><input id="pstop" inputmode="decimal" placeholder="10" value="10"><span>%</span></div></label>
+      <label>Take-profit<div class="pf"><span>+</span><input id="ptake" inputmode="decimal" placeholder="20" value="20"><span>%</span></div></label>
+      <button class="btn buy small" data-act="protect">Set</button></div></div>`;
+}
+function shortCard(a) {
+  if (a.kind === 'fund') return '';
+  const s = state.shorts?.[a.id];
+  if (s) { const eq = shortEquity(state, a.id); const pl = eq - s.margin; return `<h3>Your short</h3><div class="grid2">
+      <div class="stat"><div class="k">Shorted</div><div class="v">${fmtQty(s.qty)} sh</div></div>
+      <div class="stat"><div class="k">From</div><div class="v">${money(s.entry)}</div></div>
+      <div class="stat"><div class="k">Worth now</div><div class="v">${money(Math.max(0, eq))}</div></div>
+      <div class="stat"><div class="k">Profit</div><div class="v ${cls(pl)}">${signMoney(pl)}</div></div></div>
+    <div class="tiny muted" style="margin:8px 2px">Fees so far ${money(s.fee || 0)}. It closes itself if the price climbs to about ${money(s.entry + (s.margin * 0.85 - (s.fee || 0)) / s.qty)}.</div>
+    <div class="btn-row"><button class="btn ghost" data-act="shortmore">Short more</button><button class="btn buy" data-act="cover">Close short</button></div>`; }
+  if (state.holdings[a.id]) return '';
+  return `<button class="card shortc" data-act="shortmore"><span class="e">📉</span><div class="grow"><div class="name">Bet against ${esc(a.kind === 'team' ? a.ticker : a.name.split(' ').slice(-1)[0])}</div>
+    <div class="tiny muted">Short it: you profit if the price falls and lose if it rises.</div></div><span class="muted">›</span></button>`;
+}
+function whatIfSection(a) {
+  const sc = scenarios(state, a);
+  if (!sc.length) return '';
+  const h = state.holdings[a.id];
+  return `<h3>What if… <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">${a.kind === 'team' ? 'next game' : 'his next game'}</span></h3>
+    <div class="list">${sc.map((x) => `<div class="driver"><div class="txt">${x.label}<div class="tiny faint">${x.detail}</div></div>
+      <div class="pct" style="text-align:right"><b>${money(x.price)}</b><div class="tiny ${cls(x.pct)}">${fmtPct(x.pct, 1)}${h ? ` · ${signMoney((x.price - a.price) * h.qty)}` : ''}</div></div></div>`).join('')}</div>
+    <p class="tiny faint" style="margin:6px 2px">An estimate from the pricing model for the game result alone. News, injuries and market mood move the price too.</p>`;
+}
+
+// ---------- pages ----------
+function pageShort(p) {
+  const a = state.assets[p.a]; if (!a) return pageHead('Short');
+  const room = Math.max(0, Math.min(state.cash, netWorth(state) * SHORT_CAP - shortExposure(state)));
+  return `${pageHead(`Short ${esc(a.ticker)}`)}
+    <div class="hero" style="margin-top:12px">${avatar(a)}<div class="grow"><div class="name">${esc(a.name)}</div><div class="sub">${money(a.price)} now</div></div></div>
+    <div class="card" style="margin-top:12px"><div class="small">You put up cash and bet the price <b>falls</b>.</div>
+      <ul class="plain"><li>Price down 10% → you make about 10% of your stake. Price up 10% → you lose about 10%.</li>
+      <li>Borrowing costs <b>${(BORROW_DAILY * 100).toFixed(2)}% a day</b>, and you pay any dividends ${a.kind === 'team' ? 'the team' : 'he'} earns.</li>
+      <li>If the price rises about 85%, the short closes itself and most of your stake is gone.</li>
+      <li>Shorts can total at most half your net worth.</li></ul></div>
+    <label class="price-field"><span class="small muted">Amount to put up ($)</span><input id="shortamt" inputmode="decimal" value="${p.amt ?? (room >= 1 ? Math.min(room, Math.max(1, Math.round(state.cash * 0.1))).toFixed(2) : room.toFixed(2))}"></label>
+    <div class="tiny muted" style="margin:6px 2px">Available to short: ${money(room)} · cash ${money(state.cash)}</div>
+    <div id="perr" class="small down" style="min-height:20px;margin-top:6px"></div>
+    <button class="btn sell" data-act="doshort" style="width:100%">Short ${esc(a.ticker)}</button>`;
+}
+const bar = (pct, c = 'var(--up)') => `<div class="setbar"><i style="width:${Math.min(100, Math.max(1, pct * 100))}%;background:${c}"></i></div>`;
+function pageRisk() {
+  const r = riskReport(state);
+  const col = r.score >= 70 ? 'var(--up)' : r.score >= 45 ? '#ffb020' : 'var(--down)';
+  const grp = (title, rows) => (rows.length ? `<h3>${title}</h3><div class="list">${rows.map((x) => `<div class="item"><div class="grow"><div class="row between"><span class="name">${esc(x.k)}</span><span class="small muted">${money(x.v)} · ${Math.round(x.pct * 100)}%</span></div>${bar(x.pct, x.pct > 0.5 ? 'var(--down)' : 'var(--up)')}</div></div>`).join('')}</div>` : '');
+  return `${pageHead('Risk check')}
+    <div class="card riskhero" style="--rc:${col}"><div class="ring" style="--p:${r.score}"><b>${r.score}</b></div><div class="grow"><div class="name">${r.label}</div>
+      <div class="tiny muted">${r.n} holding${r.n === 1 ? '' : 's'} · ${Math.round(r.cashPct * 100)}% cash${r.shorts ? ` · ${money(r.shorts)} short` : ''}</div></div></div>
+    ${r.warn.length ? `<h3>Watch out</h3><div class="list">${r.warn.map((w) => `<div class="driver"><div class="ic">⚠️</div><div class="txt">${esc(w)}</div></div>`).join('')}</div>`
+      : r.n ? '<div class="card small" style="margin-top:12px">✅ Nothing stands out. No single player, team or game dominates your money.</div>' : '<div class="card empty" style="margin-top:12px">You\'re all in cash. Buy something and this shows where your risk sits.</div>'}
+    ${r.games.filter((g) => g.v > 0).length ? `<h3>Riding on today's games</h3><div class="list">${r.games.filter((g) => g.v > 0).map(({ g, v }) => `<button class="item" data-game="${g.league}|${g.id}">${lgTag(g.league)}<div class="grow"><div class="row between"><span class="name">${esc(g.name)}</span><span class="small muted">${money(v)} · ${Math.round(v / r.nw * 100)}%</span></div>${bar(v / r.nw, v / r.nw > 0.5 ? 'var(--down)' : 'var(--up)')}</div></button>`).join('')}</div>` : ''}
+    ${grp('By league', r.byLeague)}${grp('By team', r.byTeam)}${grp('By position', r.byPos)}
+    <p class="tiny faint" style="text-align:center;margin-top:12px">Score: 100 is evenly spread, lower means more of your money depends on fewer things.</p>`;
+}
+function pageBreakouts() {
+  const list = breakouts(state);
+  return `${pageHead('Breakout watch')}
+    <p class="small muted" style="margin:10px 0">Lower-priced players whose last three games are well above their usual level. The price catches up slowly, one game at a time.</p>
+    ${list.length ? `<div class="list">${list.map(({ a, recent, base, wk }) => `<button class="item" data-open="${a.id}">${avatar(a)}<div class="grow"><div class="name ellipsis">${esc(a.name)}</div>
+      <div class="sub">${esc(a.teamAbbr || '')} · last 3 avg <b class="up">${recent.toFixed(1)}</b> vs usual ${base.toFixed(1)}</div></div>
+      <div class="price-col"><div class="price">${money(a.price)}</div><div class="small ${cls(wk)}">${fmtPct(wk, 1)} wk</div></div></button>`).join('')}</div>`
+      : '<div class="card empty" style="margin-top:14px">No breakouts right now. This fills in once players have a few regular-season games.</div>'}`;
+}
+function pageRecap() {
+  const w = weeklyRecap(state);
+  state.recapSeen = weekId(Date.now()); dirty = true;
+  const row = (icon, title, val, sub, c = '') => `<div class="driver"><div class="ic">${icon}</div><div class="txt">${title}<div class="tiny faint ellipsis">${sub}</div></div><div class="pct ${c}">${val}</div></div>`;
+  return `${pageHead('Your week', '<button class="tlink" data-act="sharerecap">Share</button>')}
+    <div class="tiny muted" style="margin-top:14px">LAST 7 DAYS</div>
+    <div class="big-value ${cls(w.change)}" style="font-size:40px">${signMoney(w.change)}</div>
+    <div class="change-line ${cls(w.pct)}">${fmtPct(w.pct)} <span class="muted">· net worth ${money(w.nw)}</span></div>
+    <div class="list" style="margin-top:14px">
+      ${row('🏁', 'Leaderboard', `#${w.rank}`, `of ${w.of} this season`)}
+      ${w.bestHold ? row('📈', 'Best holding', signMoney(w.bestHold.d), `${esc(w.bestHold.a.name)} · ${fmtPct(w.bestHold.pct, 1)}`, 'up') : ''}
+      ${w.worstHold ? row('📉', 'Worst holding', signMoney(w.worstHold.d), `${esc(w.worstHold.a.name)} · ${fmtPct(w.worstHold.pct, 1)}`, 'down') : ''}
+      ${w.bestTrade ? row('💰', 'Best sale', signMoney(w.bestTrade.pl), `${esc(w.bestTrade.name || w.bestTrade.ticker)} · ${fmtPct(w.bestTrade.pct, 1)}`, cls(w.bestTrade.pl)) : ''}
+      ${w.worstTrade ? row('🧯', 'Worst sale', signMoney(w.worstTrade.pl), `${esc(w.worstTrade.name || w.worstTrade.ticker)} · ${fmtPct(w.worstTrade.pct, 1)}`, cls(w.worstTrade.pl)) : ''}
+      ${row('💵', 'Dividends', money(w.divs), `${w.nDivs} payment${w.nDivs === 1 ? '' : 's'}`, w.divs > 0 ? 'up' : '')}
+      ${row('🎯', 'Pick\'em', `${w.picksW}-${w.picksL}`, 'wins and misses')}
+      ${row('🔁', 'Sales closed', String(w.nTrades), 'in your trade journal')}
+    </div>`;
+}
+async function shareRecap() {
+  const w = weeklyRecap(state);
+  const items = [{ icon: '📊', title: 'This week', value: `${w.change >= 0 ? '+' : '−'}$${Math.abs(w.change).toFixed(2)}` }, { icon: '🏁', title: 'Leaderboard', value: `#${w.rank} of ${w.of}` },
+    w.bestHold && { icon: '📈', title: `Best: ${w.bestHold.a.ticker}`, value: fmtPct(w.bestHold.pct, 1) }, w.worstHold && { icon: '📉', title: `Worst: ${w.worstHold.a.ticker}`, value: fmtPct(w.worstHold.pct, 1) },
+    { icon: '💵', title: 'Dividends', value: `$${w.divs.toFixed(2)}` }, { icon: '🎯', title: 'Pick\'em', value: `${w.picksW}-${w.picksL}` }].filter(Boolean);
+  const c = achievementsCard({ title: career(state).title, level: xpProgress(state).level, netWorth: w.nw, items, heading: 'My week' });
+  await shareCanvas(c, 'statstreet-week.png', 'My week on StatStreet');
+}
+function pageRival() {
+  const rv = rivalStatus(state);
+  return `${pageHead('Rival')}
+    <p class="small muted" style="margin:10px 0">Pick one rival to go head to head with each week, Monday to Sunday. Beat their return and you win 60 XP and $0.50.</p>
+    ${rv ? `<div class="card rivalc"><div class="tiny muted">THIS WEEK · ${daysLeft(rv.ends)}</div><div class="vsline"><span>You <b class="${cls(rv.me)}">${fmtPct(rv.me, 1)}</b></span><span class="faint">vs</span><span>${esc(rv.name)} <b class="${cls(rv.him)}">${fmtPct(rv.him, 1)}</b></span></div>
+      <div class="tiny muted">Record ${rv.w}-${rv.l}</div></div>` : ''}
+    <h3>${rv ? 'Switch rival' : 'Choose your rival'}</h3>
+    <div class="list">${RIVALS.map((r) => { const f = state.assets[`fund:${r.fund}`]; const wk = f?.hist?.length ? change(f, Date.now(), 7 * DAY) : null; return `<button class="item" data-rival="${r.fund}" ${f?.price ? '' : 'disabled'}>
+      <div class="grow"><div class="name">${esc(r.name)} ${rv?.fund === r.fund ? '<span class="pk won">Current</span>' : ''}</div><div class="sub">${esc(r.style)}</div></div>
+      <div class="small ${wk == null ? 'muted' : cls(wk)}">${wk == null ? '—' : fmtPct(wk, 1) + ' wk'}</div></button>`; }).join('')}</div>
+    ${rv ? '<p class="tiny faint" style="text-align:center;margin-top:10px">Switching restarts this week\'s match from now.</p>' : ''}`;
+}
+function pageFutures(p) {
+  const now = Date.now();
+  const ms = futuresMarkets(state, now); const open = futuresOpen(state, now);
+  const mine = (state.futures || []);
+  const live = mine.filter((f) => !f.result && f.season === state.season?.n);
+  return `${pageHead('Season futures')}
+    <p class="small muted" style="margin:10px 0">Season-long bets, settled when this StatStreet season ends${state.season ? ` (${daysLeft(state.season.end)})` : ''}. One bet per market, up to 10% of your net worth. Betting closes a week before the end.</p>
+    ${live.length ? `<h3>Your bets</h3><div class="list">${live.map((f) => `<div class="item"><div class="grow"><div class="name">${esc(f.name)}</div><div class="sub">${lgTag(f.league)} ${esc(f.title)} · ${money(f.stake)} at ${f.mult}x</div></div><div class="price up">${money(f.stake * f.mult)}</div></div>`).join('')}</div>` : ''}
+    ${!open ? '<div class="card small" style="margin-top:12px">Betting is closed for this season. New markets open when the next one starts.</div>' : ''}
+    ${ms.map((m) => { const has = live.some((f) => f.key === m.key); return `<h3>${lgTag(m.league)} ${esc(m.title)} <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">${m.type === 'mvp' ? 'highest-priced player at season end' : 'best record at season end'}</span></h3>
+      <div class="list">${m.options.map((o) => `<button class="item fut ${p.sel === m.key + '|' + o.id ? 'on' : ''}" data-fut="${m.key}|${o.id}" ${has || !open ? 'disabled' : ''}>
+        <div class="grow"><div class="name ellipsis">${esc(o.name)}</div><div class="sub">${o.p < 0.01 ? 'under 1' : Math.round(o.p * 100)}% chance</div></div><div class="price">${o.mult}x</div></button>`).join('')}</div>
+      ${p.sel?.startsWith(m.key + '|') ? `<div class="card" style="margin-top:8px"><label class="price-field" style="margin:0"><span class="small muted">Stake ($)</span><input id="futstake" inputmode="decimal" value="${p.stake ?? Math.max(0.05, Math.min(state.cash, netWorth(state) * 0.05)).toFixed(2)}"></label>
+        <div id="perr" class="small down" style="min-height:18px;margin-top:6px"></div><button class="btn buy" data-act="betfut" style="width:100%">Place bet</button></div>` : ''}`; }).join('')}
+    ${mine.filter((f) => f.result).length ? `<h3>Settled</h3><div class="list">${mine.filter((f) => f.result).slice(0, 10).map((f) => `<div class="item"><div class="grow"><div class="name">${esc(f.name)}</div><div class="sub">${esc(f.title)} · winner ${esc(f.winner || '')}</div></div>
+      <div class="price ${f.result === 'won' ? 'up' : 'down'}">${f.result === 'won' ? '+' + money(f.paid) : '−' + money(f.stake)}</div></div>`).join('')}</div>` : ''}`;
+}
+function pageGlance() {
+  const now = Date.now();
+  const nw = netWorth(state, now); const ref = nwAt(now - DAY) ?? state.startCash; const ch = nw - ref;
+  const hold = Object.entries(state.holdings).map(([id, h]) => ({ a: state.assets[id], d: 0, h })).filter((x) => x.a).map((x) => ({ ...x, d: (x.a.price - priceAt(x.a, now - DAY)) * x.h.qty })).sort((x, y) => Math.abs(y.d) - Math.abs(x.d))[0];
+  const lu = lineupToday(state, now)[0];
+  const next = lu || enabledLeagues().flatMap((lg) => (state.schedule?.[lg] || []).map((g) => ({ ...g, league: lg }))).filter((g) => g.date > now).sort((x, y) => x.date - y.date)[0];
+  return `${pageHead('Glance')}
+    <div class="glance"><div class="tiny muted">NET WORTH</div><div class="g-num">${money(nw)}</div>
+      <div class="g-chg ${cls(ch)}">${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} · ${fmtPct(ref ? ch / ref : 0)} today</div>
+      ${hold ? `<button class="g-tile" data-open="${hold.a.id}"><div class="tiny muted">BIGGEST MOVER</div><div class="g-big">${esc(hold.a.ticker)} <span class="${cls(hold.d)}">${signMoney(hold.d)}</span></div><div class="small muted">${esc(hold.a.name)} · ${money(hold.a.price)}</div></button>` : ''}
+      ${next ? `<button class="g-tile" data-game="${next.league}|${next.id}"><div class="tiny muted">${next.live ? 'LIVE NOW' : 'NEXT GAME'}</div><div class="g-big">${esc(next.name)}</div><div class="small muted">${next.live ? esc(next.detail || '') : fmtDateTime(next.date)}</div></button>` : ''}
+      ${state.season ? `<div class="g-tile"><div class="tiny muted">SEASON ${state.season.n}</div><div class="g-big">${tierFor(seasonReturn(state, now)).name} <span class="${cls(seasonReturn(state, now))}">${pctTxt(seasonReturn(state, now))}</span></div><div class="small muted">${daysLeft(state.season.end)}</div></div>` : ''}</div>`;
+}
+function pageLayout() {
+  const order = homeOrder(); const hide = state.settings.home?.hide || {};
+  const meta = Object.fromEntries(HOME_SECTIONS.map(([k, t, fixed]) => [k, { t, fixed }]));
+  return `${pageHead('Customize', '<button class="tlink" data-act="layoutreset">Reset</button>')}
+    <p class="small muted" style="margin:10px 0">Choose what the Portfolio page shows and in what order. Your balance and chart always stay on top.</p>
+    <div class="list">${order.map((k, i) => `<div class="item lay ${hide[k] ? 'off' : ''}"><div class="grow"><div class="name">${meta[k].t}</div>${meta[k].fixed ? '<div class="tiny faint">Always shown when you have any</div>' : ''}</div>
+      <button class="x-btn" data-laymove="${k}|-1" aria-label="Move ${meta[k].t} up" ${i === 0 ? 'disabled' : ''}>↑</button><button class="x-btn" data-laymove="${k}|1" aria-label="Move ${meta[k].t} down" ${i === order.length - 1 ? 'disabled' : ''}>↓</button>
+      ${meta[k].fixed ? '<span style="width:46px"></span>' : `<label class="switch" aria-label="Show ${meta[k].t}"><input type="checkbox" data-layhide="${k}" ${hide[k] ? '' : 'checked'}><span></span></label>`}</div>`).join('')}</div>`;
+}
+
+// ---------- cards: showcase, wanted, history ----------
+function showcaseSection() {
+  const sc = showcase(state);
+  return `<div class="row between" style="margin-top:22px"><h2 style="margin:0">Showcase <span class="faint small">${sc.length}/${SHOWCASE_MAX}</span></h2>${sc.length ? '<button class="tlink" data-act="shareshow">Share</button>' : ''}</div>
+    ${sc.length ? `<div class="hscroll show">${sc.map((b) => `<button class="shc" data-booster="${b.id}" style="--rc:${bRarity(b.rarity).color}"><div class="tiny" style="color:var(--rc);font-weight:800">${bRarity(b.rarity).name.toUpperCase()}</div><div class="name ellipsis">${esc(b.m.player.name)}</div><div class="tiny muted ellipsis">${esc(b.m.kind.toLowerCase())} · ${b.m.rating.toFixed(1)}</div></button>`).join('')}</div>`
+      : '<p class="small muted" style="margin:6px 0 0">Pick up to five cards to show off: open a card and tap “Add to showcase”.</p>'}`;
+}
+async function shareShowcase() {
+  const sc = showcase(state);
+  const c = achievementsCard({ title: career(state).title, level: xpProgress(state).level, netWorth: netWorth(state), heading: 'My showcase',
+    items: sc.map((b) => ({ icon: KIND_ICON[b.m.kind] || '🃏', title: `${bRarity(b.rarity).name} · ${b.m.kind.toLowerCase()}`, value: b.m.player.name })) });
+  await shareCanvas(c, 'statstreet-showcase.png', 'My StatStreet card showcase');
+}
+function wantedSection() {
+  const offers = wantedOffers(state);
+  if (!offers.length) return '';
+  return `<h3 style="margin-top:14px">Wanted today</h3><div class="list">${offers.map((o) => `<div class="item"><div class="rdot" style="background:${bRarity(o.rarity).color}"></div>
+    <div class="grow"><div class="name">${bRarity(o.rarity).name} ${esc(o.team)} card</div><div class="sub">A collector pays ${Math.round((o.premium - 1) * 100)}% over market${o.card && !o.done ? ` · your ${esc(o.card.m.player.name)}` : ''}</div></div>
+    ${o.done ? '<span class="pk won">Sold</span>' : o.card ? `<button class="btn buy small" data-wanted="${o.i}">Sell ${cm(o.pays)}</button>` : '<span class="pk">None to sell</span>'}</div>`).join('')}</div>`;
+}
+function cardExtras(b) {
+  const hist = cardHistory(b); const sales = recentSales(state, b);
+  const first = hist[1]; const last = hist[hist.length - 1];
+  return `<div class="card" style="margin-top:10px"><div class="row between"><b>Value, 14 days</b><span class="small ${cls(last - first)}">${cm(last)} · ${fmtPct(first ? last / first - 1 : 0, 1)}</span></div>
+      <div style="margin-top:8px">${sparkline(hist, 0, Math.min(560, (view().clientWidth || 360) - 72), 46)}</div></div>
+    <div class="card" style="margin-top:10px"><b>Recent ${bRarity(b.rarity).name} sales</b>
+      ${sales.map((s) => `<div class="brk"><span class="ellipsis">${esc(s.name)} · ${esc(s.kind.toLowerCase())} <span class="faint">${timeAgo(s.t)}</span></span><b>${cm(s.price)}</b></div>`).join('') || '<div class="small muted" style="margin-top:6px">No sales yet.</div>'}</div>
+    <button class="btn ghost" data-act="showtoggle" style="width:100%;margin-top:10px">${b.show ? '★ Remove from showcase' : '☆ Add to showcase'}</button>`;
+}
+
+// ---------- sound ----------
+let actx = null;
+function sfx(name) {
+  if (state?.settings?.sound === false) return;
+  try {
+    actx ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const notes = { trade: [[660, 0, 0.07], [880, 0.07, 0.1]], sell: [[620, 0, 0.07], [470, 0.07, 0.1]], coin: [[1320, 0, 0.06], [1760, 0.06, 0.14]], pack: [[523, 0, 0.09], [659, 0.09, 0.09], [784, 0.18, 0.09], [1047, 0.27, 0.22]], level: [[659, 0, 0.1], [988, 0.1, 0.24]], tap: [[520, 0, 0.04]] }[name];
+    if (!notes) return;
+    const t0 = actx.currentTime;
+    for (const [f, at, len] of notes) {
+      const o = actx.createOscillator(); const g = actx.createGain();
+      o.type = name === 'coin' ? 'triangle' : 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + at); g.gain.exponentialRampToValueAtTime(0.09, t0 + at + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
+      o.connect(g).connect(actx.destination); o.start(t0 + at); o.stop(t0 + at + len + 0.02);
+    }
+  } catch { /* no audio available */ }
+}
+const buzz = () => { if (state?.settings?.haptics !== false) haptic(); };
 
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {
@@ -3075,6 +3354,7 @@ async function runSync({ manual = false, liveOnly = false } = {}) {
   syncing = false;
   if (!liveOnly) ensureFunds(state, Date.now());
   runSocial(state, Date.now());
+  runExtras(state, Date.now());
   runCareer(state, Date.now());
   state.lastTick = state.lastTick || Date.now();
   dirty = true; await save();
@@ -3229,7 +3509,7 @@ async function main() {
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded && !overlayOpen()) { reloaded = true; location.reload(); } });
   }
   tick(state, Date.now());
-  runAutomation(state, Date.now()); runSocial(state, Date.now()); runCareer(state, Date.now());
+  runAutomation(state, Date.now()); runSocial(state, Date.now()); runExtras(state, Date.now()); runCareer(state, Date.now());
   applyTheme(); applyLook();
   ui.since = sinceLastOpen(state);
   if (!state.lastOpen) markOpen(state);
@@ -3245,6 +3525,7 @@ async function main() {
     tick(state, now);
     runAutomation(state, now);
     runSocial(state, now);
+    runExtras(state, now);
     runCareer(state, now);
     moverAlerts(state, now);
     maybeRecap();
@@ -3264,7 +3545,7 @@ async function main() {
     ui.since = sinceLastOpen(state) || ui.since;
     checkForUpdate();
     tick(state, Date.now());
-    runAutomation(state, Date.now()); runSocial(state, Date.now()); runCareer(state, Date.now());
+    runAutomation(state, Date.now()); runSocial(state, Date.now()); runExtras(state, Date.now()); runCareer(state, Date.now());
     announce();
     const last = Math.max(0, ...enabledLeagues().map((l) => state.sync[l]?.scoreboard || 0));
     if (Date.now() - last > 60e3) runSync(); else softRefresh();

@@ -30,7 +30,7 @@
   <div id="ptr"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg></div>
   <main id="view" class="view"></main>
 
-  <nav class="tabbar" id="tabbar">
+  <nav class="tabbar" id="tabbar" aria-label="Main sections">
     <button data-tab="home" class="active">
       <svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-8"/><path d="M15 8h5v5"/></svg><span>Portfolio</span>
     </button>
@@ -65,7 +65,7 @@
   <div id="recap" class="overlay" hidden></div>
   <canvas id="confetti" hidden></canvas>
   <div id="boot" class="boot" hidden></div>
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <button id="updbar" class="updbar" hidden>New version ready · tap to update</button>
 
   <script type="module" src="js/app.js"></script>

@@ -108,7 +108,7 @@ export function achievementsCard(d) {
   const ctx = c.getContext('2d');
   base(ctx, '#ffc83d');
   ctx.fillStyle = '#8b939e'; ctx.font = `600 36px ${FONT}`; ctx.fillText(`Level ${d.level} · ${d.title}`, 80, 250);
-  ctx.fillStyle = '#eceef1'; ctx.font = `800 96px ${FONT}`; ctx.fillText('Achievements', 80, 360);
+  ctx.fillStyle = '#eceef1'; ctx.font = `800 96px ${FONT}`; ctx.fillText(d.heading || 'Achievements', 80, 360);
   ctx.fillStyle = '#8b939e'; ctx.font = `500 34px ${FONT}`; ctx.fillText(`Net worth ${usd(d.netWorth)}`, 80, 420);
   const bw = (W - 160 - 24) / 2; const bh = 220;
   d.items.slice(0, 6).forEach((x, i) => {

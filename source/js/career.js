@@ -74,7 +74,7 @@ export function endSeason(state, now = Date.now()) {
   notify(state, 'season', `Season ${s.n} over: ${tier.name} (${(ret >= 0 ? '+' : '') + (ret * 100).toFixed(1)}%) · +${centsFmt(coins)}`, null, now);
   // Fresh start for the new season.
   const bal = seasonBalance(state);
-  Object.assign(state, { cash: bal, startCash: bal, holdings: {}, options: {}, orders: [], recurring: [], nw: [], startedAt: now });
+  Object.assign(state, { cash: bal, startCash: bal, holdings: {}, options: {}, orders: [], recurring: [], nw: [], startedAt: now, shorts: {} });
   state.season = { n: s.n + 1, start: now, end: seasonEnd(now), nw0: bal, bal, flow0: state.flow || 0 };
   state.week = null; // new week goals measured from the new bankroll
   // The tier prize (and any level-up bonus it triggered) lands on top of the fresh bankroll.

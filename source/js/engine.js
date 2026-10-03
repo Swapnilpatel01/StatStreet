@@ -75,7 +75,7 @@ export function newState(startCash = START_CASH) {
 export function resetPortfolio(state, start, now = Date.now()) {
   Object.assign(state, {
     cash: start, startCash: start, holdings: {}, txns: [], nw: [], options: {}, orders: [], recurring: [], divs: [], divTotal: 0, inbox: [],
-    picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, startedAt: now, contests: {}, props: [],
+    picks: {}, pickStats: { w: 0, l: 0, streak: 0, best: 0, won: 0 }, startedAt: now, contests: {}, props: [], shorts: {}, futures: [],
   });
   if (state.season) Object.assign(state.season, { start: now, nw0: start, bal: start, flow0: state.flow || 0 });
   state.week = null;
@@ -643,6 +643,9 @@ export function payDividend(state, a, perShare, reason, at, gameDate) {
     if (state.divs.length > 400) state.divs.length = 400;
     notify(state, 'div', `${target?.ticker || a.ticker} paid you ${'$' + amt.toFixed(2)}${via ? ` (via ${a.ticker})` : ''}${drip ? ' · reinvested' : ''}`, holdId, at);
   };
+  // If you are short this player, his dividend is yours to pay.
+  const sh = state.shorts?.[a.id];
+  if (sh) sh.fee = Math.round(((sh.fee || 0) + perShare * sh.qty) * 10000) / 10000;
   const own = state.holdings[a.id];
   if (own && (own.since || 0) < gameDate) {
     const mult = (1 + (state.collection?.[a.id] ? cardDivBonus(state, a.id) : 0)) * (boostHooks.divMult ? boostHooks.divMult(state, a.id) : 1);
@@ -1044,7 +1047,32 @@ export function holdingsValue(state) {
   return v;
 }
 
-export const netWorth = (state, now = Date.now()) => state.cash + holdingsValue(state) + optionsValue(state, now);
+// Short positions: the cash you put up, plus or minus the move since you opened, minus fees owed.
+export function shortsValue(state) {
+  let v = 0;
+  for (const [id, s] of Object.entries(state.shorts || {})) v += s.margin + (s.entry - (state.assets[id]?.price ?? s.entry)) * s.qty - (s.fee || 0);
+  return v;
+}
+
+export const netWorth = (state, now = Date.now()) => state.cash + holdingsValue(state) + optionsValue(state, now) + shortsValue(state);
+
+// "What if" for the research page: the price after one hypothetical game.
+export function whatIfPlayer(state, a, gs) {
+  const grp = posGroup(a.league, a.pos);
+  const st = state.stats[a.league]?.[grp];
+  const before = a.perf?.ema;
+  if (!st || before == null) return null;
+  const ema = capStep(state, a.league, grp, before, before + groupAlpha(state, a.league, grp) * (gs - before));
+  return a.price * Math.exp(zSlope(a.league) * (ema - before) / st.sd);
+}
+export function whatIfTeam(state, a, won, margin) {
+  const f0 = teamFair(state, a);
+  const keep = { ...a.rec };
+  a.rec.gp += 1; a.rec.diff += margin; if (won) a.rec.w += 1; else a.rec.l += 1;
+  const f1 = teamFair(state, a);
+  a.rec = keep;
+  return f0 > 0 ? a.price * f1 / f0 : a.price;
+}
 
 export const fmtQty = (q) => (Math.abs(q - Math.round(q)) < 1e-6 ? String(Math.round(q)) : q.toFixed(q < 1 ? 4 : 3).replace(/0+$/, ''));
 

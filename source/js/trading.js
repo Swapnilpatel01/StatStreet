@@ -181,6 +181,7 @@ function processOrders(state, now) {
     }
     if (!go) continue;
     cancelOrder(state, o.id); // release reserved cash before executing
+    if (o.oco) state.orders = state.orders.filter((x) => x.oco !== o.oco); // stop-loss and take-profit come as a pair
     try {
       const qty = o.side === 'sell' ? Math.min(o.qty, state.holdings[o.assetId]?.qty || 0) : o.qty;
       const tx = trade(state, o.assetId, o.side, qty, now);

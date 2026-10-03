@@ -319,7 +319,7 @@ with sync_playwright() as p:
     assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
     # --- v34 features
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(400)
-    assert page.locator('.tools [data-page]').count() == 4
+    assert page.locator('.tools [data-page]').count() == 10
     page.screenshot(path=f'{OUT}/20-home.png', full_page=False)
     page.evaluate("document.querySelector('.tools').scrollIntoView()"); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/20b-home-tools.png')
@@ -366,6 +366,46 @@ with sync_playwright() as p:
     page.evaluate("document.querySelector('#setlight').click()"); page.wait_for_timeout(200)
     assert page.evaluate("document.documentElement.dataset.mode") is None
     print('v34 features ok')
+    # --- v35 features
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    for k in ['glance', 'risk', 'breakouts', 'futures', 'recap', 'rival', 'layout']:
+        page.evaluate(f"document.querySelector('.tools [data-page={k}]').click()"); page.wait_for_timeout(450)
+        assert page.locator('#page').is_visible(), k
+        page.screenshot(path=f'{OUT}/30-{k}.png')
+        if k == 'rival':
+            page.locator('#page [data-rival]').first.click(); page.wait_for_timeout(300)
+            assert page.locator('#page .rivalc').count() == 1
+        if k == 'futures':
+            page.locator('#page [data-fut]').first.click(); page.wait_for_timeout(200)
+            page.fill('#futstake', '0.25'); page.click('#page [data-act=betfut]'); page.wait_for_timeout(300)
+            assert 'Your bets' in page.text_content('#page'), page.text_content('#perr') if page.locator('#perr').count() else ''
+        if k == 'layout':
+            page.evaluate("document.querySelector('[data-layhide=discover]').click()"); page.wait_for_timeout(200)
+            page.locator('[data-laymove="movers|-1"]').click(); page.wait_for_timeout(200)
+        page.click('#page [data-act=pageback]'); page.wait_for_timeout(150)
+    home = page.text_content('#view')
+    assert 'Discover' not in home and 'RIVAL THIS WEEK' in home.upper(), 'layout and rival show on the Portfolio page'
+    assert home.index('Top movers') < home.index('Calendar'), 'movers moved above the shortcuts'
+    page.screenshot(path=f'{OUT}/31-home-custom.png')
+    # short a player
+    page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300)
+    page.locator('#view .item[data-open^="nba:p:"]').nth(2).click(); page.wait_for_timeout(600)
+    page.click('.dtabs [data-dtab=research]'); page.wait_for_timeout(150)
+    assert 'What if' in page.text_content('#dinner'); page.screenshot(path=f'{OUT}/32-whatif.png')
+    page.click('.dtabs [data-dtab=overview]'); page.wait_for_timeout(150)
+    page.click('#sheet .shortc'); page.wait_for_timeout(500)
+    page.fill('#shortamt', '1'); page.screenshot(path=f'{OUT}/33-short.png'); page.click('#page [data-act=doshort]'); page.wait_for_timeout(500)
+    assert 'Your short' in page.text_content('#dinner'), page.text_content('#perr') if page.locator('#perr').count() else 'no short'
+    page.screenshot(path=f'{OUT}/34-short-open.png')
+    page.click('#sheet [data-act=cover]'); page.wait_for_timeout(200); page.click('#sheet [data-act=cover]'); page.wait_for_timeout(400)
+    assert 'Your short' not in page.text_content('#dinner')
+    page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
+    # colour-blind colours
+    page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
+    page.evaluate("document.querySelector('#setcb').click()"); page.wait_for_timeout(150)
+    assert page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--up').trim()") == '#3b9dff'
+    page.evaluate("document.querySelector('#setcb').click()"); page.wait_for_timeout(150)
+    print('v35 features ok')
     # Portfolio chart: holding on the graph shows the balance at that point
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
     if page.locator('#nwchart svg').count():

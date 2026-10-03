@@ -52,7 +52,7 @@ export function lineChart(el, flat, from, { onScrub, height = 190, animate = fal
   const bw = Math.max(2, Math.min(7, (w - 12) / Math.max(12, inR.length * 2.2)));
   const bars = inR.map((m) => { const bh = 3 + 17 * Math.min(1, Math.abs(m.v) / top); return `<rect class="gbar" x="${(x(m.t) - bw / 2).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="var(--${m.v >= 0 ? 'up' : 'down'})"/>`; }).join('');
   el.innerHTML = `
-    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="chart ${animate ? 'draw' : ''}">
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="chart ${animate ? 'draw' : ''}" role="img" aria-label="Price chart: ${up ? 'up' : 'down'} ${Math.abs((ys[ys.length - 1] / ys[0] - 1) * 100).toFixed(1)} percent over this range, now ${ys[ys.length - 1].toFixed(2)}">
       <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stop-color="${color}" stop-opacity="0.28"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>
       </linearGradient></defs>
