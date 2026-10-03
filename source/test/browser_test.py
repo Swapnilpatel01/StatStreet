@@ -124,7 +124,7 @@ with sync_playwright() as p:
     page.fill('#q', 'Luka'); page.wait_for_timeout(200)
     page.click('#mlist .item >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
     page.screenshot(path=f'{OUT}/2-detail.png')
-    assert page.locator('#sheet .research').count() == 1 and page.locator('#sheet .rs-tiles > div').count() == 4
+    assert page.locator('#sheet .research').count() == 1 and page.locator('#sheet .rs-tiles > div').count() == 3
     page.evaluate("document.querySelector('#sheet').scrollTop = document.querySelector('.research').offsetTop - 120"); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/2b-research.png'); page.evaluate("document.querySelector('#sheet').scrollTop = 0"); page.wait_for_timeout(200)
     box = page.locator('#dchart svg').bounding_box()
@@ -391,7 +391,7 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300)
     page.locator('#view .item[data-open^="nba:p:"]').nth(2).click(); page.wait_for_timeout(600)
     page.click('.dtabs [data-dtab=research]'); page.wait_for_timeout(150)
-    assert 'What if' in page.text_content('#dinner'); page.screenshot(path=f'{OUT}/32-whatif.png')
+    assert 'What if' not in page.text_content('#dinner') and 'model value' not in page.text_content('#dinner')
     page.click('.dtabs [data-dtab=overview]'); page.wait_for_timeout(150)
     page.click('#sheet .shortc'); page.wait_for_timeout(500)
     page.fill('#shortamt', '1'); page.screenshot(path=f'{OUT}/33-short.png'); page.click('#page [data-act=doshort]'); page.wait_for_timeout(500)

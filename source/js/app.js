@@ -41,7 +41,7 @@ import {
   achievements, searchAll, sinceLastOpen, markOpen, compareRows,
 } from './extras.js';
 import {
-  runExtras, openShort, coverShort, shortEquity, shortExposure, BORROW_DAILY, SHORT_CAP, protection, protect, clearProtection, riskReport, scenarios, breakouts,
+  runExtras, openShort, coverShort, shortEquity, shortExposure, BORROW_DAILY, SHORT_CAP, protection, protect, clearProtection, riskReport, breakouts,
   weeklyRecap, recapDue, chooseRival, rivalStatus, futuresMarkets, futuresOpen, betFuture, cardHistory, recentSales, wantedOffers, fillWanted,
   showcase, toggleShowcase, SHOWCASE_MAX,
 } from './extras2.js';
@@ -57,7 +57,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 35;
+const APP_VERSION = 36;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -469,8 +469,7 @@ function research(a) {
   const tiles = [];
   // Value: price vs the model's value (difference = market hype and noise)
   const gap = a.price / b.target - 1;
-  tiles.push(['Value', Math.abs(gap) < 0.02 ? 'Fair' : gap < 0 ? 'Below model' : 'Above model', `${pctTxt2(gap)} vs model value ${money(b.target)}`, gap < -0.02 ? 'up' : gap > 0.02 ? 'down' : '']);
-  if (gap < -0.03) bull.push(`Trading ${Math.round(-gap * 100)}% below its model value`); else if (gap > 0.03) bear.push(`Trading ${Math.round(gap * 100)}% above its model value (hype)`);
+  // (No model-value readout: showing it would tell you which way the price is about to drift.)
   // Momentum
   const w = change(a, now, 7 * DAY);
   if (w > 0.08) bull.push(`Up ${Math.round(w * 100)}% this week`); else if (w < -0.08) bear.push(`Down ${Math.round(-w * 100)}% this week`);
@@ -1626,7 +1625,6 @@ function renderDetail({ keepScroll = true } = {}) {
 
     </div><div class="dsec" data-sec="research">
     ${researchSection(a)}
-    ${whatIfSection(a)}
     </div><div class="dsec" data-sec="overview">
     <h3>Why it's moving</h3>
     <div class="list">${(a.events || []).slice(0, 10).map((e) => `<div class="driver">
@@ -1650,7 +1648,6 @@ function renderDetail({ keepScroll = true } = {}) {
       ${b.live ? `<div class="brk"><span>Live game</span><b class="${cls(b.live)}">${fmtPct(b.live, 1)}</b></div>` : ''}
       ${Math.abs(b.hype) > 0.0005 ? `<div class="brk"><span>Market hype</span><b class="${cls(b.hype)}">${fmtPct(b.hype, 1)}</b></div>` : ''}
       ${Math.abs(b.imp) > 0.0005 ? `<div class="brk"><span>Your order flow</span><b class="${cls(b.imp)}">${fmtPct(b.imp, 1)}</b></div>` : ''}
-      <div class="brk"><span>Fair price</span><b>${money(b.target)}</b></div>
     </div>` : ''}
 
     </div><div class="dsec" data-sec="news">
@@ -3117,15 +3114,6 @@ function shortCard(a) {
   if (state.holdings[a.id]) return '';
   return `<button class="card shortc" data-act="shortmore"><span class="e">📉</span><div class="grow"><div class="name">Bet against ${esc(a.kind === 'team' ? a.ticker : a.name.split(' ').slice(-1)[0])}</div>
     <div class="tiny muted">Short it: you profit if the price falls and lose if it rises.</div></div><span class="muted">›</span></button>`;
-}
-function whatIfSection(a) {
-  const sc = scenarios(state, a);
-  if (!sc.length) return '';
-  const h = state.holdings[a.id];
-  return `<h3>What if… <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">${a.kind === 'team' ? 'next game' : 'his next game'}</span></h3>
-    <div class="list">${sc.map((x) => `<div class="driver"><div class="txt">${x.label}<div class="tiny faint">${x.detail}</div></div>
-      <div class="pct" style="text-align:right"><b>${money(x.price)}</b><div class="tiny ${cls(x.pct)}">${fmtPct(x.pct, 1)}${h ? ` · ${signMoney((x.price - a.price) * h.qty)}` : ''}</div></div></div>`).join('')}</div>
-    <p class="tiny faint" style="margin:6px 2px">An estimate from the pricing model for the game result alone. News, injuries and market mood move the price too.</p>`;
 }
 
 // ---------- pages ----------

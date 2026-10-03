@@ -55,16 +55,12 @@ t('stop-loss and take-profit come as a pair: one fills, the other goes', () => {
   assert.ok(!st.holdings[id], 'take-profit sold');
   assert.equal(st.orders.length, 0, 'stop-loss removed with it');
 });
-t('risk check flags concentration; what-if scenarios bracket the price', () => {
+t('risk check flags concentration', () => {
   const st = build();
   E.trade(st, 'nba:p:p20', 'buy', 10, now);
   const r = X.riskReport(st, now);
   assert.ok(r.top.a.id === 'nba:p:p20' && r.warn.some((w) => /of your net worth/.test(w)) && r.score < 70, JSON.stringify(r.warn));
   assert.equal(X.riskReport(build(), now).label, 'All cash');
-  const sc = X.scenarios(st, st.assets['nba:p:p20']);
-  assert.ok(sc[0].pct < 0 && sc[sc.length - 1].pct > 0 && Math.abs(sc[2].pct) < 0.001 && sc[sc.length - 1].pct <= 0.26);
-  const ts = X.scenarios(st, st.assets['nba:t:2']);
-  assert.ok(ts[0].price < ts[3].price);
 });
 t('breakouts: cheap players whose last three games beat their level', () => {
   const st = build();

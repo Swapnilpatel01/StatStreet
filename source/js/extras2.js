@@ -1,7 +1,7 @@
 // More extras: short selling, position protection, risk check, breakouts, weekly recap,
 // rivalries, season futures, card history, wanted cards and the showcase.
 
-import { netWorth, notify, change, priceAt, SPREAD, fmtQty, shortsValue, whatIfPlayer, whatIfTeam, gameNoise } from './engine.js';
+import { netWorth, notify, change, priceAt, SPREAD, fmtQty, shortsValue } from './engine.js';
 import { posGroup } from './scoring.js';
 import { addXP, addCoins, centsFmt } from './xp.js';
 import { marketValue, boosterState, bRarity } from './boosters.js';
@@ -121,22 +121,6 @@ export function riskReport(state, now = Date.now()) {
   const score = pos.length ? Math.round(Math.max(5, Math.min(100, 100 - 85 * hhi - 12 * warn.length))) : 100;
   return { nw, invested, cash: state.cash, cashPct: state.cash / nw, n: pos.length, top, byLeague, byTeam: byTeam.slice(0, 5), byPos: byPos.slice(0, 6), games: games.slice(0, 3), shorts, warn, score,
     label: !pos.length ? 'All cash' : score >= 70 ? 'Well spread' : score >= 45 ? 'Moderate' : 'Concentrated' };
-}
-
-// ---------- what-if scenarios ----------
-export function scenarios(state, a) {
-  if (a.kind === 'player') {
-    const ema = a.perf?.ema; if (ema == null) return [];
-    const n = a.perf.gn ?? gameNoise(state, a.league, posGroup(a.league, a.pos));
-    return [['Rough night', ema - 1.5 * n], ['Below par', ema - 0.7 * n], ['His usual game', ema], ['Good game', ema + 0.7 * n], ['Big night', ema + 1.5 * n], ['Career night', ema + 3 * n]]
-      .map(([label, gs]) => { const p = whatIfPlayer(state, a, gs); return p == null ? null : { label, detail: `game score ${Math.max(0, gs).toFixed(1)}`, price: p, pct: p / a.price - 1 }; }).filter(Boolean);
-  }
-  if (a.kind === 'team') {
-    const m = a.league === 'nba' ? [15, 5] : a.league === 'nfl' ? [17, 4] : [5, 1];
-    return [['Blowout loss', false, -m[0]], ['Close loss', false, -m[1]], ['Close win', true, m[1]], ['Blowout win', true, m[0]]]
-      .map(([label, won, mg]) => { const p = whatIfTeam(state, a, won, mg); return { label, detail: `${won ? 'wins' : 'loses'} by ${Math.abs(mg)}`, price: p, pct: p / a.price - 1 }; });
-  }
-  return [];
 }
 
 // ---------- breakout watch ----------

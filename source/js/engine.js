@@ -1056,23 +1056,6 @@ export function shortsValue(state) {
 
 export const netWorth = (state, now = Date.now()) => state.cash + holdingsValue(state) + optionsValue(state, now) + shortsValue(state);
 
-// "What if" for the research page: the price after one hypothetical game.
-export function whatIfPlayer(state, a, gs) {
-  const grp = posGroup(a.league, a.pos);
-  const st = state.stats[a.league]?.[grp];
-  const before = a.perf?.ema;
-  if (!st || before == null) return null;
-  const ema = capStep(state, a.league, grp, before, before + groupAlpha(state, a.league, grp) * (gs - before));
-  return a.price * Math.exp(zSlope(a.league) * (ema - before) / st.sd);
-}
-export function whatIfTeam(state, a, won, margin) {
-  const f0 = teamFair(state, a);
-  const keep = { ...a.rec };
-  a.rec.gp += 1; a.rec.diff += margin; if (won) a.rec.w += 1; else a.rec.l += 1;
-  const f1 = teamFair(state, a);
-  a.rec = keep;
-  return f0 > 0 ? a.price * f1 / f0 : a.price;
-}
 
 export const fmtQty = (q) => (Math.abs(q - Math.round(q)) < 1e-6 ? String(Math.round(q)) : q.toFixed(q < 1 ? 4 : 3).replace(/0+$/, ''));
 

@@ -867,3 +867,4 @@ html.cb { --up: #3b9dff; --down: #ff9f1a; --up-bg: rgba(59, 157, 255, .14); --do
 html.cb[data-mode="light"] { --up: #0b6bd3; --down: #c26a00; --up-bg: rgba(11, 107, 211, .12); --down-bg: rgba(194, 106, 0, .12); }
 /* Keyboard and switch-control focus */
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--up); outline-offset: 2px; }
+.rs-tiles > div:last-child:nth-child(odd) { grid-column: span 2; }
