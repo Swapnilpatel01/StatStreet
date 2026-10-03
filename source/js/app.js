@@ -37,6 +37,7 @@ import {
 import { squarify, heatColor } from './heatmap.js';
 import { portfolioCard, assetCard, shareCanvas, achievementsCard } from './sharecard.js';
 import { cardArt } from './cardart.js';
+import { parsePlays } from './moments.js';
 import {
   closedTrades, journalStats, lineupToday, calendar, moverAlerts, dailyChallenge, answerChallenge, collections, SET_SIZE, SET_BONUS,
   achievements, searchAll, sinceLastOpen, markOpen, compareRows,
@@ -62,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 52;
+const APP_VERSION = 53;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1430,6 +1431,7 @@ function openGame(league, id, { push = true } = {}) {
   renderGame();
   el.scrollTop = 0;
   el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
+  loadPlays(league, id);
 }
 
 function closeGame({ animate = true } = {}) {
@@ -1478,6 +1480,7 @@ function renderGame() {
       <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div></div>
     ${up ? `<h3>Your pick</h3>${pickGame(up)}` : pk ? `<div class="card small" style="margin-top:12px">Your pick: <b>${esc(pk.abbr)}</b> · ${pk.result ? { won: `won <b class="up">+${money(pk.paid || 0)}</b>`, lost: '<span class="down">missed</span>', push: 'push', void: 'voided' }[pk.result] : 'locked — game in progress'}</div>` : ''}
     ${gameStake(g, league)}
+    ${playsSection(g, league)}
     <h3>${g.status === 'pre' ? 'Players to watch' : 'Player movers'}</h3>
     <div class="list">${players.map(({ a, text, live }) => {
       const h = state.holdings[a.id]; const c = change(a, now);
@@ -2494,6 +2497,7 @@ document.addEventListener('click', async (e) => {
     }
     case 'artback': closeArticle(); break;
     case 'pageback': closePage(); break;
+    case 'playsall': if (ui.game) { ui.playsAll = ui.game.id; const y = $('#game').scrollTop; renderGame(); $('#game').scrollTop = y; } break;
     case 'confirmdone': closeConfirm(); break;
     case 'confirmprotect': closeConfirm(); ui.dtab = 'overview'; if (ui.detail) { renderDetail(); setTimeout(() => $('#sheet .prot')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80); } break;
     case 'duelshare': shareDuel().catch((err) => toast(err.message)); break;
@@ -3559,6 +3563,46 @@ function cardPhoto(m) {
     });
   }).catch(() => { /* optional */ }).then(() => photoLoading.delete(key));
   return null;
+}
+
+// ---------- live play-by-play on the game screen ----------
+const playsCache = new Map(); // game id -> { plays, t, loading, failed }
+function loadPlays(league, id, { force = false } = {}) {
+  if (STATIC) return;
+  const g = findGame(league, id); if (!g || g.status === 'pre') return;
+  const c = playsCache.get(id) || {};
+  if (c.loading || (!force && c.t && (g.status !== 'live' || Date.now() - c.t < 20e3))) return;
+  playsCache.set(id, { ...c, loading: true });
+  api.summary(league, id).then((j) => {
+    playsCache.set(id, { plays: parsePlays(league, j), t: Date.now(), loading: false });
+  }).catch(() => { playsCache.set(id, { ...c, loading: false, failed: !c.plays, t: Date.now() }); })
+    .then(() => {
+      // Show the new plays as soon as the screen is at rest (never swap content under a finger).
+      const show = (tries = 0) => { if (ui.game?.id !== id) return; if ((ui.detail || busyScrolling(500)) && tries < 20) { setTimeout(() => show(tries + 1), 400); return; } const y = $('#game').scrollTop; renderGame(); $('#game').scrollTop = y; };
+      show();
+    });
+}
+// While a live game's screen is open, pull new plays every 20 seconds.
+setInterval(() => { if (ui.game && !document.hidden) loadPlays(ui.game.league, ui.game.id); }, 20e3);
+function playsSection(g, league) {
+  if (g.status === 'pre') return '';
+  const c = playsCache.get(g.id);
+  if (!c?.plays) return `<h3>Play by play</h3><div class="card small muted">${c?.failed ? 'Plays aren\'t available for this game.' : 'Loading plays…'}</div>`;
+  if (!c.plays.length) return '';
+  const [away, home] = [g.teams.find((t) => !t.home) || g.teams[0], g.teams.find((t) => t.home) || g.teams[1]];
+  const show = ui.playsAll === g.id ? c.plays : c.plays.slice(0, 12);
+  const now = Date.now();
+  return `<h3>Play by play ${g.status === 'live' ? '<span class="tag live" style="margin-left:6px">LIVE</span>' : ''}</h3>
+    <div class="list pbp">${show.map((p) => {
+      const a = p.pid ? state.assets[`${league}:p:${p.pid}`] : null;
+      const ch = a ? change(a, now) : 0;
+      return `<${a ? `button data-open="${a.id}"` : 'div'} class="pb ${p.scoring ? 'sc' : ''}">
+        ${a ? avatar(a) : `<div class="avatar-fallback pb-dot">${p.scoring ? '★' : '•'}</div>`}
+        <div class="grow"><div class="pb-sit">${p.away != null && p.home != null ? `<b>${esc(away.abbr)} ${p.away}-${p.home} ${esc(home.abbr)}</b> · ` : ''}${esc(p.sit)}${p.t ? ` · ${timeAgo(p.t)}` : ''}</div>
+          <div class="pb-text">${esc(p.text)}</div>
+          ${a ? `<div class="pb-who"><span>${esc(a.name)}</span> <span class="${cls(ch)}" data-c="${a.id}" data-plain="1" data-r="1D">${fmtPct(ch)}</span>${state.holdings[a.id] ? ' <span class="tag own">Owned</span>' : ''}</div>` : ''}</div>
+        ${p.scoring ? `<div class="pb-pts">+${p.value || ''}</div>` : ''}</${a ? 'button' : 'div'}>`; }).join('')}</div>
+    ${c.plays.length > 12 && ui.playsAll !== g.id ? `<button class="more" data-act="playsall">Show all ${c.plays.length} plays</button>` : ''}`;
 }
 
 // ---------- card tilt ----------

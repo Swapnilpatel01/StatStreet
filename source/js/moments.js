@@ -222,3 +222,31 @@ function boxMoment(league, ev, p, home, away) {
 }
 
 export { ordinal };
+
+// ---------- live play-by-play ----------
+// The plays of one game, newest first, for the game screen. Pitch-by-pitch and clock
+// bookkeeping lines are dropped; what's left is one row per thing that happened.
+const NOISE_PLAY = /^(pitch \d|ball \d|strike \d|foul\b|.*\bpitches to\b|end of|start of|.* enters the game|.* substitution|timeout|jump ball|instant replay|coach.?s challenge|two-minute warning|official timeout)/i;
+export function parsePlays(league, json, limit = 60) {
+  let raw = [];
+  if (league === 'nfl') {
+    const drives = [...(json?.drives?.previous || []), ...(json?.drives?.current ? [json.drives.current] : [])];
+    const seen = new Set();
+    for (const d of drives) for (const p of d.plays || []) { if (p.id && seen.has(p.id)) continue; if (p.id) seen.add(p.id); raw.push({ ...p, _team: d.team?.abbreviation }); }
+    if (!raw.length) raw = json?.scoringPlays || [];
+  } else raw = json?.plays || [];
+  const out = [];
+  for (let i = 0; i < raw.length; i++) {
+    const p = raw[i];
+    const text = clean(p.text || p.shortText || p.alternativeText);
+    if (!text || NOISE_PLAY.test(text)) continue;
+    // Baseball lists every pitch; keep the result of each at-bat and anything that scores.
+    if (league === 'mlb' && p.type?.type && !/play-result|result/i.test(p.type.type) && !p.scoringPlay) continue;
+    const sit = situation(league, p);
+    const who = (p.participants || []).find((x) => /batter|scorer|shooter|passer|rusher|receiver/i.test(x.type || '')) || (p.participants || [])[0];
+    out.push({ id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), sit: league === 'nfl' && p.start?.downDistanceText ? `${sit.text} · ${p.start.downDistanceText}` : sit.text,
+      away: num(p.awayScore), home: num(p.homeScore), scoring: !!p.scoringPlay, value: num(p.scoreValue) || 0,
+      pid: who?.athlete?.id != null ? String(who.athlete.id) : null, team: p._team || p.team?.abbreviation || null, t: Date.parse(p.wallclock || p.modified || '') || null });
+  }
+  return out.slice(-limit).reverse();
+}

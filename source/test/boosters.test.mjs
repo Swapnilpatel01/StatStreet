@@ -192,3 +192,19 @@ console.log('ok - packs and flipping lose money on average');
   B.bindMarket(null);
   console.log('ok - star premium on popular players');
 }
+
+// Play-by-play feed: newest first, pitch noise dropped, score and situation on each row.
+{
+  const feed = M.parsePlays('mlb', { plays: [
+    { id: '1', text: 'Pitch 1: Ball 1', type: { type: 'ball' } },
+    { id: '2', text: 'Kyle Schwarber struck out swinging.', type: { type: 'play-result' }, awayScore: 0, homeScore: 0, period: { type: 'Top', number: 9 }, outs: 1, participants: [{ athlete: { id: '77' }, type: 'batter' }] },
+    { id: '3', text: 'Ozzie Albies homered to center (432 feet), Ronald Acuna Jr. scored.', type: { type: 'play-result' }, scoringPlay: true, scoreValue: 2, awayScore: 3, homeScore: 5, period: { type: 'Top', number: 9 }, outs: 0, participants: [{ athlete: { id: '88' }, type: 'batter' }] },
+  ] });
+  assert.equal(feed.length, 2);
+  assert.equal(feed[0].pid, '88'); assert.ok(feed[0].scoring && feed[0].value === 2 && feed[0].away === 3 && feed[0].home === 5);
+  assert.equal(feed[0].sit, 'Top 9 · 0 outs'); assert.equal(feed[0].text, 'Ozzie Albies homered to center (432 feet), Ronald Acuna Jr. scored');
+  const nfl = M.parsePlays('nfl', { drives: { previous: [{ team: { abbreviation: 'KC' }, plays: [{ id: 'a', text: 'P.Mahomes pass short right to T.Kelce for 12 yards', period: { number: 2 }, clock: { displayValue: '8:10' }, start: { downDistanceText: '2nd & 7 at KC 40' } }] }] } });
+  assert.equal(nfl[0].team, 'KC'); assert.match(nfl[0].sit, /Q2 · 8:10 · 2nd & 7/);
+  assert.equal(M.parsePlays('nba', {}).length, 0);
+  console.log('ok - play-by-play feed');
+}

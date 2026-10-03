@@ -420,7 +420,7 @@ details .prose { padding: 12px 14px 4px; }
 .gc-head { display: flex; align-items: flex-start; justify-content: space-around; margin-top: 16px; }
 .gc-team { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
 .gc-team .avatar, .gc-team .avatar-fallback { width: 56px; height: 56px; }
-.gc-score { font-size: 40px; font-weight: 800; color: var(--muted); line-height: 1.1; }
+.gc-score { font-size: 52px; font-weight: 900; color: var(--text); line-height: 1.05; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .gc-score.win { color: var(--text); }
 .gc-at { color: var(--faint); margin-top: 20px; }
 .wp { margin-top: 16px; }
@@ -957,3 +957,20 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .mc.has-photo .mc-who { background: linear-gradient(90deg, rgba(10,13,17,.8), rgba(10,13,17,.4)); padding-left: 8px; }
 .mc.has-photo.r-iconic .mc-fx { opacity: .5; }
 .mc-credit { font-size: 7.5px; color: rgba(255,255,255,.55); margin-top: 6px; line-height: 1.3; }
+
+/* ---------- v53: bolder scores, play-by-play ---------- */
+.live-strip .game .t, .lu .t { font-weight: 800; }
+.live-strip .game .t span:last-child { font-weight: 900; font-size: 1.1em; font-variant-numeric: tabular-nums; }
+.score-line b { font-weight: 800; }
+.pbp .pb { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.pbp .pb:last-child { border-bottom: 0; }
+.pbp .avatar, .pbp .avatar-fallback { width: 40px; height: 40px; flex: none; margin-top: 2px; }
+.pb-dot { font-size: 14px; color: var(--faint); }
+.pb-sit { font-size: 11.5px; color: var(--muted); }
+.pb-sit b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.pb-text { font-size: 15px; font-weight: 700; line-height: 1.3; margin: 2px 0; }
+.pb-who { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.pb-who span:nth-child(2) { font-weight: 700; }
+.pb.sc { background: linear-gradient(90deg, color-mix(in srgb, var(--up) 12%, transparent), transparent 70%); }
+.pb.sc .pb-text { color: var(--up); }
+.pb-pts { flex: none; font-weight: 900; color: var(--up); font-size: 15px; margin-top: 2px; }

@@ -454,6 +454,17 @@ with sync_playwright() as p:
     ab = page.text_content('#dinner'); assert 'About' in ab and 'Duke' in ab and '6 seasons' in ab, ab[-600:]
     page.evaluate("document.querySelector('#sheet').scrollTop = 99999"); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/53-about.png')
     page.click('.dtabs [data-dtab=overview]'); page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
+    # --- v53: play-by-play on a live game
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    lg = page.locator('#view .live-strip [data-game]').first
+    if lg.count():
+        lg.click(); page.wait_for_timeout(1200)
+        gt = page.text_content('#game'); assert 'Play by play' in gt, gt[:200]
+        print('plays shown:', page.locator('#game .pbp .pb').count())
+        assert page.locator('#game .pbp .pb').count() >= 1
+        assert int(page.evaluate("getComputedStyle(document.querySelector('.gc-score')).fontWeight")) >= 900
+        page.screenshot(path=f'{OUT}/60-game-pbp.png'); page.evaluate("document.querySelector('#game .pbp').scrollIntoView()"); page.wait_for_timeout(150); page.screenshot(path=f'{OUT}/61-pbp.png')
+        page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     print('v43 features ok')
     print('v37 features ok')
     # Portfolio chart: holding on the graph shows the balance at that point
