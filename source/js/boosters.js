@@ -320,7 +320,8 @@ function stockListings(state, now) {
       const z = Math.sqrt(-2 * Math.log(Math.max(1e-9, rnd()))) * Math.cos(2 * Math.PI * rnd());
       // Other collectors always bid close to what a card is worth, so there are no steals to flip.
       // Spread evenly from just under to a little over its worth, so similar cards don't all sit at one price.
-      const npcMax = Math.max(start, Math.round(value * (0.92 + 0.24 * rnd()) * Math.exp(0.03 * z)));
+      // Now and then a card goes under-bid: that is where a flip can pay.
+      const npcMax = Math.max(start, Math.round(value * (0.84 + 0.36 * rnd()) * Math.exp(0.03 * z)));
       const t0 = h * HOUR + Math.floor(rnd() * HOUR);
       const len = [1, 2, 4, 6, 9, 12, 18, 24][Math.floor(rnd() * 8)] * HOUR;
       if (t0 + len > now) onSale.add(mo.id); // an auction that has already ended frees its play for a later one
@@ -404,7 +405,9 @@ export function listAuction(state, cardId, { start, length = '6h' }, now = Date.
   start = Math.max(1, Math.round(Number(start) || 1));
   const rnd = seeded(`auction:${b.id}:${now}`);
   const z = Math.sqrt(-2 * Math.log(Math.max(1e-9, rnd()))) * Math.cos(2 * Math.PI * rnd());
-  const top = Math.round(marketValue(b, now) * L.boost * Math.min(1.05, Math.exp(0.1 * z)));
+  // What your auction fetches is a roll of the dice around the card's worth: sometimes a
+  // bidding war, sometimes a quiet room.
+  const top = Math.round(marketValue(b, now) * L.boost * Math.min(1.6, Math.exp(0.18 * z)));
   const au = { id: `my${now.toString(36)}`, mine: true, cardId: b.id, card: { m: b.m, rarity: b.rarity, charges: b.charges, max: b.max, type: b.type, serial: b.serial },
     start, npcMax: top, from: now, end: now + L.ms, bidders: 2 + Math.floor(rnd() * 6), status: 'live' };
   b.listed = au.id;

@@ -25,10 +25,16 @@ for (const p of B.B_PACKS) {
   console.log(p.name.padEnd(18), 'cost $' + (cost / 100).toFixed(0).padStart(6), ' resale $' + (got / N / 100).toFixed(0).padStart(6), ' return ' + (out[p.key] * 100).toFixed(0) + '%');
 }
 // Flipping: win every marketplace auction at the lowest winning price, relist for 24h.
-let paid = 0; let back = 0; let n = 0;
+let paid = 0; let back = 0; let n = 0; let cheapPaid = 0; let cheapBack = 0; let cheapN = 0; let cheapWin = 0;
+const gz = () => Math.sqrt(-2 * Math.log(Math.max(1e-9, Math.random()))) * Math.cos(2 * Math.PI * Math.random());
 for (let d = 0; d < 40; d++) {
   const t = now + d * 86400e3; st.mp = { hour: 0, list: [], bids: {}, v: 2 };
-  for (const l of B.marketListings(st, t)) { paid += Math.max(l.start, l.npcMax + Math.max(1, Math.ceil(l.npcMax * 0.08))); back += resale(l.card); n++; }
+  for (const l of B.marketListings(st, t)) { const cost = Math.max(l.start, l.npcMax + Math.max(1, Math.ceil(l.npcMax * 0.08))); const v = B.marketValue(l.card, t);
+    const sold = v * Math.min(1.6, Math.exp(0.18 * gz())) * (1 - B.SELLER_FEE); // one real 24h auction
+    paid += cost; back += sold; n++;
+    if (cost < 0.95 * v) { cheapPaid += cost; cheapBack += sold; cheapN++; if (sold > cost) cheapWin++; } }
 }
 out.flip = back / paid;
+out.bargains = cheapBack / cheapPaid;
+console.log(`bargain hunting (${cheapN} of ${n} auctions won under 95% of worth): return ${(out.bargains * 100).toFixed(0)}%, ${(cheapWin / cheapN * 100).toFixed(0)}% of those flips made money`);
 console.log(`flip ${n} auctions: paid $${(paid / 100).toFixed(0)}, resale $${(back / 100).toFixed(0)}, return ${(out.flip * 100).toFixed(0)}%`);

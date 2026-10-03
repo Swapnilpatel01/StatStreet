@@ -168,7 +168,8 @@ console.log(`\n${passed} moment-card tests passed`);
 
 // The card economy must not be a money machine: packs and flips return less than they cost.
 const sim = (await import('../tools/simcards.mjs')).out;
-for (const [k, v] of Object.entries(sim)) assert.ok(v < 0.95, `${k} returns ${(v * 100).toFixed(0)}% of its cost`);
+for (const [k, v] of Object.entries(sim)) if (k !== 'bargains') assert.ok(v < 0.95, `${k} returns ${(v * 100).toFixed(0)}% of its cost`);
+assert.ok(sim.bargains > 0.9 && sim.bargains < 1.06, `picking only under-bid auctions is roughly break-even, not a money machine: ${(sim.bargains * 100).toFixed(0)}%`);
 console.log('ok - packs and flipping lose money on average');
 
 // Star premium: a popular player's card is worth more at any rarity, and fusing it costs more.
