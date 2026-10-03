@@ -767,7 +767,7 @@ details .prose { padding: 12px 14px 4px; }
 .wedit { margin-top: 14px; }
 .wedit textarea { width: 100%; margin-top: 8px; background: var(--card2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 16px; resize: none; outline: none; }
 .chip-input { background: transparent; border: 1px dashed var(--line); border-radius: 999px; color: var(--text); padding: 7px 12px; font-size: 16px; width: 132px; outline: none; }
-.dtabs { display: flex; gap: 4px; margin-top: 14px; background: var(--card); border-radius: 12px; padding: 4px; position: sticky; top: var(--safe-t); z-index: 3; box-shadow: 0 0 0 6px var(--bg); }
+.dtabs { display: flex; gap: 4px; margin-top: 14px; background: var(--card); border-radius: 12px; padding: 4px; }
 .dtabs button { flex: 1; padding: 9px 4px; border-radius: 9px; font-weight: 700; font-size: 13.5px; color: var(--muted); }
 .dtabs button.on { background: var(--card2); color: var(--text); }
 .dtabs i { font-style: normal; font-size: 11px; color: var(--faint); margin-left: 2px; }

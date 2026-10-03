@@ -428,6 +428,7 @@ with sync_playwright() as p:
     assert page.locator('#page').is_visible() and 'Pick who to compare' in page.text_content('#page')
     page.click('#page [data-act=pageback]'); page.wait_for_timeout(200)
     assert page.locator('#dpin').count() == 0
+    assert page.evaluate("getComputedStyle(document.querySelector('.dtabs')).position") != 'sticky', 'nothing pins while scrolling a player page'
     page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
     page.evaluate("document.querySelector('.tools [data-page=hof]').click()"); page.wait_for_timeout(450)
