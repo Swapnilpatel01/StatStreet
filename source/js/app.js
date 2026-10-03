@@ -1,5 +1,5 @@
 // StatStreet — UI layer.
-import { LEAGUES, posGroup, storyBlocks } from './scoring.js';
+import { LEAGUES, posGroup, storyBlocks, parseScoreboard, parseBoxScore, lineText } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
   leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
@@ -61,9 +61,9 @@ const ui = {
   tab: 'home', league: 'all', kind: 'player', sort: 'movers', q: '', limit: 60,
   range: '1D', homeRange: '1D', newsLeague: 'all', actFilter: 'all',
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
-  mview: 'list', gamesLeague: 'all',
+  mview: 'list',
 };
-const APP_VERSION = 54;
+const APP_VERSION = 55;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -159,7 +159,6 @@ function toast(msg) {
 }
 
 const rangeLabel = (r) => ({ '1D': 'today', '1W': 'past week', '1M': 'past month', '3M': 'past 3 months', ALL: 'all time' }[r]);
-const moodWord = (m = 0) => (m > 0.25 ? 'hot' : m > 0.08 ? 'warm' : m < -0.25 ? 'cold' : m < -0.08 ? 'cool' : 'calm');
 
 // ---------- derived data ----------
 
@@ -264,7 +263,7 @@ function renderHome() {
     alloc: `${holdings.length || opts.length ? `<div class="alloc">${parts.map(([, v, c]) => `<i style="width:${(v / tot) * 100}%;background:${c}"></i>`).join('')}</div>
     <div class="legend">${parts.map(([n, v, c]) => { const pc = (v / tot) * 100; return `<span style="--c:${c}">${n} ${pc > 0 && pc < 1 ? '<1' : Math.round(pc)}%</span>`; }).join('')}</div>` : ''}`,
     season: `${state.season ? (() => { const r = seasonReturn(state, now); const tr = tierFor(r); return `<button class="season-strip" data-gtab="season" style="--tc:${tr.color};margin-top:12px"><span class="dot"></span>Season ${state.season.n} · <b>${tr.name}</b> · <span class="${cls(r)}">${pctTxt(r)}</span><span class="grow"></span><span class="muted">${daysLeft(state.season.end)} ›</span></button>`; })() : ''}
-    ${(() => { const dly = dailyStatus(state, now); return dly.claimed ? '' : `<button class="card promo" data-tab="games"><span class="e">🎁</span><div class="grow"><div class="name">Daily reward ready</div>
+    ${(() => { const dly = dailyStatus(state, now); return dly.claimed ? '' : `<button class="card promo" data-gtab="season"><span class="e">🎁</span><div class="grow"><div class="name">Daily reward ready</div>
       <div class="tiny muted">${dly.nextStreak > 1 ? `Day ${dly.nextStreak} of your streak` : 'Start a streak'} · tap to claim ${money(dly.reward)}</div></div><span class="muted">›</span></button>`; })()}`,
     live: `${live.length ? `<h3>Live now</h3><div class="live-strip">${live.map(([id, g]) => `
       <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
@@ -451,7 +450,6 @@ function trendingStrip() {
 }
 
 // ---- research report on each player / team page ----
-const pctTxt2 = (x) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(0)}%`;
 
 function teamRanks(league) {
   const teams = Object.values(state.assets).filter((t) => t.kind === 'team' && t.league === league && t.price > 0).sort((x, y) => y.price - x.price);
@@ -816,18 +814,9 @@ function pickGame(g) {
     <div class="pg-teams">${pickButton(g, away, home)}<span class="at">@</span>${pickButton(g, home, away)}</div></div>`;
 }
 
-function resultRow(r) {
-  const pk = state.picks[r.id];
-  const badge = pk?.result === 'won' ? `<span class="pk won">+${money(pk.paid || 0)}</span>` : pk?.result === 'lost' ? '<span class="pk lost">Miss</span>'
-    : pk?.result === 'push' ? '<span class="pk">Push</span>' : '';
-  return `<button class="item" data-game="${r.league}|${r.id}">${lgTag(r.league)}
-    <div class="grow score-line">${r.teams.map((t) => `<span class="${t.winner ? '' : 'muted'}"><b>${esc(t.abbr)}</b> ${t.score}</span>`).join('<span class="faint">·</span>')}</div>
-    ${badge}<span class="tiny faint">${fmtDate(r.date)}</span></button>`;
-}
-
 // ---------- Games tab: career header + Season / Contests / Props / Pick'em / Locker ----------
 
-const GTABS = [['season', 'Season'], ['contests', 'Contests'], ['props', 'Props'], ['pickem', "Pick'em"], ['locker', 'Locker']];
+const GTABS = [['pickem', 'Scores'], ['season', 'Season'], ['contests', 'Contests'], ['props', 'Props'], ['locker', 'Locker']];
 const cm = (cents) => money(Math.round(cents) / 100); // card and reward amounts are kept in cents
 const toCents = (v) => Math.round(parseFloat(String(v).replace(/[^0-9.]/g, '')) * 100);
 const daysLeft = (t) => { const d = (t - Date.now()) / DAY; return d >= 1 ? `${Math.ceil(d)} days left` : `${Math.max(1, Math.round(d * 24))}h left`; };
@@ -854,12 +843,12 @@ function careerHeader() {
 }
 
 function renderGames() {
-  ui.gtab ||= 'season';
-  const body = { season: gamesSeason, contests: gamesContests, props: gamesProps, pickem: gamesPickem, locker: gamesLocker }[ui.gtab]();
+  ui.gtab ||= 'pickem';
+  const body = { season: gamesSeason, contests: gamesContests, props: gamesProps, pickem: gamesScores, locker: gamesLocker }[ui.gtab]();
   $('#view').innerHTML = `
     ${topbar('<h1>Games</h1>')}
     ${careerHeader()}
-    <div class="chips gtabs" style="margin-top:12px">${GTABS.map(([k, n]) => `<button class="chip ${ui.gtab === k ? 'on' : ''}" data-gtab="${k}">${n}</button>`).join('')}</div>
+    <div class="chips gtabs" style="margin-top:12px">${GTABS.map(([k, n]) => `<button class="chip ${ui.gtab === k ? 'on' : ''}" data-gtab="${k}">${n}${k === 'season' && !dailyStatus(state).claimed ? ' <span class="livedot"></span>' : ''}</button>`).join('')}</div>
     ${body}`;
 }
 
@@ -1051,35 +1040,6 @@ function betRow(b) {
     <div class="price-col"><div class="price ${st[0]}">${st[1]}</div><div class="tiny muted">${money(b.stake)} stake</div></div></div>`;
 }
 
-// --- Pick'em (moved from the old Games tab) ---
-function gamesPickem() {
-  const now = Date.now();
-  const lgs = enabledLeagues();
-  const lgOk = (lg) => lgs.includes(lg) && (ui.gamesLeague === 'all' || ui.gamesLeague === lg);
-  const live = Object.entries(state.liveGames).filter(([, g]) => lgOk(g.league));
-  const upcoming = upcomingPickGames(state, now, lgs.filter(lgOk));
-  const limit = ui.pickLimit || 8;
-  const results = (state.results || []).filter((r) => lgOk(r.league)).slice(0, 8);
-  const ps = state.pickStats;
-  const openPicks = Object.values(state.picks).filter((p) => !p.done).length;
-  return `
-    <div class="grid3" style="margin-top:12px">
-      <div class="stat"><div class="k">Record</div><div class="v">${ps.w}-${ps.l}</div></div>
-      <div class="stat"><div class="k">Win streak</div><div class="v">${ps.streak ? `🔥 ${ps.streak}` : '0'}</div></div>
-      <div class="stat"><div class="k">Winnings</div><div class="v up">${money(ps.won || 0)}</div></div>
-    </div>
-    <div class="chips" style="margin-top:12px">${['all', ...lgs].map((l) => `<button class="chip ${ui.gamesLeague === l ? 'on' : ''}" data-gleague="${l}">${l === 'all' ? 'All leagues' : LEAGUES[l].name}</button>`).join('')}</div>
-    ${live.length ? `<h2>Live now</h2><div class="live-strip">${live.map(([id, g]) => `
-      <button class="game" data-game="${g.league}|${id}" style="text-align:left">${lgTag(g.league)} <span class="tag live">LIVE</span>
-        ${g.teams.map((t) => `<div class="t"><span>${esc(t.abbr)}</span><span>${t.score}</span></div>`).join('')}
-        <div class="tiny muted">${esc(g.detail)}</div></button>`).join('')}</div>` : ''}
-    <h2>Pick winners${upcoming.length ? ` <span class="faint small">${upcoming[0].date >= addDays(new Date(now).setHours(0, 0, 0, 0), 2) ? `next games ${fmtDate(upcoming[0].date, { weekday: 'short', month: 'short', day: 'numeric' })}` : 'today & tomorrow'}</span>` : ''}</h2>
-    <p class="small muted" style="margin:-4px 0 10px">Free to play. Underdogs pay more, and every win in a row adds 10% (up to 2x).${openPicks ? ` You have ${openPicks} open pick${openPicks > 1 ? 's' : ''}.` : ''}${ps.streak ? ` Next win pays <b class="up">${pickStreakMult(ps.streak).toFixed(1)}x</b>.` : ''}</p>
-    ${upcoming.length ? upcoming.slice(0, limit).map(pickGame).join('') + (upcoming.length > limit ? `<button class="more" data-act="morepicks">More games (${upcoming.length - limit})</button>` : '')
-      : '<div class="card empty">No games on the schedule yet. Check back soon.</div>'}
-    ${results.length ? `<h2>Recent results</h2><div class="list">${results.map(resultRow).join('')}</div>` : ''}`;
-}
-
 // --- Locker: shop, cards, themes, titles ---
 function gamesLocker() {
   const c = career(state);
@@ -1159,7 +1119,6 @@ function applyTheme() {
 const KIND_ICON = { 'HOME RUN': '⚾', 'GRAND SLAM': '👑', TRIPLE: '⚾', DOUBLE: '⚾', 'RBI SINGLE': '⚾', DUNK: '🏀', 'ALLEY-OOP': '🏀', '3-POINTER': '🎯', BUCKET: '🏀',
   'TD PASS': '🏈', 'TD RUN': '🏈', TOUCHDOWN: '🏈', 'DEFENSIVE TD': '🛡️', 'FIELD GOAL': '🥅' };
 const fmtLeft = (ms) => { const m = Math.round(ms / 60e3); return m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${Math.max(0, m)}m`; };
-const agoShort = (t) => { const s = (Date.now() - t) / 1000; if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`; if (s < 86400) return `${Math.round(s / 3600)}h`; if (s < 2592000) return `${Math.round(s / 86400)}d`; return `${Math.round(s / 2592000)}mo`; };
 const cardName = (c) => `${c.m.player.name} ${c.m.kind.toLowerCase()}`;
 
 function headshot(league, id, name, cls = '') {
@@ -1419,12 +1378,14 @@ function findGame(league, id) {
   if (r) return { status: 'final', league, id, name: r.name, date: r.date, teams: r.teams, preseason: r.preseason };
   const s = (state.schedule?.[league] || []).find((x) => x.id === id);
   if (s) return { status: 'pre', league, id, name: s.name, date: s.date, teams: s.teams, preseason: s.preseason };
+  const ev = sbGames.get(id)?.ev; // opened from the Scores page: any day's game
+  if (ev) return { status: ev.state === 'in' ? 'live' : ev.state === 'post' ? 'final' : 'pre', league, id, name: ev.name, date: ev.date, detail: ev.detail, teams: ev.teams, preseason: ev.preseason };
   return null;
 }
 
 function openGame(league, id, { push = true } = {}) {
   if (!findGame(league, id)) { toast('Game details are no longer available'); return; }
-  ui.game = { league, id };
+  ui.game = { league, id }; ui.gview = 'summary';
   if (push) { try { history.pushState({ game: id, lg: league }, ''); } catch { /* */ } }
   const el = $('#game');
   el.style.zIndex = ui.detail ? '34' : ''; // above the player page when opened from it
@@ -1447,9 +1408,10 @@ function renderGame() {
   const el = $('#game');
   if (!g) { el.hidden = true; return; }
   const now = Date.now();
-  const gview = g.status === 'pre' ? 'summary' : (ui.gview || 'summary');
   const away = g.teams.find((t) => !t.home) || g.teams[0];
   const home = g.teams.find((t) => t !== away) || g.teams[1];
+  const tabs = [['summary', 'Game'], ['props', 'Props'], ...(g.status !== 'pre' ? [['plays', 'Feed']] : []), ['away', away.abbr], ['home', home.abbr]];
+  const gview = tabs.some(([k]) => k === ui.gview) ? ui.gview : 'summary';
   const teamIds = new Set(g.teams.map((t) => t.id));
   let players;
   if (g.status === 'pre') {
@@ -1479,10 +1441,13 @@ function renderGame() {
     <div class="gc-head">${col(away)}<div class="gc-at">@</div>${col(home)}</div>
     <div class="wp"><div class="tiny muted row between"><span>${esc(away.abbr)} ${Math.round(pAway * 100)}%</span><span>Win probability (from share prices)</span><span>${Math.round((1 - pAway) * 100)}% ${esc(home.abbr)}</span></div>
       <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div></div>
-    ${up ? `<h3>Your pick</h3>${pickGame(up)}` : pk ? `<div class="card small" style="margin-top:12px">Your pick: <b>${esc(pk.abbr)}</b> · ${pk.result ? { won: `won <b class="up">+${money(pk.paid || 0)}</b>`, lost: '<span class="down">missed</span>', push: 'push', void: 'voided' }[pk.result] : 'locked — game in progress'}</div>` : ''}
-    ${g.status !== 'pre' ? `<div class="dtabs gtabs">${[['summary', 'Game'], ['plays', 'Play by play']].map(([k, t]) => `<button data-gview="${k}" class="${gview === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
-    <div class="gsec" data-gsec="plays" ${gview === 'plays' ? '' : 'hidden'}>${playsSection(g, league)}</div>
+    <div class="dtabs gtabs">${tabs.map(([k, t]) => `<button data-gview="${k}" class="${gview === k ? 'on' : ''}">${esc(t)}</button>`).join('')}</div>
+    ${g.status !== 'pre' ? `<div class="gsec" data-gsec="plays" ${gview === 'plays' ? '' : 'hidden'}>${playsSection(g, league)}</div>` : ''}
+    <div class="gsec" data-gsec="props" ${gview === 'props' ? '' : 'hidden'}>${gameProps(g, league)}</div>
+    <div class="gsec" data-gsec="away" ${gview === 'away' ? '' : 'hidden'}>${teamTab(g, league, away)}</div>
+    <div class="gsec" data-gsec="home" ${gview === 'home' ? '' : 'hidden'}>${teamTab(g, league, home)}</div>
     <div class="gsec" data-gsec="summary" ${gview === 'summary' ? '' : 'hidden'}>
+    ${up ? `<h3>Your pick</h3>${pickGame(up)}` : pk ? `<div class="card small" style="margin-top:12px">Your pick: <b>${esc(pk.abbr)}</b> · ${pk.result ? { won: `won <b class="up">+${money(pk.paid || 0)}</b>`, lost: '<span class="down">missed</span>', push: 'push', void: 'voided' }[pk.result] : 'locked — game in progress'}</div>` : ''}
     ${gameStake(g, league)}
     <h3>${g.status === 'pre' ? 'Players to watch' : 'Player movers'}</h3>
     <div class="list">${players.map(({ a, text, live }) => {
@@ -2272,7 +2237,7 @@ document.addEventListener('click', async (e) => {
   if (d.page) { if (ui.article) closeArticle(); openPage(d.page); return; }
   if (d.cmp != null && ui.page?.type === 'compare') { ui.page.b = d.cmp || null; ui.page.q = ''; renderPage(); $('#page').scrollTop = 0; if (!d.cmp) setTimeout(() => $('#pageq')?.focus(), 50); return; }
   if (d.cmprange && ui.page) { ui.page.range = d.cmprange; renderPage(); return; }
-  if (d.gview) { ui.gview = d.gview; document.querySelectorAll('#game .gsec').forEach((x) => { x.hidden = x.dataset.gsec !== d.gview; }); document.querySelectorAll('#game .gtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === d.gview)); if (d.gview === 'plays' && ui.game) loadPlays(ui.game.league, ui.game.id); return; }
+  if (d.gview) { ui.gview = d.gview; document.querySelectorAll('#game .gsec').forEach((x) => { x.hidden = x.dataset.gsec !== d.gview; }); document.querySelectorAll('#game .gtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === d.gview)); if (d.gview !== 'summary' && ui.game) loadPlays(ui.game.league, ui.game.id); return; }
   if (d.dtab) { ui.dtab = d.dtab; const inner = $('#dinner'); if (inner) { inner.dataset.dtab = d.dtab; inner.querySelectorAll('.dtabs button').forEach((b) => b.classList.toggle('on', b.dataset.dtab === d.dtab)); } return; }
   if (d.wfolder != null && ui.detail) { (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: d.wfolder }; dirty = true; save(); renderDetail(); return; }
   if (d.chal) { try { answerChallenge(state, d.chal === 'yes'); dirty = true; save(); buzz(); toast('Locked in. Good luck!'); renderHome(); } catch (err) { toast(err.message); } return; }
@@ -2332,7 +2297,9 @@ document.addEventListener('click', async (e) => {
     else if (i >= 0) slip.legs[i] = { ...p, side };
     else if (slip.legs.length >= MAX_LEGS(state)) { if (MAX_LEGS(state) === 1) slip.legs = [{ ...p, side }]; else { toast('Up to 3 picks per parlay'); return; } }
     else slip.legs.push({ ...p, side });
-    slip.err = ''; buzz(); const y = view().scrollTop; renderGames(); view().scrollTop = y; return;
+    slip.err = ''; buzz();
+    if (ui.game) { const y = $('#game').scrollTop; renderGame(); $('#game').scrollTop = y; } else { const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+    return;
   }
   if (d.rmleg) { ui.slip.legs.splice(Number(d.rmleg), 1); const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
   if (d.stake) {
@@ -2391,7 +2358,8 @@ document.addEventListener('click', async (e) => {
   if (d.mpsort) { ui.mp.sort = d.mpsort; renderMarketplace(); return; }
   if (d.mpl) { ui.mp.league = d.mpl; renderMarketplace(); return; }
   if (d.bidq) { const i = $('#bidamt'); if (i) i.value = d.bidq; return; }
-  if (d.gleague) { ui.gamesLeague = d.gleague; ui.pickLimit = 8; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
+  if (d.sleague) { ui.scoreLeague = d.sleague; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
+  if (d.sday) { ui.scoreDay = +d.sday; const x = $('.daystrip')?.scrollLeft; const y = view().scrollTop; renderGames(); view().scrollTop = y; if ($('.daystrip')) $('.daystrip').scrollLeft = x; return; }
   if (d.mview) { ui.mview = d.mview; renderMarket(); return; }
   if (d.league) { ui.league = d.league; ui.limit = 60; renderMarket(); return; }
   if (d.kind) { ui.kind = d.kind; ui.limit = 60; if (d.kind === 'fund' && !['movers', 'losers', 'price', 'div'].includes(ui.sort)) ui.sort = 'price'; renderMarket(); return; }
@@ -2489,7 +2457,6 @@ document.addEventListener('click', async (e) => {
     case 'sell': openOrder(stockOrderDefaults('sell')); break;
     case 'tcancel': closeOrder(); break;
     case 'more': ui.limit += 60; renderMarket(); break;
-    case 'morepicks': { ui.pickLimit = (ui.pickLimit || 8) + 12; const y = view().scrollTop; renderGames(); view().scrollTop = y; break; }
     case 'allcards': { ui.allCards = true; const y = view().scrollTop; renderGames(); view().scrollTop = y; break; }
     case 'claim': {
       try {
@@ -3579,7 +3546,7 @@ function loadPlays(league, id, { force = false } = {}) {
   if (c.loading || (!force && c.t && (g.status !== 'live' || Date.now() - c.t < 20e3))) return;
   playsCache.set(id, { ...c, loading: true });
   api.summary(league, id).then((j) => {
-    playsCache.set(id, { plays: parsePlays(league, j), atBat: league === 'mlb' ? parseAtBat(j) : null, t: Date.now(), loading: false });
+    playsCache.set(id, { box: lineups(league, j), plays: parsePlays(league, j), atBat: league === 'mlb' ? parseAtBat(j) : null, t: Date.now(), loading: false });
   }).catch(() => { playsCache.set(id, { ...c, loading: false, failed: !c.plays, t: Date.now() }); })
     .then(() => {
       // Show the new plays as soon as the screen is at rest (never swap content under a finger).
@@ -3653,6 +3620,134 @@ function startTilt() {
 }
 // Dragging a finger across a card moves the foil too.
 document.addEventListener('pointermove', (e) => { const c = e.target.closest?.('.mc.r-legendary, .mc.r-iconic'); if (!c || tiltOn) return; const b = c.getBoundingClientRect(); document.documentElement.classList.add('tilt'); setTilt(((e.clientX - b.left) / b.width - 0.5) * 2, ((e.clientY - b.top) / b.height - 0.5) * 2); }, { passive: true });
+
+// ====================================================================================
+// v55: Scores (every game, any day) and the game centre tabs (props, feed, both teams)
+// ====================================================================================
+
+const dayStart = (t) => new Date(t).setHours(0, 0, 0, 0);
+const etYmd = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).replace(/-/g, '');
+const sbCache = new Map();   // "league:dayStart" -> { t, events, loading }
+const sbGames = new Map();   // game id -> { league, ev } for games opened from the Scores page
+
+// One league's games on one local day, straight from the scoreboard. A local day can span
+// two US dates, so both are asked for and the games filtered to the day.
+function loadScores(league, day) {
+  if (STATIC) return;
+  const key = `${league}:${day}`;
+  const c = sbCache.get(key) || {};
+  const today = day === dayStart(Date.now());
+  if (c.loading || (c.t && Date.now() - c.t < (today ? 45e3 : 10 * 60e3))) return;
+  sbCache.set(key, { ...c, loading: true });
+  const dates = [...new Set([etYmd(day), etYmd(day + DAY - 1)])];
+  Promise.all(dates.map((d) => api.scoreboard(league, d).then((j) => parseScoreboard(league, j)).catch(() => null))).then((res) => {
+    if (res.every((x) => !x)) { sbCache.set(key, { ...c, loading: false, t: Date.now() - (today ? 30e3 : 9 * 60e3) }); return; }
+    const seen = new Set(); const events = [];
+    for (const ev of res.flat().filter(Boolean)) { if (seen.has(ev.id) || dayStart(ev.date) !== day) continue; seen.add(ev.id); events.push(ev); sbGames.set(ev.id, { league, ev }); }
+    events.sort((x, y) => x.date - y.date);
+    sbCache.set(key, { t: Date.now(), events, loading: false });
+    const show = (tries = 0) => { if (ui.tab !== 'games' || ui.gtab !== 'pickem' || overlayOpen()) return; if (busyScrolling(500) && tries < 10) { setTimeout(() => show(tries + 1), 400); return; } const y = view().scrollTop; const x = $('.daystrip')?.scrollLeft; renderGames(); view().scrollTop = y; if ($('.daystrip') && x != null) $('.daystrip').scrollLeft = x; };
+    show();
+  });
+}
+// What the app already knows about a day (used until the scoreboard answers, and offline).
+function knownGames(league, day) {
+  const out = [];
+  for (const [id, g] of Object.entries(state.liveGames)) if (g.league === league && day === dayStart(Date.now())) out.push({ id, date: Date.now(), state: 'in', detail: g.detail, name: g.name, teams: g.teams });
+  for (const r of state.results || []) if (r.league === league && dayStart(r.date) === day && !out.some((x) => x.id === r.id)) out.push({ id: r.id, date: r.date, state: 'post', detail: 'Final', name: r.name, teams: r.teams, preseason: r.preseason });
+  for (const s of state.schedule?.[league] || []) if (dayStart(s.date) === day && !out.some((x) => x.id === s.id)) out.push({ id: s.id, date: s.date, state: 'pre', name: s.name, teams: s.teams, preseason: s.preseason });
+  return out.sort((x, y) => x.date - y.date);
+}
+function scoreCard(ev, league, now) {
+  const away = ev.teams.find((t) => !t.home) || ev.teams[0]; const home = ev.teams.find((t) => t !== away) || ev.teams[1];
+  if (!away || !home) return '';
+  const live = ev.state === 'in'; const fin = ev.state === 'post';
+  const pk = state.picks[ev.id];
+  const row = (t, o) => { const ta = teamAsset(league, t.id); const won = fin && (t.winner || (t.score ?? 0) > (o.score ?? 0));
+    return `<div class="sg-team ${fin && !won ? 'lost' : ''}">${ta ? avatar(ta) : `<div class="avatar-fallback">${esc(t.abbr || '')}</div>`}<div class="grow"><b>${esc(t.abbr || '')}</b>${ta?.rec?.gp ? `<span class="tiny muted">${recText(ta)}</span>` : ''}</div>
+      ${live || fin ? `<span class="sg-score">${t.score ?? ''}</span>` : ''}</div>`; };
+  const pAway = !fin ? winProb(state, league, away.id, home.id, false, !!ev.preseason) : null;
+  const fav = pAway != null ? (pAway >= 0.5 ? [away.abbr, pAway] : [home.abbr, 1 - pAway]) : null;
+  const mine = [away, home].some((t) => Object.keys(state.holdings).some((id) => { const a = state.assets[id]; return a && a.league === league && a.kind !== 'fund' && (a.kind === 'team' ? a.rid : a.teamId) === t.id; }));
+  return `<button class="sgame ${live ? 'live' : ''}" data-game="${league}|${ev.id}">
+    <div class="sg-teams">${row(away, home)}${row(home, away)}</div>
+    <div class="sg-side">${live ? `<span class="tag live">LIVE</span><div class="small">${esc(ev.detail || '')}</div>` : fin ? '<div class="sg-time">Final</div>' : `<div class="sg-time">${new Date(ev.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>`}
+      ${fav && !fin && teamAsset(league, away.id) ? `<div class="tiny muted">${esc(fav[0])} ${Math.round(fav[1] * 100)}%</div>` : ''}
+      ${ev.preseason ? '<div class="tiny faint">Preseason</div>' : ''}
+      <div class="sg-tags">${pk ? `<span class="pk ${pk.result === 'won' ? 'won' : pk.result === 'lost' ? 'lost' : ''}">Pick ${esc(pk.abbr)}</span>` : ''}${mine ? '<span class="tag own">Yours</span>' : ''}</div></div></button>`;
+}
+// The Scores page: every game for a league on any day, with Pick'em built in.
+function gamesScores() {
+  const now = Date.now();
+  const lgs = enabledLeagues();
+  if (!lgs.includes(ui.scoreLeague)) ui.scoreLeague = lgs.find((l) => Object.values(state.liveGames).some((g) => g.league === l)) || lgs.find((l) => (state.schedule?.[l] || []).some((g) => dayStart(g.date) === dayStart(now))) || lgs[0];
+  const league = ui.scoreLeague;
+  const today = dayStart(now);
+  ui.scoreDay ??= today;
+  const day = ui.scoreDay;
+  const days = Array.from({ length: 12 }, (_, i) => new Date(today).setDate(new Date(today).getDate() + i - 3));
+  loadScores(league, day);
+  const c = sbCache.get(`${league}:${day}`);
+  const events = c?.events || knownGames(league, day);
+  const pickable = new Map(upcomingPickGames(state, now, [league]).map((g) => [g.id, g]));
+  const ps = state.pickStats;
+  const nextPick = pickable.size ? dayStart(Math.min(...[...pickable.values()].map((g) => g.date))) : null;
+  const has = (d) => (sbCache.get(`${league}:${d}`)?.events || knownGames(league, d)).length > 0;
+  return `
+    <div class="chips" style="margin-top:12px">${lgs.map((l) => `<button class="chip ${league === l ? 'on' : ''}" data-sleague="${l}">${LEAGUES[l].name}${Object.values(state.liveGames).some((g) => g.league === l) ? ' <span class="livedot"></span>' : ''}</button>`).join('')}</div>
+    <div class="hscroll daystrip">${days.map((d) => `<button class="dayb ${d === day ? 'on' : ''} ${d === today ? 'today' : ''}" data-sday="${d}"><span>${d === today ? 'Today' : new Date(d).toLocaleDateString([], { weekday: 'short' })}</span><b>${new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric' })}</b>${has(d) ? '<i></i>' : ''}</button>`).join('')}</div>
+    ${events.length ? `<div class="sgames">${events.map((ev) => (pickable.has(ev.id) && ev.state !== 'in' && ev.state !== 'post' ? pickGame(pickable.get(ev.id)) : scoreCard(ev, league, now))).join('')}</div>`
+      : `<div class="card empty" style="margin-top:12px">${c?.loading || (!c && !STATIC) ? 'Loading games…' : `No ${LEAGUES[league].name} games on ${new Date(day).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}.`}</div>`}
+    <div class="card pkline"><div class="grow"><b>Pick'em</b> <span class="muted">${ps.w}-${ps.l}${ps.streak ? ` · 🔥 ${ps.streak} in a row` : ''}</span><div class="tiny muted">Pick winners on today's and tomorrow's games for free. Underdogs pay more, and each win in a row adds 10%.</div></div>${nextPick != null && nextPick !== day ? `<button class="chip on" data-sday="${nextPick}">Pick ${nextPick === today ? 'today' : new Date(nextPick).toLocaleDateString([], { weekday: 'short' })} ›</button>` : `<b class="up">${money(ps.won || 0)}</b>`}</div>`;
+}
+
+// ---------- game centre tabs ----------
+// Starters and bench from the box score once a game is under way.
+function lineups(league, json) {
+  const starters = new Set();
+  for (const side of json?.boxscore?.players || []) for (const cat of side.statistics || []) for (const row of cat.athletes || []) if (row.starter && row.athlete?.id != null) starters.add(String(row.athlete.id));
+  return { players: parseBoxScore(league, json), starters };
+}
+function gameProps(g, league) {
+  const now = Date.now();
+  const board = g.status === 'pre' ? propBoard(state, now, [league]).filter((p) => p.gameId === g.id) : [];
+  const slip = (ui.slip ||= { legs: [], stake: '' });
+  const mine = (state.props || []).filter((b) => b.legs.some((l) => l.gameId === g.id));
+  const groups = new Map();
+  for (const p of board) { if (!groups.has(p.label)) groups.set(p.label, []); groups.get(p.label).push(p); }
+  return `${mine.length ? `<h3>Your bets on this game</h3><div class="list">${mine.map(betRow).join('')}</div>` : ''}
+    ${board.length ? `${[...groups.entries()].map(([label, list]) => `<h3>${esc(label)}</h3><div class="card props-game">${list.map((p) => { const a = state.assets[p.assetId]; const sel = slip.legs.find((l) => l.assetId === p.assetId); return `<div class="prop-row">
+        <button class="grow row" data-open="${p.assetId}" style="gap:10px;text-align:left;min-width:0">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${esc(a.teamAbbr || '')} · ${esc(a.pos || '')}</div></div></button>
+        <button class="ou ${sel?.side === 'over' ? 'on' : ''}" data-prop="${p.key}|over"><small>Over</small>${p.line}</button>
+        <button class="ou ${sel?.side === 'under' ? 'on' : ''}" data-prop="${p.key}|under"><small>Under</small>${p.line}</button></div>`; }).join('')}</div>`).join('')}
+      <p class="tiny faint" style="margin:8px 2px">A hit pays ${PROP_ODDS}x your stake. Lines come from each player's season average.</p>
+      ${slip.legs.length ? `<button class="btn buy" data-gtab="props" style="width:100%;margin-top:6px">Bet slip · ${slip.legs.length} pick${slip.legs.length > 1 ? 's' : ''} ›</button>` : ''}`
+      : `<div class="card small muted" style="margin-top:12px">${g.status === 'pre' ? 'Player props for this game open the day before it starts.' : 'Betting closed when the game started.'}</div>`}`;
+}
+function teamTab(g, league, t) {
+  const now = Date.now();
+  const ta = teamAsset(league, t.id);
+  const c = playsCache.get(g.id);
+  const box = c?.box ? c.box.players.filter((p) => p.teamId === t.id) : [];
+  const head = ta ? `<button class="item card" data-open="${ta.id}" style="margin-top:12px">${avatar(ta)}<div class="grow"><div class="name">${esc(ta.name)}</div><div class="sub">${recText(ta)}${ta.rec?.streak ? ` · ${ta.rec.streak > 0 ? 'W' : 'L'}${Math.abs(ta.rec.streak)}` : ''}</div></div>
+      <div class="price-col"><div class="price" data-p="${ta.id}">${money(ta.price)}</div><div class="small ${cls(change(ta, now))}" data-c="${ta.id}" data-plain="1">${fmtPct(change(ta, now))}</div></div></button>` : '';
+  const row = (a, sub, tag = '') => `<button class="item" data-open="${a.id}">${avatar(a)}<div class="grow"><div class="name ellipsis">${esc(a.name)} <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">Owned</span>' : ''}${tag}</div>
+      <div class="sub ellipsis">${sub}</div></div><div class="price-col"><div class="price" data-p="${a.id}">${money(a.price)}</div><div class="small ${cls(change(a, now))}" data-c="${a.id}" data-plain="1">${fmtPct(change(a, now))}</div></div></button>`;
+  const inj = (a) => (a.injury ? ` <span class="tag inj">${esc(shortInj(a.injury.status))}</span>` : '');
+  if (box.length) {
+    const rows = box.map((p) => ({ p, a: state.assets[`${league}:p:${p.id}`], st: c.box.starters.has(p.id) })).filter((x) => x.a);
+    const starters = rows.filter((x) => x.st); const bench = rows.filter((x) => !x.st);
+    const list = (xs) => `<div class="list">${xs.map(({ p, a }) => row(a, esc(lineText(league, p.line)) || '—', inj(a))).join('')}</div>`;
+    return `${head}${starters.length ? `<h3>Starters</h3>${list(starters)}` : ''}${bench.length ? `<h3>${starters.length ? 'Bench' : 'Players'}</h3>${list(bench)}` : ''}
+      ${!rows.length ? '<div class="card empty" style="margin-top:12px">No box score yet.</div>' : ''}`;
+  }
+  // Before the game: the team's players in your market, best first, with their season averages.
+  const roster = Object.values(state.assets).filter((a) => a.kind === 'player' && a.league === league && a.teamId === t.id && a.hist.length).sort((x, y) => y.price - x.price).slice(0, 24);
+  const avgLine = (a) => { try { const s = a.perf?.avg ? lineText(league, a.perf.avg) : ''; return s && !/^0|NaN/.test(s) ? `${esc(s)} a game` : a.perf?.ema != null ? `Form ${a.perf.ema.toFixed(1)}` : '—'; } catch { return '—'; } };
+  return `${head}<h3>${g.status === 'pre' ? 'Likely lineup' : 'Players'} <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">season averages</span></h3>
+    ${roster.length ? `<div class="list">${roster.map((a) => row(a, avgLine(a), inj(a))).join('')}</div>` : '<div class="card empty">No players from this team in your market yet.</div>'}
+    ${g.status === 'pre' ? '<p class="tiny faint" style="margin:8px 2px">Confirmed starters and live stat lines appear here once the game begins.</p>' : ''}`;
+}
 
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {

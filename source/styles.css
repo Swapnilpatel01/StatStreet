@@ -382,7 +382,6 @@ details .prose { padding: 12px 14px 4px; }
 .pk { font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 5px; background: var(--card2); color: var(--muted); flex: none; }
 .pk.won { background: var(--up-bg); color: var(--up); }
 .pk.lost { background: var(--down-bg); color: var(--down); }
-.score-line { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 .lb .rank { width: 22px; text-align: center; font-weight: 800; color: var(--muted); flex: none; }
 .lb.you { background: color-mix(in srgb, var(--up) 7%, transparent); }
 .lb.you .rank { color: var(--up); }
@@ -987,3 +986,30 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .ab-n { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px; font-weight: 800; color: #04140b; margin-top: 1px; }
 .ab-call { font-size: 15px; font-weight: 700; line-height: 1.2; }
 .zone { width: 150px; height: 190px; background: var(--bg); border-radius: 10px; border: 1px solid var(--line); }
+
+/* v55: scores page and game centre tabs */
+.daystrip { gap: 6px; margin-top: 12px; }
+.dayb { min-width: 62px; padding: 8px 6px 10px; border-radius: 12px; background: var(--card); color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 2px; position: relative; font-size: 11.5px; font-weight: 600; }
+.dayb b { font-size: 13px; color: var(--text); font-weight: 800; white-space: nowrap; }
+.dayb.today span { color: var(--accent); }
+.dayb.on { background: var(--accent); color: #04130c; }
+.dayb.on b, .dayb.on.today span { color: #04130c; }
+.dayb i { position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .7; }
+.sgames { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.sgames .pick-game { margin-bottom: 0; }
+.sgame { display: flex; align-items: stretch; gap: 12px; width: 100%; text-align: left; background: var(--card); border-radius: var(--r); padding: 12px; }
+.sgame.live { box-shadow: inset 3px 0 0 var(--live); }
+.sg-teams { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.sg-team { display: flex; align-items: center; gap: 10px; }
+.sg-team .avatar, .sg-team .avatar-fallback { width: 30px; height: 30px; flex: none; }
+.sg-team .avatar-fallback { border-radius: 50%; background: var(--card2); font-size: 10px; font-weight: 800; display: grid; place-items: center; }
+.sg-team .grow { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.sg-team b { font-size: 16px; font-weight: 800; }
+.sg-team.lost b, .sg-team.lost .sg-score { color: var(--muted); }
+.sg-score { font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.sg-side { flex: none; width: 92px; border-left: 1px solid var(--line, rgba(128,128,128,.2)); padding-left: 12px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 3px; }
+.sg-time { font-weight: 800; font-size: 14px; }
+.sg-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.livedot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--live); margin-left: 4px; animation: pulse 1.6s infinite; }
+.pkline { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+#game .dtabs.gtabs button { font-size: 13px; padding: 9px 2px; }

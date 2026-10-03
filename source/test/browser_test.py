@@ -59,18 +59,45 @@ with sync_playwright() as p:
     # --- Games tab: daily reward, Pick'em, Game Center
     page.click('#tabbar [data-tab=games]'); page.wait_for_timeout(300)
     page.screenshot(path=f'{OUT}/0a-games.png', full_page=True)
+    assert page.locator('.gtabs .chip.on[data-gtab=pickem]').count() == 1
+    page.click('[data-gtab=season]'); page.wait_for_timeout(200)
     page.click('[data-act=claim]'); page.wait_for_timeout(200); print('daily:', toast(page)); assert 'daily reward' in toast(page)
     assert page.locator('[data-act=claim]').count() == 0
     assert page.locator('.career .lvl').count() == 1 and page.locator('.goal').count() == 3, 'career header + 3 weekly goals'
     page.screenshot(path=f'{OUT}/0a2-season.png', full_page=True)
-    page.click('[data-gtab=pickem]'); page.wait_for_timeout(200)
+    page.click('[data-gtab=pickem]'); page.wait_for_timeout(900)
+    assert page.locator('.daystrip .dayb').count() == 12 and page.locator('.dayb.on.today').count() == 1
+    for L in ['nfl', 'mlb', 'nba']:
+        page.click(f'[data-sleague={L}]'); page.wait_for_timeout(900)
+        print('scores', L, page.locator('.sgames > *').count(), 'cards', page.locator('.pick-btn').count(), 'pick buttons')
+        page.screenshot(path=f'{OUT}/70-scores-{L}.png')
+        if page.locator('.pick-btn').count() >= 2: break
+    sg = page.locator('.sgame').first
+    if sg.count():
+        sg.click(); page.wait_for_selector('#game:not([hidden])'); page.wait_for_timeout(1500)
+        for k in ['props', 'away', 'home']:
+            page.click(f'#game [data-gview={k}]'); page.wait_for_timeout(250)
+            assert page.locator(f'#game .gsec[data-gsec={k}]').is_visible()
+            page.screenshot(path=f'{OUT}/71-game-{k}.png')
+        print('team tab rows:', page.locator('#game .gsec[data-gsec=home] .item').count())
+        page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
+    page.click('.daystrip .dayb >> nth=2'); page.wait_for_timeout(900); page.screenshot(path=f'{OUT}/72-scores-yday.png')
+    page.click('.dayb.today'); page.wait_for_timeout(600)
+    if page.locator('.pkline [data-sday]').count(): page.click('.pkline [data-sday]'); page.wait_for_timeout(900); page.screenshot(path=f'{OUT}/75-scores-pick.png')
     npk = page.locator('.pick-btn').count(); print('pick buttons:', npk); assert npk >= 2
     page.click('.pick-btn >> nth=0'); page.wait_for_timeout(200); print('pick:', toast(page)); assert toast(page).startswith('Picked')
     assert page.locator('.pick-btn.on').count() == 1
     page.click('.pg-head [data-game] >> nth=0'); page.wait_for_selector('#game:not([hidden])'); page.wait_for_timeout(400)
     page.screenshot(path=f'{OUT}/0b-gamecenter.png')
     assert page.locator('#game .pick-btn.on').count() == 1
-    page.click('#game .item[data-open] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
+    page.click('#game [data-gview=props]'); page.wait_for_timeout(300); page.screenshot(path=f'{OUT}/73-game-props-pre.png')
+    np_ = page.locator('#game [data-prop]').count(); print('game props:', np_)
+    if np_:
+        page.click('#game [data-prop] >> nth=0'); page.wait_for_timeout(300); assert page.locator('#game .ou.on').count() == 1
+        page.click('#game [data-prop] >> nth=0'); page.wait_for_timeout(200)
+    page.click('#game [data-gview=away]'); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/74-game-team-pre.png')
+    page.click('#game [data-gview=summary]'); page.wait_for_timeout(200)
+    page.click('#game .gsec[data-gsec=summary] .item[data-open] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
     assert page.locator('#sheet .rar').count() == 1 and page.locator('#sheet .cardsec').count() == 1
     page.go_back(); page.wait_for_function("document.querySelector('#sheet').hidden"); page.wait_for_timeout(300)
     assert not page.evaluate("document.querySelector('#game').hidden"), 'back from player returns to the game'
@@ -459,7 +486,7 @@ with sync_playwright() as p:
     lg = page.locator('#view .live-strip [data-game]').first
     if lg.count():
         lg.click(); page.wait_for_timeout(1200)
-        assert page.locator('#game .gtabs button').count() == 2 and page.locator('#game .gsec[data-gsec=plays]').is_hidden()
+        assert page.locator('#game .gtabs button').count() == 5 and page.locator('#game .gsec[data-gsec=plays]').is_hidden()
         page.click('#game [data-gview=plays]'); page.wait_for_timeout(1200)
         assert page.locator('#game .gsec[data-gsec=summary]').is_hidden()
         gt = page.text_content('#game'); assert 'Play by play' in gt, gt[:200]
