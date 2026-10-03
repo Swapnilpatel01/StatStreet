@@ -777,10 +777,16 @@ export function applyInjuries(state, league, list, { now = Date.now() } = {}) {
     if (inj) {
       if (prev !== inj.status) {
         withEvent(state, a, now, now, 'injury', `${inj.status}${inj.detail ? ` — ${inj.detail}` : ''}`, () => {
-          a.injury = { status: inj.status, detail: inj.detail, factor: injuryFactor(inj.status), since: now };
+          a.injury = { status: inj.status, detail: inj.detail, factor: injuryFactor(inj.status, inj.detail), since: now };
         }, { force: true });
       } else {
-        a.injury.detail = inj.detail;
+        // Same status, new report: the outlook may have changed ("could begin practicing").
+        const f = injuryFactor(inj.status, inj.detail);
+        if (Math.abs(f - a.injury.factor) > 0.004) {
+          withEvent(state, a, now, now, 'injury', `${f > a.injury.factor ? 'Outlook improving' : 'Outlook worse'}${inj.detail ? ` — ${inj.detail}` : ''}`, () => {
+            a.injury.factor = f; a.injury.detail = inj.detail;
+          }, { force: true });
+        } else a.injury.detail = inj.detail;
       }
     } else if (prev && list.length) {
       withEvent(state, a, now, now, 'injury', `Cleared: back from "${prev}"`, () => { a.injury = null; }, { force: true });

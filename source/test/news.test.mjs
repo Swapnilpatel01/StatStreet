@@ -46,4 +46,18 @@ const c = st.assets['nfl:p:c']; const s = st.assets['nfl:p:s'];
 assert.ok(c.price > p0 * 1.01, `Collins now up: ${p0} -> ${c.price}`);
 assert.ok(Math.abs(s.price / q0 - 1) < 0.005 && !s.events.some((e) => e.kind === 'news'), 'Stroud untouched');
 assert.ok(c.events.find((e) => e.kind === 'news').pct > 0);
+// Injury reports: a player on his way back is discounted less than one with no timetable.
+const good = 'Head coach Jeff Hafley said Friday that Grant (leg) could begin practicing next week, C. Isaiah Smalls II of the Miami Herald reports.';
+assert.equal(S.injuryOutlook(good), 1);
+assert.equal(S.injuryOutlook('Underwent surgery and is out indefinitely.'), -1);
+assert.equal(S.injuryOutlook('Was placed on injured reserve Tuesday.'), 0);
+assert.ok(S.injuryFactor('Injured Reserve', good) > 0.85 && S.injuryFactor('Injured Reserve', '') === 0.72 && S.injuryFactor('Injured Reserve', 'No timetable for his return.') < 0.7);
+{
+  const a = st.assets['nfl:p:s']; const now2 = now + 1000;
+  E.applyInjuries(st, 'nfl', [{ athleteId: 's', status: 'Injured Reserve', detail: 'Placed on IR.' }], { now: now2 });
+  const low = a.price;
+  E.applyInjuries(st, 'nfl', [{ athleteId: 's', status: 'Injured Reserve', detail: good }], { now: now2 + 1000 });
+  assert.ok(a.price > low * 1.1, `better report lifts the price: ${low} -> ${a.price}`);
+  assert.ok(a.events[0].text.startsWith('Outlook improving') && a.events[0].pct > 0);
+}
 console.log('ok - news tests');

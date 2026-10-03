@@ -306,7 +306,23 @@ export function parseNews(league, json) {
 
 // ---------- Injury severity ----------
 
-export function injuryFactor(status) {
+// The report that comes with a status matters as much as the status: "could begin
+// practicing next week" is a player on his way back, "no timetable" is the opposite.
+const OUTLOOK_UP = /\b(could|expected to|set to|will|may|might|hopes? to|on track to|close to|nearing|eligible to) (begin|start|resume|return|play|practice|be back|be activated|come off)|\b(began|begins?|begun|resumed?|returned|returns|back) (to |at )?practic|\bpractic(ed|ing)\b|\bdesignated (to|for) return|\b21-day (practice )?window|\b(limited|full) participant|\bnearing (a |his )?return|\bexpected back|\bactivated\b|\bcleared\b|\bprogressing\b|\bahead of schedule\b|\bwithout (a )?setback/i;
+const OUTLOOK_DOWN = /\bseason-ending\b|\bout for the (season|year)\b|\bmiss the (rest|remainder)\b|\bindefinitely\b|\bno timetable\b|\bsetback\b|\bsurgery\b|\btorn\b|\bruptured?\b|\bnot expected (back|to return|to play)/i;
+export function injuryOutlook(detail) {
+  const d = String(detail || '');
+  if (OUTLOOK_DOWN.test(d) && !/\bwithout (a )?setback|\bavoid(s|ed)? surgery|\bno surgery/i.test(d)) return -1;
+  return OUTLOOK_UP.test(d) ? 1 : 0;
+}
+
+export function injuryFactor(status, detail) {
+  const base = statusFactor(status);
+  const o = injuryOutlook(detail);
+  // On the way back: half the discount. Bad report: a quarter more.
+  return Math.round((1 - (1 - base) * (o > 0 ? 0.5 : o < 0 ? 1.25 : 1)) * 1000) / 1000;
+}
+function statusFactor(status) {
   const s = String(status || '').toLowerCase();
   if (!s || s === 'active') return 1;
   if (s.includes('day-to-day') || s.includes('day to day')) return 0.96;
