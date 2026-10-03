@@ -60,7 +60,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 39;
+const APP_VERSION = 40;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3405,16 +3405,18 @@ function closeQuick() { ui.quick = null; const el = $('#qa'); el.hidden = true; 
     const row = e.target.closest?.('#view [data-open]');
     if (!row || !state.assets[row.dataset.open]) return;
     const t = e.touches[0]; sx = t.clientX; sy = t.clientY;
-    timer = setTimeout(() => { timer = 0; ui.swallowClick = Date.now(); ui.lpBuzz = true; openQuick(row.dataset.open); }, 480);
+    timer = setTimeout(() => { timer = 0; ui.lpHeld = true; ui.lpBuzz = true; openQuick(row.dataset.open); }, 480);
   }, { passive: true });
   document.addEventListener('touchmove', (e) => { if (!timer) return; const t = e.touches[0]; if (Math.abs(t.clientX - sx) > 9 || Math.abs(t.clientY - sy) > 9) cancel(); }, { passive: true });
-  // iPhone only lets a web app fire a haptic from a finger-up, so the tap you feel there
-  // comes as you lift off; phones that can vibrate directly already buzzed when the menu opened.
-  document.addEventListener('touchend', () => { cancel(); if (ui.lpBuzz) { ui.lpBuzz = false; if (!navigator.vibrate) buzz(); } }, { passive: true });
-  document.addEventListener('touchcancel', () => { cancel(); ui.lpBuzz = false; }, { passive: true });
+  // iPhone only plays a web app's haptic from a real tap, so there it fires on the click that
+  // follows the press (below); phones that can vibrate directly buzz when the menu opens.
+  // The click that follows the finger lifting belongs to the long press, however long it was held.
+  document.addEventListener('touchend', () => { cancel(); if (ui.lpHeld) { ui.lpHeld = false; ui.swallowUntil = Date.now() + 450; } }, { passive: true });
+  document.addEventListener('touchcancel', () => { cancel(); ui.lpHeld = false; ui.lpBuzz = false; }, { passive: true });
   // The tap that ends a long press must not also open the player page.
   document.addEventListener('click', (e) => {
-    if (ui.swallowClick && Date.now() - ui.swallowClick < 700 && !e.target.closest('#qa')) { e.stopPropagation(); e.preventDefault(); ui.swallowClick = 0; return; }
+    if (ui.lpBuzz && !navigator.vibrate) { ui.lpBuzz = false; buzz(); } // the first real tap after the press: the one iPhone will play
+    if ((ui.lpHeld || Date.now() < (ui.swallowUntil || 0)) && !e.target.closest('#qa')) { e.stopPropagation(); e.preventDefault(); ui.swallowUntil = 0; return; }
     const b = e.target.closest('[data-qa]'); if (!b) return;
     e.stopPropagation();
     const id = ui.quick; const act = b.dataset.qa;

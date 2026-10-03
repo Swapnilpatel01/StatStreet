@@ -2,20 +2,20 @@
 
 // iOS Safari has no vibration API, but toggling a hidden switch control gives a
 // system haptic tick (iOS 18+). Elsewhere we fall back to navigator.vibrate.
-let hapticLabel = null;
 export function haptic() {
   try {
     if (navigator.vibrate) { navigator.vibrate(8); return; }
-    if (!hapticLabel) {
-      hapticLabel = document.createElement('label');
-      const input = document.createElement('input');
-      input.type = 'checkbox'; input.setAttribute('switch', ''); input.tabIndex = -1;
-      hapticLabel.append(input);
-      hapticLabel.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-10px;top:-10px';
-      hapticLabel.dataset.haptic = '1';
-      document.body.append(hapticLabel);
-    }
-    hapticLabel.click();
+    // iPhone has no vibration API for web apps. Toggling a native switch control makes the
+    // system play its switch haptic, so a hidden one is created, flipped and removed.
+    // A fresh element each time: a reused one stops producing the tap on some iOS versions.
+    const label = document.createElement('label');
+    label.ariaHidden = 'true'; label.style.display = 'none';
+    const input = document.createElement('input');
+    input.type = 'checkbox'; input.setAttribute('switch', '');
+    label.appendChild(input);
+    document.head.appendChild(label);
+    label.click();
+    document.head.removeChild(label);
   } catch { /* no haptics available */ }
 }
 
