@@ -425,6 +425,7 @@ with sync_playwright() as p:
     page.screenshot(path=f'{OUT}/41-pinned.png')
     page.evaluate("document.querySelector('#sheet').scrollTop = 0"); page.wait_for_timeout(250)
     assert not page.evaluate("document.querySelector('#dpin').classList.contains('on')")
+    page.wait_for_timeout(250); assert page.evaluate("getComputedStyle(document.querySelector('#dpin .pin-in')).visibility") == 'hidden', 'the unpinned bar must not cover the header'
     page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
     page.evaluate("document.querySelector('.tools [data-page=hof]').click()"); page.wait_for_timeout(450)

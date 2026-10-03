@@ -882,8 +882,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .pin { position: sticky; top: 0; z-index: 4; height: 0; margin: 0 -16px; pointer-events: none; }
 .pin-in { display: flex; align-items: center; gap: 10px; padding: calc(var(--safe-t) + 6px) 16px 8px; margin-top: calc(-1 * var(--safe-t) - 8px);
   background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);
-  opacity: 0; transform: translateY(-8px); transition: opacity .18s, transform .18s; }
-.pin.on .pin-in { opacity: 1; transform: none; pointer-events: auto; }
+  /* Fully removed from view until pinned: on iPhone a see-through blurred bar still blurs what is under it. */
+  visibility: hidden; opacity: 0; transform: translateY(-8px); transition: opacity .18s, transform .18s, visibility 0s .18s; }
+.pin.on .pin-in { visibility: visible; opacity: 1; transform: none; pointer-events: auto; transition: opacity .18s, transform .18s, visibility 0s; }
 .pin-in > b { font-size: 16px; min-width: 0; }
 .pin-in .icon-btn { width: 34px; height: 34px; flex: none; }
 .pin-p { display: grid; justify-items: end; line-height: 1.15; flex: none; }
