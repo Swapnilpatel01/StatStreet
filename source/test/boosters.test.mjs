@@ -119,7 +119,7 @@ t('marketplace: listings appear hourly, proxy bids, outbid refunds, winning deli
   const st = withPool(build());
   X.addCoins(st, 100000);
   const L = B.marketListings(st, now);
-  assert.ok(L.length >= 5, `${L.length} live listings`);
+  assert.ok(L.length >= 2 && new Set(L.map((x) => x.card.m.id)).size === L.length, `${L.length} live listings, one per play`);
   const l = L[0];
   const v = B.listingView(st, l, now);
   assert.throws(() => B.placeBid(st, l.id, v.minBid - 1, now), /at least/);

@@ -168,11 +168,13 @@ function poolByRarity(state) {
   for (const m of state.moments || []) if (on.includes(m.league)) (by[m.rarity] ||= []).push(m);
   return by;
 }
-function drawMoment(by, rarity, rnd) {
+// `skip` is a set of play ids to leave out (plays already on sale in the marketplace).
+function drawMoment(by, rarity, rnd, skip = null) {
   let k = rIdx(rarity);
   for (let step = 0; step < B_RARITY.length; step++) {
     for (const kk of [k - step, k + step]) {
-      const list = by[B_RARITY[kk]?.key];
+      let list = by[B_RARITY[kk]?.key];
+      if (skip && list) list = list.filter((m) => !skip.has(m.id));
       if (list?.length) return list[Math.floor(rnd() * list.length)];
     }
   }
@@ -294,6 +296,13 @@ function stockListings(state, now) {
   // More shelves than before: restock the last day once at the new rate (existing auctions stay).
   if (m.per !== PER_HOUR) { m.per = PER_HOUR; m.hour = 0; }
   const have = new Set(m.list.map((l) => l.id));
+  // One auction per play at a time: no two live listings show the same play.
+  if (m.dedupV !== 1) {
+    m.dedupV = 1;
+    const seen = new Set();
+    m.list = m.list.filter((l) => { if (l.mine || l.end <= now || m.bids[l.id]) { if (!l.mine && l.end > now) seen.add(l.card.m.id); return true; } if (seen.has(l.card.m.id)) return false; seen.add(l.card.m.id); return true; });
+  }
+  const onSale = new Set(m.list.filter((l) => !l.mine && l.end > now).map((l) => l.card.m.id));
   const from = Math.max(m.hour + 1, hourNow - 23);
   for (let h = from; h <= hourNow; h++) {
     const rnd = seeded(`mp:${h}`);
@@ -301,8 +310,8 @@ function stockListings(state, now) {
       if (have.has(`mp${h}-${i}`)) continue;
       const roll = rnd();
       const r = MP_ODDS.find(([, q]) => roll < q)[0];
-      const mo = drawMoment(by, r, rnd);
-      if (!mo) continue;
+      const mo = drawMoment(by, r, rnd, onSale);
+      if (!mo) continue; // every play is already on sale: leave the slot empty
       const rarity = rIdx(r) > rIdx(mo.rarity) ? r : mo.rarity;
       const max = bRarity(rarity).charges;
       const card = { m: mo, rarity, charges: Math.max(1, Math.round(max * (0.6 + 0.4 * rnd()))), max, type: effectFor(mo), serial: 1 + Math.floor(rnd() * 999) };
@@ -310,9 +319,11 @@ function stockListings(state, now) {
       const start = Math.max(1, Math.round(value * (0.35 + 0.3 * rnd())));
       const z = Math.sqrt(-2 * Math.log(Math.max(1e-9, rnd()))) * Math.cos(2 * Math.PI * rnd());
       // Other collectors always bid close to what a card is worth, so there are no steals to flip.
-      const npcMax = Math.max(start, Math.round(value * Math.max(0.92, Math.exp(0.12 * z))));
+      // Spread evenly from just under to a little over its worth, so similar cards don't all sit at one price.
+      const npcMax = Math.max(start, Math.round(value * (0.92 + 0.24 * rnd()) * Math.exp(0.03 * z)));
       const t0 = h * HOUR + Math.floor(rnd() * HOUR);
       const len = [1, 2, 4, 6, 9, 12, 18, 24][Math.floor(rnd() * 8)] * HOUR;
+      if (t0 + len > now) onSale.add(mo.id); // an auction that has already ended frees its play for a later one
       m.list.push({ id: `mp${h}-${i}`, card, start, npcMax, from: t0, end: t0 + len, seller: SELLERS[Math.floor(rnd() * SELLERS.length)], bidders: 1 + Math.floor(rnd() * 7) });
     }
   }
