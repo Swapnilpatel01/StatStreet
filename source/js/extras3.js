@@ -1,6 +1,7 @@
 // Market events, rookie IPOs, monthly player reports, the hall of fame and friend challenges.
 
-import { netWorth, notify, tradeGuards } from './engine.js';
+import { netWorth, notify, tradeGuards, boostHooks, cardDivBonus } from './engine.js';
+import { calendar } from './extras.js';
 import { posGroup } from './scoring.js';
 import { career } from './xp.js';
 import { closedTrades } from './extras.js';
@@ -199,4 +200,86 @@ export function runExtras3(state, now = Date.now(), rnd = Math.random) {
   runIpos(state, now);
   runReports(state, now);
   updateHof(state, now);
+}
+
+// ---------- is the market "open"? ----------
+// Prices move most when games are on, so this says whether any are live, due later today,
+// or not until another day.
+export function marketStatus(state, now = Date.now()) {
+  const live = Object.values(state.liveGames || {}).filter((g) => leagueOn(state, g.league));
+  if (live.length) return { state: 'live', n: live.length, text: `${live.length} game${live.length > 1 ? 's' : ''} live now`, leagues: [...new Set(live.map((g) => g.league))] };
+  const next = Object.entries(state.schedule || {}).filter(([lg]) => leagueOn(state, lg)).flatMap(([lg, list]) => list.map((g) => ({ ...g, league: lg })))
+    .filter((g) => g.date > now - 10 * 60e3).sort((x, y) => x.date - y.date)[0];
+  if (!next) return { state: 'closed', n: 0, text: 'No games scheduled', next: null };
+  const d = new Date(next.date); const today = new Date(now).toDateString() === d.toDateString();
+  const tomorrow = new Date(now + DAY).toDateString() === d.toDateString();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const n = Object.entries(state.schedule || {}).filter(([lg]) => leagueOn(state, lg)).flatMap(([, list]) => list).filter((g) => new Date(g.date).toDateString() === d.toDateString() && g.date > now - 10 * 60e3).length;
+  if (today) return { state: 'soon', n, next, text: `${n} game${n > 1 ? 's' : ''} today · first at ${time}` };
+  return { state: 'closed', n, next, text: `No more games today · next ${tomorrow ? 'tomorrow' : d.toLocaleDateString([], { weekday: 'long' })} ${time}` };
+}
+
+// ---------- dividend calendar ----------
+// This week's games for what you own, with what each holding has typically paid per game.
+export function dividendCalendar(state, now = Date.now(), days = 7) {
+  const typical = (a) => {
+    const h = state.holdings[a.id]; if (!h) return null;
+    const hist = (a.divHist || []).slice(0, 8);
+    const games = a.kind === 'player' ? (a.perf?.last || []).filter((g) => !/preseason/.test(g.text || '')).length : Math.min(10, a.rec?.gp || 0);
+    const recent = hist.filter((d) => now - d.t < 45 * DAY);
+    const avgPs = recent.length ? recent.reduce((s, d) => s + d.ps, 0) / recent.length : 0;
+    const mult = (1 + (state.collection?.[a.id] ? cardDivBonus(state, a.id) : 0)) * (boostHooks.divMult ? boostHooks.divMult(state, a.id) : 1);
+    return { a, qty: h.qty, paid: recent.length, games, rate: games ? Math.min(1, recent.length / Math.max(games, recent.length)) : 0, perPay: round2(avgPs * h.qty * mult), boosted: mult > 1.0001 };
+  };
+  const rows = calendar(state, now, days).map((g) => ({ ...g, holdings: g.mine.map(typical).filter(Boolean) })).filter((g) => g.holdings.length);
+  const expected = round2(rows.reduce((s, g) => s + g.holdings.reduce((x, h) => x + h.perPay * h.rate, 0), 0));
+  const last30 = round2((state.divs || []).filter((d) => now - d.t < 30 * DAY).reduce((s, d) => s + d.amt, 0));
+  return { rows, expected, last30, total: state.divTotal || 0 };
+}
+
+// ---------- the feed ----------
+// The last day's notable items, newest first, as cards for the top of the Portfolio page.
+const FEED = { div: ['💵', 'Dividend'], report: ['📋', 'Report card'], ipo: ['🔔', 'IPO'], event: ['⚡', 'Market event'], mover: ['📈', 'Big move'], challenge: ['🎯', 'Daily challenge'],
+  rival: ['⚔️', 'Rival'], future: ['🔮', 'Futures'], order: ['✅', 'Order'], season: ['🏅', 'Season'], level: ['⭐', 'Level up'], trophy: ['🏆', 'Trophy'], goal: ['🎯', 'Weekly goal'],
+  alert: ['🔔', 'Price alert'], market: ['🃏', 'Marketplace'], pick: ['🏟️', 'Pick\'em'], contest: ['🏆', 'Contest'], prop: ['🎲', 'Prop'], booster: ['🚀', 'Card boost'], option: ['📄', 'Options'], card: ['🃏', 'Card'] };
+export function feedCards(state, now = Date.now(), max = 10) {
+  const out = []; let divs = null;
+  for (const n of state.inbox || []) {
+    if (now - n.t > 36 * HOUR) break;
+    const f = FEED[n.kind]; if (!f) continue;
+    if (n.kind === 'div') { // many small payments read better as one card
+      if (!divs) { divs = { kind: 'div', icon: f[0], title: 'Dividends', n: 0, t: n.t, id: n.id, text: '' }; out.push(divs); }
+      divs.n += 1; divs.items = (divs.items || []).concat(n.text);
+      continue;
+    }
+    out.push({ kind: n.kind, icon: f[0], title: f[1], text: n.text, t: n.t, id: n.id || null });
+    if (out.length >= max) break;
+  }
+  if (divs) {
+    const amt = (state.divs || []).filter((d) => now - d.t <= 36 * HOUR).reduce((s, d) => s + d.amt, 0);
+    divs.text = divs.n === 1 ? divs.items[0] : `${divs.n} payments in the last day, ${money(amt)} in total.`;
+    if (divs.n > 1) divs.id = null;
+    delete divs.items;
+  }
+  return out.slice(0, max);
+}
+
+// ---------- about a player ----------
+// Picks the useful facts out of ESPN's athlete profile. Anything missing is simply left out.
+export function parseBio(json) {
+  const a = json?.athlete || json || {};
+  const facts = [];
+  const add = (k, v) => { if (v != null && String(v).trim() !== '' && String(v) !== 'undefined') facts.push([k, String(v)]); };
+  add('Age', a.age);
+  add('Height', a.displayHeight); add('Weight', a.displayWeight);
+  add('Born', a.displayBirthPlace || [a.birthPlace?.city, a.birthPlace?.state || a.birthPlace?.country].filter(Boolean).join(', '));
+  const exp = a.displayExperience || (a.experience?.years != null ? (a.experience.years === 0 ? 'Rookie' : `${a.experience.years} season${a.experience.years === 1 ? '' : 's'}`) : null) || (a.debutYear ? `Since ${a.debutYear}` : null);
+  add('Experience', exp);
+  add('College', a.college?.name || a.college?.shortName);
+  add('Draft', a.displayDraft || a.draft?.displayText);
+  add('Number', a.displayJersey || (a.jersey ? `#${a.jersey}` : null));
+  add('Bats / throws', a.displayBatsThrows);
+  add('Status', a.status?.name && a.status.name !== 'Active' ? a.status.name : null);
+  const stats = (a.statsSummary?.statistics || []).slice(0, 4).map((s) => [s.shortDisplayName || s.abbreviation || s.name, s.displayValue, s.rankDisplayValue || '']).filter((x) => x[0] && x[1]);
+  return { facts, stats, statsTitle: a.statsSummary?.displayName || '' };
 }

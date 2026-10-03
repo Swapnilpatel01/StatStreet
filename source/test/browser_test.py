@@ -21,7 +21,14 @@ def slide(page):
     for i in range(1, 11): page.mouse.move(k['x'] + 20 + (s['width'] - 40) * i / 10, k['y'] + 20)
     page.mouse.up(); page.wait_for_timeout(400)
 
-def toast(page): return page.evaluate("document.querySelector('#toast').textContent")
+def toast(page):
+    t = page.evaluate("document.querySelector('#toast').textContent")
+    # a filled market order shows a confirmation screen; check it, then dismiss it
+    if page.locator('#confirm:not([hidden])').count():
+        txt = page.text_content('#confirm'); assert 'Order filled' in txt and 'Cash left' in txt, txt
+        page.screenshot(path=f'{OUT}/50-confirm.png')
+        page.click('#confirm [data-act=confirmdone]'); page.wait_for_timeout(150)
+    return t
 
 def drag(cdp, page, x, y, dx, dy, steps=12):
     cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y, 'radiusX': 1, 'radiusY': 1}]})
@@ -212,6 +219,10 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
     page.check('#drip', force=True) if False else page.click('label:has(#drip)')
     page.screenshot(path=f'{OUT}/10-account.png', full_page=True)
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    nf = page.locator('#view .feed .fcard').count(); print('feed cards with activity:', nf); assert nf >= 1
+    page.evaluate("document.querySelector('#view').scrollTop = 0"); page.screenshot(path=f'{OUT}/51-feed.png')
+    page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(200)
     page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=season]'); page.wait_for_timeout(300)
     nt = page.locator('.trophy.got').count()
     page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
@@ -319,7 +330,7 @@ with sync_playwright() as p:
     assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
     # --- v34 features
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(400)
-    assert page.locator('.tools [data-page]').count() == 11
+    assert page.locator('.tools [data-page]').count() == 12
     page.screenshot(path=f'{OUT}/20-home.png', full_page=False)
     page.evaluate("document.querySelector('.tools').scrollIntoView()"); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/20b-home-tools.png')
@@ -432,6 +443,22 @@ with sync_playwright() as p:
     txt = page.text_content('#page'); assert 'Sam' in txt and '+4.2%' in txt, txt[-300:]
     page.screenshot(path=f'{OUT}/43-duel.png')
     page.click('#page [data-act=pageback]'); page.wait_for_timeout(150)
+    # --- v43: market indicator, feed, dividend calendar, about
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    assert page.locator('#view .mkt').count() == 1 and 'live' in page.locator('#view .mkt').get_attribute('class')
+    print('feed cards:', page.locator('#view .feed .fcard').count())
+    page.evaluate("document.querySelector('#view').scrollTop = 0"); page.screenshot(path=f'{OUT}/51-feed.png')
+    page.evaluate("document.querySelector('.tools [data-page=divcal]').click()"); page.wait_for_timeout(450)
+    assert 'Likely this week' in page.text_content('#page'); page.screenshot(path=f'{OUT}/52-divcal.png')
+    page.click('#page [data-act=pageback]'); page.wait_for_timeout(150)
+    page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300)
+    assert page.locator('#view .mkt').count() == 1
+    page.locator('#view .item[data-open^="nba:p:"]').first.click(); page.wait_for_timeout(700)
+    page.click('.dtabs [data-dtab=research]'); page.wait_for_timeout(200)
+    ab = page.text_content('#dinner'); assert 'About' in ab and 'Duke' in ab and '6 seasons' in ab, ab[-600:]
+    page.evaluate("document.querySelector('#sheet').scrollTop = 99999"); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/53-about.png')
+    page.click('.dtabs [data-dtab=overview]'); page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
+    print('v43 features ok')
     print('v37 features ok')
     # Portfolio chart: holding on the graph shows the balance at that point
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)

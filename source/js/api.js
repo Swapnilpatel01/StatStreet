@@ -75,6 +75,8 @@ export const api = {
     return Promise.any(urls.map((_, i) => one(i)));
   },
   injuries: (lg) => fetchJSON(`${SITE}/${P(lg)}/injuries`),
+  // A player's profile (age, height, college, draft, experience). Optional: the page works without it.
+  athlete: (lg, id) => get(`${WEB}/${P(lg)}/athletes/${id}`, 8000).catch((e) => { if (!proxyUrl) throw e; return get(`${proxyUrl}/?u=${encodeURIComponent(`${WEB}/${P(lg)}/athletes/${id}`)}`, 8000); }),
   seasonStats: (lg, { season, category, page = 1, limit = 200 } = {}) => {
     const q = new URLSearchParams({ seasontype: '2', limit: String(limit), page: String(page), isqualified: 'false' });
     if (season) q.set('season', season);

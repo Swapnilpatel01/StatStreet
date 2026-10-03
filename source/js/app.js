@@ -48,6 +48,7 @@ import {
 import { RIVALS } from './social.js';
 import {
   runExtras3, activeEvents, ipoList, ipoPhase, ipoRoom, buyIpo, IPO_WINDOW, IPO_ALLOC, updateHof, duelCode, duelResult,
+  marketStatus, dividendCalendar, feedCards, parseBio,
 } from './extras3.js';
 import { weekId } from './util.js';
 
@@ -60,7 +61,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 42;
+const APP_VERSION = 43;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -284,6 +285,7 @@ function renderHome() {
   };
   $('#view').innerHTML = `
     ${topbar('<div class="brand">Stat<b>Street</b></div>')}
+    ${marketPill()}
     <div class="row between"><div class="muted small">Net worth</div><button class="share-btn" data-act="sharepf" aria-label="Share"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>Share</button></div>
     <div class="big-value" data-nw>${money(nw)}</div>
     <div class="change-line ${cls(ch)}" data-nwc>${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} (${fmtPct(ref ? ch / ref : 0)}) <span class="muted">${rangeLabel(ui.homeRange)}</span></div>
@@ -567,6 +569,7 @@ function renderMarket(keepFocus = false) {
   const items = marketItems();
   const html = `
     ${topbar('<h1>Stocks</h1>')}
+    ${marketPill()}
     <input class="search" id="q" type="search" placeholder="Search players, teams, funds, tickers" value="${esc(ui.q)}" autocomplete="off" autocorrect="off">
     <div class="seg" style="margin-top:10px">${['all', ...enabledLeagues()].map((l) => `<button data-league="${l}" class="${ui.league === l ? 'on' : ''}">${l === 'all' ? 'All' : LEAGUES[l].name}</button>`).join('')}</div>
     <div class="seg" style="margin-top:8px">${[['player', 'Players'], ['team', 'Teams'], ['fund', 'Index funds']].map(([k, n]) => `<button data-kind="${k}" class="${ui.kind === k ? 'on' : ''}">${n}</button>`).join('')}</div>
@@ -1539,6 +1542,7 @@ function openDetail(id) {
   const wasOpen = !!ui.detail;
   if (ui.game) $('#game').style.zIndex = ''; // the player page goes on top of the game
   ui.detail = id; ui.chartAnim = true;
+  loadBio(state.assets[id]);
   state.recentSearch = [id, ...(state.recentSearch || []).filter((x) => x !== id)].slice(0, 6);
   ui.scrub = false;
   try { history.pushState({ sheet: id }, ''); } catch { /* sandboxed frame */ }
@@ -1642,6 +1646,7 @@ function renderDetail({ keepScroll = true } = {}) {
 
     </div><div class="dsec" data-sec="research">
     ${a.kind === 'player' ? playerStats(a) : a.kind === 'team' ? teamStats(a) : ''}
+    ${aboutSection(a)}
 
     ${(a.divHist || []).length ? `<h3>Dividend history</h3><div class="list">${a.divHist.slice(0, 6).map((d) => `<div class="driver"><div class="ic">💵</div>
       <div class="txt">${esc(d.reason)}<div class="tiny faint">${timeAgo(d.t)}</div></div><div class="pct up">${money(d.ps)}/sh</div></div>`).join('')}</div>` : ''}
@@ -2070,7 +2075,7 @@ function submitOrder() {
   const reset = (msg) => { o.err = msg; updateOrder(); const k = $('#slider .knob'); if (k) { $('#slider').classList.add('done'); k.style.left = '4px'; $('#slider .fill').style.width = '58px'; } setTimeout(() => { if (ui.order) { ui.order.err = ''; updateOrder(); } }, 3500); };
   const firstTrade = !state.txns.length;
   try {
-    let msg;
+    let msg; let filled = null;
     if (o.mode === 'option') {
       const qty = Math.floor(amountNum(o));
       if (o.side === 'buy') { const tx = buyOption(state, o, qty); msg = `Bought ${qty} × ${tx.opt} for ${money(tx.total)}`; }
@@ -2080,7 +2085,9 @@ function submitOrder() {
       if (!r.ok) return reset(r.err);
       const a = state.assets[o.id];
       if (o.type === 'market') {
+        const h0 = state.holdings[o.id]; const avg0 = h0 ? h0.cost / h0.qty : 0;
         const tx = trade(state, o.id, o.side, r.qty);
+        filled = { ...tx, pl: tx.side === 'sell' && avg0 ? Math.round((tx.total - avg0 * tx.qty) * 100) / 100 : null };
         msg = `${tx.side === 'buy' ? 'Bought' : 'Sold'} ${fmtQty(tx.qty)} ${tx.ticker} at ${money(tx.price)}`;
       } else if (o.type === 'recurring') {
         addRecurring(state, { assetId: o.id, amount: amountNum(o), freq: o.freq });
@@ -2104,11 +2111,20 @@ function submitOrder() {
     if (lvl) msg += ` · ⭐ ${lvl.text.split('!')[0]}`;
     dirty = true; save();
     ui.seenInbox = state.inbox.length;
-    toast(msg); sfx(/^Sold/.test(msg) ? 'sell' : 'trade');
-    if (firstTrade && state.txns.length) confetti();
+    sfx(/^Sold/.test(msg) ? 'sell' : 'trade');
     if (ui.chain) renderChain();
     if (ui.detail) renderDetail();
     else render();
+    if (filled) {
+      // A filled market order gets its own screen; the message is kept for screen readers.
+      $('#toast').textContent = msg;
+      const extras = [];
+      if (fresh.some((n) => n.kind === 'card' && /^New/.test(n.text))) extras.push('🃏 New card'); else if (fresh.some((n) => n.kind === 'card')) extras.push('🃏 Card leveled up');
+      if (fresh.some((n) => n.kind === 'trophy')) extras.push('🏆 Trophy unlocked');
+      if (lvl) extras.push(`⭐ ${lvl.text.split('!')[0]}`);
+      showConfirm(filled, extras);
+    } else toast(msg);
+    if (firstTrade && state.txns.length) confetti();
   } catch (e) {
     reset(e.message);
   }
@@ -2471,6 +2487,8 @@ document.addEventListener('click', async (e) => {
     }
     case 'artback': closeArticle(); break;
     case 'pageback': closePage(); break;
+    case 'confirmdone': closeConfirm(); break;
+    case 'confirmprotect': closeConfirm(); ui.dtab = 'overview'; if (ui.detail) { renderDetail(); setTimeout(() => $('#sheet .prot')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80); } break;
     case 'duelshare': shareDuel().catch((err) => toast(err.message)); break;
     case 'ipobuy': if (ui.detail) { try { const a = state.assets[ui.detail]; const r = buyIpo(state, ui.detail, parseFloat(String($('#ipoamt').value).replace(/[^0-9.]/g, ''))); dirty = true; save(); buzz(); sfx('trade'); toast(`Bought ${fmtQty(r.qty)} ${a.ticker} at the IPO price`); renderDetail(); } catch (err) { $('#ipoerr').textContent = err.message; } } break;
     case 'protect': if (ui.detail) { try { protect(state, ui.detail, { stopPct: (parseFloat($('#pstop')?.value) || 0) / 100, takePct: (parseFloat($('#ptake')?.value) || 0) / 100 }); dirty = true; save(); buzz(); toast('Protection set'); renderDetail(); } catch (err) { toast(err.message); } } break;
@@ -2841,7 +2859,7 @@ function renderPage() {
   const p = ui.page; if (!p) return;
   const el = $('#page');
   const body = { search: pageSearch, compare: pageCompare, calendar: pageCalendar, journal: pageJournal, achievements: pageAchievements, short: pageShort, risk: pageRisk,
-    breakouts: pageBreakouts, recap: pageRecap, rival: pageRival, hof: pageHof, futures: pageFutures, glance: pageGlance, layout: pageLayout }[p.type]?.(p) || '';
+    breakouts: pageBreakouts, recap: pageRecap, rival: pageRival, hof: pageHof, divcal: pageDivcal, futures: pageFutures, glance: pageGlance, layout: pageLayout }[p.type]?.(p) || '';
   el.innerHTML = `<div class="sheet-inner">${body}</div>`;
 }
 // Swipe right anywhere on a full-screen page to go back (the page itself only scrolls up and down).
@@ -3053,7 +3071,7 @@ function applyLook() {
 // ====================================================================================
 
 const HOME_SECTIONS = [
-  ['since', 'Since you last opened'], ['recap', 'Weekly recap'], ['today', 'Top gainer and loser'], ['lineup', 'Playing today'], ['challenge', 'Daily challenge'],
+  ['feed', 'Activity cards'], ['since', 'Since you last opened'], ['recap', 'Weekly recap'], ['today', 'Top gainer and loser'], ['lineup', 'Playing today'], ['challenge', 'Daily challenge'],
   ['rival', 'Rival of the week'], ['tools', 'Shortcuts'], ['movers', 'Top movers'], ['alloc', 'Allocation bar'], ['season', 'Season and daily reward'], ['live', 'Live games'],
   ['orders', 'Open orders and options', true], ['stocks', 'Stocks', true], ['shorts', 'Short positions', true], ['funds', 'Index funds'], ['watch', 'Watchlist'],
   ['upcoming', 'Upcoming games'], ['discover', 'Discover'],
@@ -3065,7 +3083,7 @@ function homeOrder() {
   for (const k of all) if (!saved.includes(k)) { const i = all.indexOf(k); const before = all.slice(0, i).reverse().find((x) => saved.includes(x)); saved.splice(before ? saved.indexOf(before) + 1 : 0, 0, k); }
   return saved;
 }
-const TOOLS = [['glance', '👀', 'Glance'], ['calendar', '📅', 'Calendar'], ['risk', '🛡️', 'Risk check'], ['breakouts', '🚀', 'Breakouts'], ['futures', '🔮', 'Futures'], ['journal', '📒', 'Journal'],
+const TOOLS = [['glance', '👀', 'Glance'], ['calendar', '📅', 'Calendar'], ['risk', '🛡️', 'Risk check'], ['breakouts', '🚀', 'Breakouts'], ['divcal', '💵', 'Dividends'], ['futures', '🔮', 'Futures'], ['journal', '📒', 'Journal'],
   ['recap', '🗓️', 'My week'], ['rival', '⚔️', 'Rival'], ['achievements', '🏅', 'Achievements'], ['hof', '🏛️', 'Hall of fame'], ['layout', '🧩', 'Customize']];
 
 function homeParts(now, holdings, movers) {
@@ -3076,6 +3094,7 @@ function homeParts(now, holdings, movers) {
   const wl = (x, label) => `<button class="stat wl" data-open="${x.a.id}"><div class="k">${label}</div><div class="v ${cls(x.d)}">${signMoney(x.d)}</div><div class="tiny muted ellipsis">${esc(x.a.name)} · ${fmtPct(x.c, 1)}</div></button>`;
   const rv = rivalStatus(state, now);
   return {
+    feed: feedSection(now),
     since: since ? `<div class="card since"><button class="x-btn" data-act="sincex" aria-label="Dismiss">✕</button><div class="tiny muted">SINCE YOU LAST OPENED · ${timeAgo(since.t)}</div>
       <div class="s-line">Your portfolio is <b class="${cls(since.change)}">${since.change >= 0 ? 'up' : 'down'} ${money(Math.abs(since.change))}</b> (${fmtPct(since.pct)})${since.top ? `. Biggest mover: <button class="tlink" data-open="${since.top.a.id}">${esc(since.top.a.ticker)}</button> <span class="${cls(since.top.d)}">${signMoney(since.top.d)}</span>` : ''}${since.nDivs ? `. ${since.nDivs} dividend${since.nDivs > 1 ? 's' : ''} paid <span class="up">${money(since.divs)}</span>` : ''}.</div></div>` : '',
     recap: recapDue(state, now) ? `<button class="card promo" data-page="recap"><span class="e">🗓️</span><div class="grow"><div class="name">Your week in review</div><div class="tiny muted">Best and worst calls, dividends and your rank</div></div><span class="muted">›</span></button>` : '',
@@ -3420,6 +3439,104 @@ function closeQuick() { ui.quick = null; const el = $('#qa'); el.hidden = true; 
     if (act === 'compare') setTimeout(() => openPage('compare', { a: id, b: null }), 60);
   }, true);
 }
+
+// ====================================================================================
+// v43: feed, market indicator, about section, dividend calendar, order confirmation
+// ====================================================================================
+
+function marketPill() {
+  const m = marketStatus(state);
+  return `<button class="mkt ${m.state}" data-tab="games" aria-label="Market status: ${esc(m.text)}"><span class="dot"></span>${m.state === 'live' ? 'Market live' : m.state === 'soon' ? 'Opens later' : 'Market quiet'} <span class="muted">· ${esc(m.text)}</span></button>`;
+}
+function feedSection(now) {
+  const cards = feedCards(state, now);
+  if (!cards.length) return '';
+  return `<div class="hscroll feed" aria-label="Recent activity">${cards.map((c) => `<button class="fcard k-${c.kind}" ${c.id && state.assets[c.id] ? `data-open="${c.id}"` : c.kind === 'ipo' || c.kind === 'event' ? 'data-tab="market"' : c.kind === 'rival' ? 'data-page="rival"' : c.kind === 'future' ? 'data-page="futures"' : 'data-act="inbox"'}>
+    <div class="row between"><span class="tiny muted"><span class="fi">${c.icon}</span> ${esc(c.title.toUpperCase())}</span><span class="tiny faint">${timeAgo(c.t)}</span></div>
+    <div class="ft">${esc(c.text)}</div></button>`).join('')}</div>`;
+}
+
+// ---------- about ----------
+const bioLoading = new Set();
+function loadBio(a) {
+  if (STATIC || a.kind !== 'player' || bioLoading.has(a.id) || (a.bio && Date.now() - a.bio.t < 14 * DAY)) return;
+  bioLoading.add(a.id);
+  api.athlete(a.league, a.rid).then((j) => {
+    const b = parseBio(j);
+    if (b.facts.length || b.stats.length) { a.bio = { ...b, t: Date.now() }; dirty = true; if (ui.detail === a.id) softRefresh(); }
+    else a.bio = { facts: [], stats: [], t: Date.now() - 13 * DAY }; // nothing useful: try again tomorrow
+  }).catch(() => { /* optional */ }).then(() => bioLoading.delete(a.id));
+}
+function aboutSection(a) {
+  if (a.kind === 'fund') return '';
+  const rows = [];
+  if (a.kind === 'player') {
+    const team = Object.values(state.assets).find((t) => t.kind === 'team' && t.league === a.league && t.rid === a.teamId);
+    rows.push(['Team', team ? team.name : (a.teamAbbr || '—')], ['Position', a.pos || '—']);
+    for (const f of a.bio?.facts || []) rows.push(f);
+    if (a.perf?.season?.gp) rows.push(['Games this season', String(a.perf.season.gp)]);
+    if (a.perf?.prior?.gp) rows.push(['Last season', `${a.perf.prior.gs.toFixed(1)} avg game score in ${a.perf.prior.gp} games`]);
+  } else {
+    rows.push(['League', LEAGUES[a.league].name], ['Record', a.rec?.gp ? recText(a) : '—']);
+    if (a.rec?.gp) rows.push(['Average margin', `${a.rec.diff >= 0 ? '+' : ''}${(a.rec.diff / a.rec.gp).toFixed(1)} a game`], ['Streak', a.rec.streak ? `${a.rec.streak > 0 ? 'Won' : 'Lost'} ${Math.abs(a.rec.streak)}` : '—']);
+    if (a.prior) rows.push(['Last season', `${Math.round(a.prior.pct * 100)}% wins`]);
+    const { rank, n } = teamRanks(a.league); if (rank.get(a.rid)) rows.push(['Price rank', `#${rank.get(a.rid)} of ${n} teams`]);
+    const roster = Object.values(state.assets).filter((p) => p.kind === 'player' && p.league === a.league && p.teamId === a.rid && p.hist.length).sort((x, y) => y.price - x.price).slice(0, 3);
+    if (roster.length) rows.push(['Top players', roster.map((p) => p.name.split(' ').slice(-1)[0]).join(', ')]);
+  }
+  const first = a.hist?.length ? a.hist[0] : null;
+  if (first) rows.push(['On StatStreet since', fmtDate(first, { month: 'short', day: 'numeric', year: 'numeric' })]);
+  const st = a.bio?.stats || [];
+  return `<h3>About</h3>
+    ${st.length ? `<div class="grid${st.length >= 3 ? 3 : 2}" style="margin-bottom:10px">${st.slice(0, 3).map(([k, v, r]) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>${r ? `<div class="tiny faint">${esc(r)}</div>` : ''}</div>`).join('')}</div>` : ''}
+    <div class="stats-grid">${rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>`;
+}
+
+// ---------- dividend calendar ----------
+function pageDivcal() {
+  const now = Date.now();
+  const d = dividendCalendar(state, now);
+  const days = new Map();
+  for (const g of d.rows) { const k = new Date(g.date).toDateString(); if (!days.has(k)) days.set(k, []); days.get(k).push(g); }
+  return `${pageHead('Dividend calendar')}
+    <div class="grid3" style="margin-top:14px">
+      <div class="stat"><div class="k">Likely this week</div><div class="v up">${money(d.expected)}</div></div>
+      <div class="stat"><div class="k">Last 30 days</div><div class="v">${money(d.last30)}</div></div>
+      <div class="stat"><div class="k">This season</div><div class="v">${money(d.total)}</div></div></div>
+    <p class="small muted" style="margin:10px 0">Players pay when they beat their usual game; teams pay when they win. "Typical" is what each holding has paid you per payout lately, and how often it has paid. Nothing here is promised.</p>
+    ${d.rows.length ? [...days.entries()].map(([k, list]) => `<h3>${new Date(list[0].date).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}${k === new Date(now).toDateString() ? ' · today' : ''}</h3>
+      <div class="list">${list.flatMap((g) => g.holdings.map((h) => `<button class="item" data-open="${h.a.id}">${avatar(h.a)}<div class="grow"><div class="name ellipsis">${esc(h.a.name)}</div>
+        <div class="sub">${esc(g.team)} ${g.home ? 'vs' : '@'} ${esc(g.opp)} · ${new Date(g.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div></div>
+        <div class="price-col"><div class="price ${h.perPay > 0 ? 'up' : 'muted'}">${h.perPay > 0 ? money(h.perPay) : '—'}</div><div class="tiny muted">${h.games ? `paid ${h.paid} of last ${Math.max(h.games, h.paid)}` : 'no games yet'}${h.boosted ? ' · boosted' : ''}</div></div></button>`)).join('')}</div>`).join('')
+      : `<div class="card empty" style="margin-top:14px">${Object.keys(state.holdings).length ? 'Nothing you own plays in the next 7 days.' : 'Own a player or team and their upcoming games and typical payouts show up here.'}</div>`}`;
+}
+
+// ---------- order confirmation ----------
+function showConfirm(tx, extras) {
+  const a = state.assets[tx.id]; const h = state.holdings[tx.id];
+  const buy = tx.side === 'buy';
+  ui.confirm = true;
+  const el = $('#confirm');
+  el.hidden = false;
+  el.className = `confirm ${buy ? '' : 'sell'}`;
+  el.innerHTML = `<div class="cf-in" role="dialog" aria-label="Order filled">
+    <div class="cf-check"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 15-17"/></svg></div>
+    <div class="cf-title">${buy ? 'Bought' : 'Sold'} ${esc(tx.ticker)}</div>
+    <div class="muted">Order filled</div>
+    <div class="card cf-card">
+      <div class="brk"><span>Shares</span><b>${fmtQty(tx.qty)}</b></div>
+      <div class="brk"><span>Price per share</span><b>${money(tx.price)}</b></div>
+      <div class="brk"><span>${buy ? 'Total cost' : 'Total received'}</span><b>${money(tx.total)}</b></div>
+      ${tx.pl != null ? `<div class="brk"><span>Profit on this sale</span><b class="${cls(tx.pl)}">${signMoney(tx.pl)}</b></div>` : ''}
+      <div class="brk"><span>${h ? 'You now own' : 'Position'}</span><b>${h ? `${fmtQty(h.qty)} sh · ${money(a.price * h.qty)}` : 'Closed'}</b></div>
+      <div class="brk"><span>Cash left</span><b>${money(state.cash)}</b></div>
+    </div>
+    ${extras.length ? `<div class="cf-extras">${extras.map((x) => `<span>${x}</span>`).join('')}</div>` : ''}
+    <div class="grow"></div>
+    ${buy && h ? '<button class="btn ghost" data-act="confirmprotect" style="width:100%">Add stop-loss or take-profit</button>' : ''}
+    <button class="btn buy" data-act="confirmdone" style="width:100%;margin-top:8px">Done</button></div>`;
+}
+function closeConfirm() { ui.confirm = false; const el = $('#confirm'); el.hidden = true; el.innerHTML = ''; }
 
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {

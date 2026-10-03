@@ -195,6 +195,9 @@ def handle(url):
     if 'byathlete' in u.path: return season_stats(lg, qs)
     if u.path.endswith('/scoreboard'): return scoreboard(lg, qs)
     if u.path.endswith('/summary'): return summary(lg, qs['event'][0])
+    if '/athletes/' in u.path and 'byathlete' not in u.path:
+        return {'athlete': {'age': 27, 'displayHeight': "6' 6\"", 'displayWeight': '216 lbs', 'college': {'name': 'Duke'}, 'experience': {'years': 6}, 'displayDraft': '2020: Rd 1, Pk 3',
+                            'statsSummary': {'displayName': 'Season', 'statistics': [{'shortDisplayName': 'PTS', 'displayValue': '27.1', 'rankDisplayValue': '5th'}, {'shortDisplayName': 'REB', 'displayValue': '8.0'}, {'shortDisplayName': 'AST', 'displayValue': '6.2'}]}}}
     if u.path.endswith('/news'): return news(lg)
     if '/news/' in u.path:
         return {'headlines': [{'headline': 'H', 'byline': 'Staff Writer', 'story': '<p>First paragraph of the story.</p><photo1></photo1><script>window.HACKED=1</script><h2>What it means</h2><p>Second <a href="https://x.test">linked</a> paragraph.</p><ul><li>Point one</li></ul>'}]}
