@@ -26,6 +26,7 @@ export const shortExposure = (state) => Object.entries(state.shorts || {}).reduc
 export function openShort(state, id, dollars, now = Date.now()) {
   const a = state.assets[id];
   if (!a || a.kind === 'fund') throw new Error('Only players and teams can be shorted');
+  if (a.ipo) throw new Error('You can\'t short a player during his IPO');
   dollars = round2(Number(dollars));
   if (!(dollars >= 0.05)) throw new Error('Enter an amount');
   if (dollars > state.cash + 1e-9) throw new Error(`Not enough cash — you have ${money(state.cash)}`);

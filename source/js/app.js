@@ -46,6 +46,9 @@ import {
   showcase, toggleShowcase, SHOWCASE_MAX,
 } from './extras2.js';
 import { RIVALS } from './social.js';
+import {
+  runExtras3, activeEvents, ipoList, ipoPhase, ipoRoom, buyIpo, IPO_WINDOW, IPO_ALLOC, updateHof, duelCode, duelResult,
+} from './extras3.js';
 import { weekId } from './util.js';
 
 // ---------- state ----------
@@ -57,7 +60,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 36;
+const APP_VERSION = 37;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -98,6 +101,7 @@ function subLine(a) {
   if (a.kind === 'player') bits.push(`<span>${esc(a.teamAbbr || '')}${a.pos ? ' · ' + esc(a.pos) : ''}</span>`);
   else if (a.kind === 'team') bits.push(`<span>${recText(a)}</span>`);
   else bits.push(`<span>${Object.keys(a.cons || {}).length} holdings</span>`);
+  if (a.ipo) bits.push('<span class="tag ipo">IPO</span>');
   if (a.live || a.liveBoost) bits.push('<span class="tag live">LIVE</span>');
   else if (a.injury) bits.push(`<span class="tag inj">${esc(shortInj(a.injury.status))}</span>`);
   return bits.join('');
@@ -566,6 +570,7 @@ function renderMarket(keepFocus = false) {
     <input class="search" id="q" type="search" placeholder="Search players, teams, funds, tickers" value="${esc(ui.q)}" autocomplete="off" autocorrect="off">
     <div class="seg" style="margin-top:10px">${['all', ...enabledLeagues()].map((l) => `<button data-league="${l}" class="${ui.league === l ? 'on' : ''}">${l === 'all' ? 'All' : LEAGUES[l].name}</button>`).join('')}</div>
     <div class="seg" style="margin-top:8px">${[['player', 'Players'], ['team', 'Teams'], ['fund', 'Index funds']].map(([k, n]) => `<button data-kind="${k}" class="${ui.kind === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+    ${!ui.q.trim() ? marketBanners() : ''}
     ${!ui.q.trim() && ui.kind === 'player' ? trendingStrip() : ''}
     <div class="chips" style="margin-top:10px">${SORTS.map(([k, n]) => `<button class="chip ${ui.sort === k ? 'on' : ''}" data-sort="${k}">${n}</button>`).join('')}</div>
     <div class="chips price-chips" style="margin-top:6px">${PRICE_BANDS.map(([k, n]) => `<button class="chip ${(ui.price || 'any') === k ? 'on' : ''}" data-price="${k}">${n}</button>`).join('')}</div>
@@ -1579,6 +1584,7 @@ function renderDetail({ keepScroll = true } = {}) {
   sheet.hidden = false;
   sheet.classList.toggle('acc-down', ch < 0);
   sheet.innerHTML = `<div class="sheet-inner" id="dinner" data-dtab="${dtab}">
+    ${pinBar(a, ch)}
     <div class="row between">
       <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="icons-right">
@@ -1596,6 +1602,7 @@ function renderDetail({ keepScroll = true } = {}) {
 
     <div class="dtabs">${[['overview', 'Overview'], ['research', 'Research'], ['news', `News${news.length ? ` <i>${news.length}</i>` : ''}`], ...(a.kind !== 'fund' ? [['cards', 'Cards']] : [])].map(([k, t]) => `<button data-dtab="${k}" class="${dtab === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="dsec" data-sec="overview">
+    ${ipoCard(a)}
     ${watchEditor(a)}
     ${h ? `<h3>Your position</h3><div class="grid2">
       <div class="stat"><div class="k">Shares</div><div class="v">${fmtQty(h.qty)}</div></div>
@@ -1625,10 +1632,11 @@ function renderDetail({ keepScroll = true } = {}) {
 
     </div><div class="dsec" data-sec="research">
     ${researchSection(a)}
+    ${reportLine(a)}
     </div><div class="dsec" data-sec="overview">
     <h3>Why it's moving</h3>
     <div class="list">${(a.events || []).slice(0, 10).map((e) => `<div class="driver">
-      <div class="ic">${{ game: '🏟️', milestone: '🏆', news: '📰', injury: '🩹', fund: '🧺' }[e.kind] || '•'}</div>
+      <div class="ic">${{ game: '🏟️', milestone: '🏆', news: '📰', injury: '🩹', fund: '🧺', report: '📋' }[e.kind] || '•'}</div>
       <div class="txt">${esc(e.text)}<div class="tiny faint">${timeAgo(e.t)}</div></div>
       <div class="pct ${cls(e.pct)}">${Math.abs(e.pct) < 0.0005 ? '<span class="faint">—</span>' : fmtPct(e.pct, 1)}</div></div>`).join('')
       || '<div class="empty">No price-moving events yet.</div>'}</div>
@@ -2088,7 +2096,7 @@ function submitOrder() {
     buzz();
     closeOrder();
     const n0 = state.inbox.length;
-    runSocial(state); runExtras(state); runCareer(state);
+    runSocial(state); runExtras(state); runExtras3(state); runCareer(state);
     const fresh = state.inbox.slice(0, state.inbox.length - n0);
     const lvl = fresh.find((n) => n.kind === 'level');
     if (fresh.some((n) => n.kind === 'card' && /^New/.test(n.text))) msg += ' · 🃏 New card';
@@ -2433,6 +2441,7 @@ document.addEventListener('click', async (e) => {
   }
   if (d.alertpct) { const a = state.assets[ui.detail]; $('#alertpx').value = (a.price * (1 + Number(d.alertpct) / 100)).toFixed(2); return; }
   switch (d.act) {
+    case 'pinback':
     case 'back': if (history.state?.sheet) history.back(); else closeDetail(); break;
     case 'chainback': if (history.state?.chain) history.back(); else closeChain(); break;
     case 'chain': openChain(); break;
@@ -2464,6 +2473,8 @@ document.addEventListener('click', async (e) => {
     }
     case 'artback': closeArticle(); break;
     case 'pageback': closePage(); break;
+    case 'duelshare': shareDuel().catch((err) => toast(err.message)); break;
+    case 'ipobuy': if (ui.detail) { try { const a = state.assets[ui.detail]; const r = buyIpo(state, ui.detail, parseFloat(String($('#ipoamt').value).replace(/[^0-9.]/g, ''))); dirty = true; save(); buzz(); sfx('trade'); toast(`Bought ${fmtQty(r.qty)} ${a.ticker} at the IPO price`); renderDetail(); } catch (err) { $('#ipoerr').textContent = err.message; } } break;
     case 'protect': if (ui.detail) { try { protect(state, ui.detail, { stopPct: (parseFloat($('#pstop')?.value) || 0) / 100, takePct: (parseFloat($('#ptake')?.value) || 0) / 100 }); dirty = true; save(); buzz(); toast('Protection set'); renderDetail(); } catch (err) { toast(err.message); } } break;
     case 'unprotect': if (ui.detail) { clearProtection(state, ui.detail); dirty = true; save(); renderDetail(); } break;
     case 'shortmore': if (ui.detail) openPage('short', { a: ui.detail }); break;
@@ -2586,6 +2597,7 @@ function syncQtyInput() {
 }
 
 document.addEventListener('input', (e) => {
+  if (e.target.id === 'duelin' && ui.page) { ui.page.code = e.target.value.trim(); const pos = e.target.selectionStart; const y = $('#page').scrollTop; renderPage(); $('#page').scrollTop = y; const inp = $('#duelin'); if (inp) { inp.focus(); try { inp.setSelectionRange(pos, pos); } catch { /* */ } } return; }
   if (e.target.id === 'pageq' && ui.page) {
     ui.page.q = e.target.value;
     if (ui.page.type === 'search') $('#pageres').innerHTML = searchResults(ui.page.q);
@@ -2831,7 +2843,7 @@ function renderPage() {
   const p = ui.page; if (!p) return;
   const el = $('#page');
   const body = { search: pageSearch, compare: pageCompare, calendar: pageCalendar, journal: pageJournal, achievements: pageAchievements, short: pageShort, risk: pageRisk,
-    breakouts: pageBreakouts, recap: pageRecap, rival: pageRival, futures: pageFutures, glance: pageGlance, layout: pageLayout }[p.type]?.(p) || '';
+    breakouts: pageBreakouts, recap: pageRecap, rival: pageRival, hof: pageHof, futures: pageFutures, glance: pageGlance, layout: pageLayout }[p.type]?.(p) || '';
   el.innerHTML = `<div class="sheet-inner">${body}</div>`;
 }
 // Swipe right anywhere on a full-screen page to go back (the page itself only scrolls up and down).
@@ -3056,7 +3068,7 @@ function homeOrder() {
   return saved;
 }
 const TOOLS = [['glance', '👀', 'Glance'], ['calendar', '📅', 'Calendar'], ['risk', '🛡️', 'Risk check'], ['breakouts', '🚀', 'Breakouts'], ['futures', '🔮', 'Futures'], ['journal', '📒', 'Journal'],
-  ['recap', '🗓️', 'My week'], ['rival', '⚔️', 'Rival'], ['achievements', '🏅', 'Achievements'], ['layout', '🧩', 'Customize']];
+  ['recap', '🗓️', 'My week'], ['rival', '⚔️', 'Rival'], ['achievements', '🏅', 'Achievements'], ['hof', '🏛️', 'Hall of fame'], ['layout', '🧩', 'Customize']];
 
 function homeParts(now, holdings, movers) {
   const since = ui.since;
@@ -3192,7 +3204,8 @@ function pageRival() {
     <div class="list">${RIVALS.map((r) => { const f = state.assets[`fund:${r.fund}`]; const wk = f?.hist?.length ? change(f, Date.now(), 7 * DAY) : null; return `<button class="item" data-rival="${r.fund}" ${f?.price ? '' : 'disabled'}>
       <div class="grow"><div class="name">${esc(r.name)} ${rv?.fund === r.fund ? '<span class="pk won">Current</span>' : ''}</div><div class="sub">${esc(r.style)}</div></div>
       <div class="small ${wk == null ? 'muted' : cls(wk)}">${wk == null ? '—' : fmtPct(wk, 1) + ' wk'}</div></button>`; }).join('')}</div>
-    ${rv ? '<p class="tiny faint" style="text-align:center;margin-top:10px">Switching restarts this week\'s match from now.</p>' : ''}`;
+    ${rv ? '<p class="tiny faint" style="text-align:center;margin-top:10px">Switching restarts this week\'s match from now.</p>' : ''}
+    ${duelSection(ui.page || {})}`;
 }
 function pageFutures(p) {
   const now = Date.now();
@@ -3284,6 +3297,134 @@ function sfx(name) {
 }
 const buzz = () => { if (state?.settings?.haptics !== false) haptic(); };
 
+// ====================================================================================
+// v37: market events, IPOs, report cards, hall of fame, friend challenge, quick actions,
+// pinned price bar
+// ====================================================================================
+
+function marketBanners() {
+  const now = Date.now();
+  const ev = activeEvents(state, now);
+  const ipos = ipoList(state, now).slice(0, 8);
+  return `${ev.map((e) => `<div class="card evb">${lgTag(e.league)}<div class="grow"><b>⚡ ${esc(e.name)}</b><div class="tiny muted">Prices across the league are swinging more than usual · ${daysLeft(e.end).replace(' left', '')} to go</div></div></div>`).join('')}
+    ${ipos.length ? `<h3>Rookie IPOs</h3><div class="hscroll ipos">${ipos.map((a) => { const ph = ipoPhase(a, now); return `<button class="lu ${ph === 'open' ? 'live' : ''}" data-open="${a.id}">
+      <div class="row" style="gap:6px">${lgTag(a.league)}${ph === 'open' ? '<span class="tag live">OPEN</span>' : '<span class="tag ipo">IPO</span>'}</div>
+      <div class="name ellipsis">${esc(a.name)}</div>
+      <div class="tiny muted">${ph === 'open' ? `${money(a.ipo.price)} · closes ${new Date(a.ipo.opens + IPO_WINDOW).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : `Lists ${new Date(a.ipo.opens).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`}</div></button>`; }).join('')}</div>` : ''}`;
+}
+function ipoCard(a) {
+  const now = Date.now(); const ph = ipoPhase(a, now);
+  if (!ph || ph === 'done') return '';
+  if (ph === 'soon') return `<div class="card ipoc"><span class="tag ipo">IPO</span> <b style="margin-left:6px">Lists ${new Date(a.ipo.opens).toLocaleString([], { weekday: 'long', hour: 'numeric', minute: '2-digit' })}</b>
+    <div class="small muted" style="margin-top:6px">A newcomer to the market. When it opens you get three hours to take an allocation of up to ${Math.round(IPO_ALLOC * 100)}% of your net worth at the IPO price. After that he trades freely, and the first move can go either way.</div></div>`;
+  const room = ipoRoom(state, a, now);
+  return `<div class="card ipoc"><div class="row between"><span><span class="tag live">IPO OPEN</span> <b style="margin-left:6px">${money(a.ipo.price)} a share</b></span><span class="tiny muted">closes ${new Date(a.ipo.opens + IPO_WINDOW).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
+    <div class="small muted" style="margin:6px 0 8px">Your allocation: ${money(room)} left${a.ipo.spent ? ` · ${money(a.ipo.spent)} taken` : ''}. Shares are locked until the window closes; the first move after that can go either way.</div>
+    ${room >= 0.05 ? `<div class="prot-row" style="grid-template-columns:1fr auto"><div class="pf"><span>$</span><input id="ipoamt" inputmode="decimal" value="${Math.min(room, Math.max(0.05, room / 2)).toFixed(2)}"></div><button class="btn buy small" data-act="ipobuy">Buy at IPO price</button></div>` : '<div class="small muted">Allocation used.</div>'}
+    <div id="ipoerr" class="small down" style="min-height:0"></div></div>`;
+}
+function reportLine(a) {
+  if (a.kind !== 'player' || !a.report) return '';
+  const g = a.report.grade;
+  return `<div class="card repc"><div class="row between"><div><div class="tiny muted">REPORT CARD</div><b>${g ? `Last grade: <span class="grade g${g}">${g}</span>` : 'No report yet'}</b>${a.report.t ? `<div class="tiny faint">${timeAgo(a.report.t)} · ${a.report.n} games</div>` : ''}</div>
+    <div style="text-align:right"><div class="tiny muted">NEXT REPORT</div><b>${a.report.next ? fmtDate(a.report.next) : '—'}</b></div></div>
+    <div class="tiny faint" style="margin-top:6px">About every four weeks, graded on his games since the last one plus the analysts' own read. The price reacts when it lands.</div></div>`;
+}
+function pinBar(a, ch) {
+  return `<div class="pin" id="dpin"><div class="pin-in"><button class="icon-btn" data-act="pinback" aria-label="Back">${BACK_SVG}</button><b class="ellipsis">${esc(a.kind === 'player' ? a.name : a.ticker)}</b>
+    <span class="grow"></span>${sparkline(a.hist.concat([Date.now(), a.price]), Date.now() - RANGES[ui.range], 70, 26)}<div class="pin-p"><b data-p="${a.id}">${money(a.price)}</b><span class="${cls(ch)}">${fmtPct(ch, 1)}</span></div></div></div>`;
+}
+$('#sheet').addEventListener('scroll', () => { const p = $('#dpin'); if (p) p.classList.toggle('on', $('#sheet').scrollTop > 250); }, { passive: true });
+
+// ---------- hall of fame and friend challenge ----------
+function pageHof() {
+  const h = updateHof(state);
+  const row = (icon, title, val, sub, c = '') => `<div class="driver"><div class="ic">${icon}</div><div class="txt">${title}<div class="tiny faint ellipsis">${sub}</div></div><div class="pct ${c}">${val}</div></div>`;
+  return `${pageHead('Hall of fame')}
+    <p class="small muted" style="margin:10px 0">Your all-time records. Season resets and fresh starts never clear these.</p>
+    <div class="list">
+      ${row('🏔️', 'Highest net worth', h.peak ? money(h.peak.v) : '—', h.peak ? fmtDate(h.peak.t, { month: 'short', day: 'numeric', year: 'numeric' }) : '')}
+      ${row('💰', 'Biggest winning trade', h.trade ? signMoney(h.trade.pl) : '—', h.trade ? `${esc(h.trade.name)} · ${fmtPct(h.trade.pct, 1)} · ${fmtDate(h.trade.t)}` : 'Sell something for a profit', h.trade ? 'up' : '')}
+      ${row('💵', 'Biggest dividend', h.div ? money(h.div.amt) : '—', h.div ? `${esc(h.div.name)} · ${fmtDate(h.div.t)}` : 'Own a player through a big game', h.div ? 'up' : '')}
+      ${row('🏅', 'Best season', h.season ? pctTxt(h.season.ret) : '—', h.season ? `Season ${h.season.n} · ${esc(h.season.tier)} · #${h.season.rank} of ${h.season.of}` : 'Finish a season', h.season ? cls(h.season.ret) : '')}
+      ${row('📆', 'Seasons played', String(h.seasons || 0), 'completed')}
+      ${row('🔥', 'Longest Pick\'em streak', String(h.pick || 0), 'wins in a row')}
+      ${row('⚡', 'Longest challenge streak', String(h.challenge || 0), 'daily challenges in a row')}
+    </div>
+    <h3>Best cards you've held</h3>
+    ${h.cards.length ? `<div class="list">${h.cards.map((c) => `<div class="item"><div class="rdot" style="background:${bRarity(c.rarity).color}"></div><div class="grow"><div class="name ellipsis">${esc(c.name)}</div>
+      <div class="sub">${bRarity(c.rarity).name} · ${esc(c.kind.toLowerCase())} · rated ${c.rating.toFixed(1)}</div></div><span class="tiny faint">${fmtDate(c.t)}</span></div>`).join('')}</div>` : '<div class="card empty">No moment cards yet.</div>'}`;
+}
+function duelSection(p) {
+  const r = p.code ? duelResult(state, p.code) : null;
+  return `<h3>Challenge a friend</h3>
+    <div class="card"><div class="small muted">Send a friend your week. They paste it into their StatStreet and see who's ahead. It carries only a name and your 7-day return.</div>
+      <label class="price-field" style="margin-top:8px"><span class="small muted">Your name</span><input id="duelname" maxlength="20" value="${esc(state.settings.duelName || '')}" placeholder="${esc(career(state).title)}" style="text-align:right"></label>
+      <button class="btn buy" data-act="duelshare" style="width:100%;margin-top:10px">Share my week</button></div>
+    <div class="card" style="margin-top:10px"><div class="small muted">Got one from a friend? Paste the link or code.</div>
+      <input id="duelin" class="searchbox" style="margin-top:8px" placeholder="Paste here" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(p.code || '')}">
+      ${p.code ? (r ? `<div class="vsline" style="margin-top:12px"><span>You <b class="${cls(r.mine)}">${fmtPct(r.mine, 1)}</b></span><span class="faint">vs</span><span>${esc(r.name)} <b class="${cls(r.ret)}">${fmtPct(r.ret, 1)}</b></span></div>
+        <div class="small ${r.ahead ? 'up' : 'down'}">${r.ahead ? `You're ahead of ${esc(r.name)} this week.` : `${esc(r.name)} is ahead of you this week.`}${r.stale ? ' <span class="faint">(That code is more than a week old.)</span>' : ''}</div>`
+        : '<div class="small down" style="margin-top:8px">That doesn\'t look like a StatStreet challenge code.</div>') : ''}</div>`;
+}
+async function shareDuel() {
+  const name = ($('#duelname')?.value || '').trim();
+  state.settings.duelName = name; dirty = true; save();
+  const code = duelCode(state, name);
+  const w = weeklyRecap(state);
+  const url = `${location.origin}${location.pathname}#c=${code}`;
+  const text = `I'm ${w.pct >= 0 ? 'up' : 'down'} ${Math.abs(w.pct * 100).toFixed(1)}% this week on StatStreet. Think you can beat that? Paste this into the app (Rival → Challenge a friend): ${url}`;
+  if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(text); toast('Copied. Paste it to a friend.'); } catch { toast('Sharing isn\'t available here'); }
+}
+
+// ---------- long-press quick actions ----------
+function openQuick(id) {
+  const a = state.assets[id]; if (!a) return;
+  ui.quick = id; buzz();
+  const el = $('#qa');
+  const watching = state.watch.includes(id); const own = !!state.holdings[id]; const ph = ipoPhase(a);
+  el.hidden = false;
+  el.innerHTML = `<div class="qa-back" data-qa="close"></div><div class="qa-panel" role="dialog" aria-label="Quick actions for ${esc(a.name)}">
+    <div class="row" style="gap:10px;margin-bottom:10px">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${money(a.price)} · <span class="${cls(change(a, Date.now()))}">${fmtPct(change(a, Date.now()))}</span></div></div></div>
+    <div class="qa-grid">
+      ${ph ? '' : '<button data-qa="buy"><span>🟢</span>Buy</button>'}
+      ${own && !ph ? '<button data-qa="sell"><span>🔴</span>Sell</button>' : ''}
+      <button data-qa="watch"><span>${watching ? '★' : '☆'}</span>${watching ? 'Unwatch' : 'Watch'}</button>
+      ${a.kind !== 'fund' ? '<button data-qa="compare"><span>⇅</span>Compare</button>' : ''}
+      <button data-qa="open"><span>📄</span>Open page</button>
+    </div></div>`;
+}
+function closeQuick() { ui.quick = null; const el = $('#qa'); el.hidden = true; el.innerHTML = ''; }
+{
+  let timer = 0; let sx = 0; let sy = 0;
+  const cancel = () => { clearTimeout(timer); timer = 0; };
+  document.addEventListener('touchstart', (e) => {
+    cancel();
+    if (e.touches.length !== 1 || overlayOpen()) return;
+    const row = e.target.closest?.('#view [data-open]');
+    if (!row || !state.assets[row.dataset.open]) return;
+    const t = e.touches[0]; sx = t.clientX; sy = t.clientY;
+    timer = setTimeout(() => { timer = 0; ui.swallowClick = Date.now(); openQuick(row.dataset.open); }, 480);
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => { if (!timer) return; const t = e.touches[0]; if (Math.abs(t.clientX - sx) > 9 || Math.abs(t.clientY - sy) > 9) cancel(); }, { passive: true });
+  document.addEventListener('touchend', cancel, { passive: true });
+  document.addEventListener('touchcancel', cancel, { passive: true });
+  // The tap that ends a long press must not also open the player page.
+  document.addEventListener('click', (e) => {
+    if (ui.swallowClick && Date.now() - ui.swallowClick < 700 && !e.target.closest('#qa')) { e.stopPropagation(); e.preventDefault(); ui.swallowClick = 0; return; }
+    const b = e.target.closest('[data-qa]'); if (!b) return;
+    e.stopPropagation();
+    const id = ui.quick; const act = b.dataset.qa;
+    closeQuick();
+    if (!id || act === 'close') return;
+    if (act === 'watch') { const i = state.watch.indexOf(id); if (i >= 0) state.watch.splice(i, 1); else state.watch.unshift(id); dirty = true; save(); buzz(); toast(i >= 0 ? 'Removed from watchlist' : 'Added to watchlist'); const y = view().scrollTop; render(); view().scrollTop = y; return; }
+    openDetail(id);
+    if (act === 'buy' || act === 'sell') setTimeout(() => openOrder(stockOrderDefaults(act)), 60);
+    if (act === 'compare') setTimeout(() => openPage('compare', { a: id, b: null }), 60);
+  }, true);
+}
+
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {
   if (el.dataset.armed) return true;
@@ -3342,7 +3483,7 @@ async function runSync({ manual = false, liveOnly = false } = {}) {
   syncing = false;
   if (!liveOnly) ensureFunds(state, Date.now());
   runSocial(state, Date.now());
-  runExtras(state, Date.now());
+  runExtras(state, Date.now()); runExtras3(state, Date.now());
   runCareer(state, Date.now());
   state.lastTick = state.lastTick || Date.now();
   dirty = true; await save();
@@ -3497,9 +3638,10 @@ async function main() {
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded && !overlayOpen()) { reloaded = true; location.reload(); } });
   }
   tick(state, Date.now());
-  runAutomation(state, Date.now()); runSocial(state, Date.now()); runExtras(state, Date.now()); runCareer(state, Date.now());
+  runAutomation(state, Date.now()); runSocial(state, Date.now()); runExtras(state, Date.now()); runExtras3(state, Date.now()); runCareer(state, Date.now());
   applyTheme(); applyLook();
   ui.since = sinceLastOpen(state);
+  { const m = location.hash.match(/[#&]c=([A-Za-z0-9_-]+)/); if (m) { ui.pendingDuel = m[1]; try { history.replaceState(null, '', location.pathname); } catch { /* */ } } }
   if (!state.lastOpen) markOpen(state);
   render();
   announce();
@@ -3513,10 +3655,11 @@ async function main() {
     tick(state, now);
     runAutomation(state, now);
     runSocial(state, now);
-    runExtras(state, now);
+    runExtras(state, now); runExtras3(state, now);
     runCareer(state, now);
     moverAlerts(state, now);
     maybeRecap();
+  if (ui.pendingDuel) { openPage('rival', { code: ui.pendingDuel }); ui.pendingDuel = null; }
     // Keep auction clocks and bids moving on the Marketplace.
     if (ui.tab === 'marketplace' && !overlayOpen()) updateMarketplaceNumbers(now);
     if (ui.order?.mode === 'lot' && document.activeElement?.id !== 'bidamt' && now - (ui.lotDrawn || 0) > 15e3) { ui.lotDrawn = now; renderLot(); }
@@ -3533,7 +3676,7 @@ async function main() {
     ui.since = sinceLastOpen(state) || ui.since;
     checkForUpdate();
     tick(state, Date.now());
-    runAutomation(state, Date.now()); runSocial(state, Date.now()); runExtras(state, Date.now()); runCareer(state, Date.now());
+    runAutomation(state, Date.now()); runSocial(state, Date.now()); runExtras(state, Date.now()); runExtras3(state, Date.now()); runCareer(state, Date.now());
     announce();
     const last = Math.max(0, ...enabledLeagues().map((l) => state.sync[l]?.scoreboard || 0));
     if (Date.now() - last > 60e3) runSync(); else softRefresh();

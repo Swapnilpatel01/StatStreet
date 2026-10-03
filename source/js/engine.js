@@ -263,7 +263,7 @@ function ensurePlayer(state, league, p) {
       id, league, kind: 'player', rid: p.id, name: p.name, ticker: uniqueTicker(state, tickerFrom(p.name)),
       pos: p.pos, teamId: p.teamId, teamAbbr: p.teamAbbr, img: p.img,
       perf: { ema: null, n: 0, season: null, last: [] }, injury: null,
-      shocks: [], events: [], hist: [], price: 0, n: 0, imp: null,
+      shocks: [], events: [], hist: [], price: 0, n: 0, imp: null, isNew: true,
     };
   }
   if (p.pos) a.pos = p.pos;
@@ -828,7 +828,9 @@ export function tick(state, now = Date.now()) {
   // Funds last, so their NAV uses this tick's component prices.
   for (const a of [...all.filter((x) => x.kind !== 'fund'), ...all.filter((x) => x.kind === 'fund')]) {
     const live = !!a.live || liveTeams.has(a.id);
-    const sigma = a.kind === 'fund' ? 0 : (a.kind === 'team' ? 0.004 : 0.008) * (live ? 2.5 : 1);
+    // During a market event the whole league trades more wildly.
+    const ev = a.kind !== 'fund' && state.events?.[a.league]?.end > now;
+    const sigma = a.kind === 'fund' ? 0 : (a.kind === 'team' ? 0.004 : 0.008) * (live ? 2.5 : 1) * (ev ? 3 : 1);
     a.n = sigma ? (a.n || 0) * e + sigma * Math.sqrt(1 - e * e) * gauss() : 0;
     const hy = HYPE[a.kind];
     if (hy) { const eh = Math.exp(-dt / hy.tau); a.h = (a.h || 0) * eh + hy.sd * Math.sqrt(1 - eh * eh) * gauss(); }
@@ -1011,9 +1013,12 @@ export function previewTrade(state, id, side, qty, now = Date.now()) {
   return { fill, total: round2(fill * qty), post: round2(post), next };
 }
 
+// Rules other modules add to trading (for example, no trading before a player's IPO).
+export const tradeGuards = [];
 export function trade(state, id, side, qty, now = Date.now()) {
   const a = state.assets[id];
   if (!a) throw new Error('Unknown asset');
+  for (const g of tradeGuards) g(state, a, side, qty, now);
   qty = Math.round(qty * 1e6) / 1e6;
   const pos = state.holdings[id] || { qty: 0, cost: 0, since: now };
   if (side === 'sell' && qty > pos.qty && qty - pos.qty < 1e-5) qty = pos.qty; // "sell all" rounding

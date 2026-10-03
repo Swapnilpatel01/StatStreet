@@ -319,7 +319,7 @@ with sync_playwright() as p:
     assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
     # --- v34 features
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(400)
-    assert page.locator('.tools [data-page]').count() == 10
+    assert page.locator('.tools [data-page]').count() == 11
     page.screenshot(path=f'{OUT}/20-home.png', full_page=False)
     page.evaluate("document.querySelector('.tools').scrollIntoView()"); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/20b-home-tools.png')
@@ -406,6 +406,37 @@ with sync_playwright() as p:
     assert page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--up').trim()") == '#3b9dff'
     page.evaluate("document.querySelector('#setcb').click()"); page.wait_for_timeout(150)
     print('v35 features ok')
+    # --- v37: long press, pinned bar, hall of fame, friend code
+    page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(400)
+    page.evaluate('''() => { const el = document.querySelector('#view .item[data-open^="nba:p:"]'); const r = el.getBoundingClientRect();
+      const t = new Touch({ identifier: 5, target: el, clientX: r.left + 60, clientY: r.top + 20 });
+      el.dispatchEvent(new TouchEvent('touchstart', { touches: [t], changedTouches: [t], bubbles: true })); window.__lp = el; window.__lt = t; }''')
+    page.wait_for_timeout(650)
+    assert page.locator('#qa .qa-panel').is_visible(), 'long press opens quick actions'
+    page.screenshot(path=f'{OUT}/40-quick.png')
+    page.evaluate("window.__lp.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [window.__lt], bubbles: true })); window.__lp.click()")
+    page.wait_for_timeout(150)
+    assert page.locator('#sheet').is_hidden(), 'the long press itself does not open the page'
+    page.click('#qa [data-qa=compare]'); page.wait_for_timeout(600)
+    assert page.locator('#page').is_visible() and 'Pick who to compare' in page.text_content('#page')
+    page.click('#page [data-act=pageback]'); page.wait_for_timeout(200)
+    page.evaluate("document.querySelector('#sheet').scrollTop = 600"); page.wait_for_timeout(350)
+    assert page.evaluate("document.querySelector('#dpin').classList.contains('on')"), 'price bar pins when scrolled'
+    page.screenshot(path=f'{OUT}/41-pinned.png')
+    page.evaluate("document.querySelector('#sheet').scrollTop = 0"); page.wait_for_timeout(250)
+    assert not page.evaluate("document.querySelector('#dpin').classList.contains('on')")
+    page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
+    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
+    page.evaluate("document.querySelector('.tools [data-page=hof]').click()"); page.wait_for_timeout(450)
+    assert 'Highest net worth' in page.text_content('#page'); page.screenshot(path=f'{OUT}/42-hof.png')
+    page.click('#page [data-act=pageback]'); page.wait_for_timeout(150)
+    page.evaluate("document.querySelector('.tools [data-page=rival]').click()"); page.wait_for_timeout(450)
+    code = 'eyJ2IjoxLCJuIjoiU2FtIiwiciI6MC4wNDIsInciOiIyMDI2LTEwLTA1IiwidCI6MH0'
+    page.fill('#duelin', 'https://x.test/StatStreet/#c=' + code); page.wait_for_timeout(300)
+    txt = page.text_content('#page'); assert 'Sam' in txt and '+4.2%' in txt, txt[-300:]
+    page.screenshot(path=f'{OUT}/43-duel.png')
+    page.click('#page [data-act=pageback]'); page.wait_for_timeout(150)
+    print('v37 features ok')
     # Portfolio chart: holding on the graph shows the balance at that point
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
     if page.locator('#nwchart svg').count():
