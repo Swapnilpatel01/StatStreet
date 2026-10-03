@@ -58,6 +58,14 @@ export const api = {
   scoreboard: (lg, yyyymmdd) => fetchJSON(`${SITE}/${P(lg)}/scoreboard${yyyymmdd ? `?dates=${yyyymmdd}&limit=100` : ''}`),
   summary: (lg, eventId) => fetchJSON(`${SITE}/${P(lg)}/summary?event=${eventId}`),
   news: (lg) => fetchJSON(`${SITE}/${P(lg)}/news?limit=50`),
+  // One story's full text. ESPN serves it from a few places; use the first that answers.
+  article: async (lg, id) => {
+    let err;
+    for (const url of [`${SITE}/${P(lg)}/news/${id}`, `https://content.core.api.espn.com/v1/sports/news/${id}`, `https://now.core.api.espn.com/v1/sports/news/${id}`]) {
+      try { const j = await fetchJSON(url); const h = j?.headlines?.[0] || (j?.story ? j : null); if (h?.story) return h; } catch (e) { err = e; }
+    }
+    throw err || new Error('No story text');
+  },
   injuries: (lg) => fetchJSON(`${SITE}/${P(lg)}/injuries`),
   seasonStats: (lg, { season, category, page = 1, limit = 200 } = {}) => {
     const q = new URLSearchParams({ seasontype: '2', limit: String(limit), page: String(page), isqualified: 'false' });

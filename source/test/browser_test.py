@@ -317,6 +317,18 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
     held_cards = page.locator('.card-grid .pcard').count(); print('cards after reset (pack pulls only):', held_cards)
     assert abs(nw_after - nw_before) / nw_before < 0.05, (nw_before, nw_after)
+    # In-app article reader: headline opens the story inside the app
+    page.click('#tabbar [data-tab=news]'); page.wait_for_timeout(300)
+    page.locator('#view a[data-article]').first.click(); page.wait_for_timeout(900)
+    art = page.locator('#article')
+    assert art.is_visible() and len(ctx.pages) == 1, 'article opens in the app'
+    txt = art.text_content()
+    assert 'First paragraph of the story.' in txt and 'What it means' in txt and 'Point one' in txt, txt[:300]
+    assert page.evaluate('window.HACKED') is None
+    assert art.locator('.art-foot a').get_attribute('href').startswith('https://www.espn.com/')
+    page.click('#article [data-act=artback]'); page.wait_for_timeout(200)
+    assert not art.is_visible()
+    print('article reader ok')
     b.close()
 srv.shutdown()
 if errors: print('JS ERRORS:\n' + '\n'.join(errors)); sys.exit(1)

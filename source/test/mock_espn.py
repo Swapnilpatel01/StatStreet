@@ -177,7 +177,7 @@ def news(lg):
     for i, (h, d, pl, hrs) in enumerate(heads):
         cats = [{'type': 'athlete', 'athleteId': int(pl[0])}] if pl else [{'type': 'team', 'teamId': int(TEAMS[lg][1][0])}]
         arts.append({'dataSourceIdentifier': f'{lg}-n{i}', 'headline': h, 'description': d, 'published': (now - datetime.timedelta(hours=hrs)).isoformat(),
-                     'links': {'web': {'href': 'https://www.espn.com/'}}, 'categories': cats})
+                     'id': 9000 + i, 'byline': 'Staff Writer', 'links': {'web': {'href': f'https://www.espn.com/{lg}/story/_/id/{9000 + i}/x'}}, 'categories': cats})
     return {'articles': arts}
 
 
@@ -196,6 +196,8 @@ def handle(url):
     if u.path.endswith('/scoreboard'): return scoreboard(lg, qs)
     if u.path.endswith('/summary'): return summary(lg, qs['event'][0])
     if u.path.endswith('/news'): return news(lg)
+    if '/news/' in u.path:
+        return {'headlines': [{'headline': 'H', 'byline': 'Staff Writer', 'story': '<p>First paragraph of the story.</p><photo1></photo1><script>window.HACKED=1</script><h2>What it means</h2><p>Second <a href="https://x.test">linked</a> paragraph.</p><ul><li>Point one</li></ul>'}]}
     if u.path.endswith('/injuries'): return injuries(lg)
     raise ValueError(url)
 

@@ -299,6 +299,7 @@ export function parseNews(league, json) {
       url: a.links?.web?.href || a.links?.mobile?.href || '',
       img: a.images?.[0]?.url || '', published: Date.parse(a.published) || Date.now(),
       athletes: [...new Set(athletes)], teams: [...new Set(teams)],
+      aid: /^\d+$/.test(String(a.id ?? '')) ? String(a.id) : '', by: a.byline || '',
     };
   }).filter((n) => n.headline);
 }
@@ -432,5 +433,26 @@ export function newsEffects(art, subjects) {
       if (inHead || teams.length === 1) out[x.id] = headOnly || (inHead ? whole : 0);
     }
   }
+  return out;
+}
+
+// ---------- Article text ----------
+// ESPN sends the story as HTML. Keep only the words: paragraphs, subheadings, lists and
+// quotes. Everything else (scripts, embeds, photo and video placeholders) is dropped.
+export function storyBlocks(html) {
+  const doc = new DOMParser().parseFromString(`<div>${html || ''}</div>`, 'text/html');
+  const out = [];
+  const text = (n) => (n.textContent || '').replace(/\s+/g, ' ').trim();
+  const walk = (node) => {
+    for (const el of node.children) {
+      const tag = el.tagName.toLowerCase();
+      if (['script', 'style', 'iframe', 'aside', 'figure', 'table', 'form'].includes(tag) || /^(photo|video|inline|alsosee|offer|module)\d*$/.test(tag)) continue;
+      if (tag === 'p' || tag === 'blockquote') { const t = text(el); if (t) out.push({ t: tag === 'p' ? 'p' : 'q', x: t }); }
+      else if (/^h[1-6]$/.test(tag)) { const t = text(el); if (t) out.push({ t: 'h', x: t }); }
+      else if (tag === 'ul' || tag === 'ol') { for (const li of el.children) { const t = text(li); if (t) out.push({ t: 'li', x: t }); } }
+      else walk(el);
+    }
+  };
+  walk(doc.body);
   return out;
 }

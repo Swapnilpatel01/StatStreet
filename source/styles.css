@@ -709,3 +709,20 @@ details .prose { padding: 12px 14px 4px; }
 .rs-sched { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .rs-sched span { font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 8px; background: var(--card2); color: var(--muted); }
 .rs-sched span.up { color: var(--up); } .rs-sched span.down { color: var(--down); }
+
+/* ---------- v28: in-app article reader ---------- */
+#article { z-index: 40; padding-bottom: calc(var(--safe-b) + 28px); }
+.art-img { width: 100%; border-radius: 14px; margin: 14px 0 0; display: block; aspect-ratio: 16 / 9; object-fit: cover; background: var(--card); }
+.art h1 { font-size: 24px; line-height: 1.2; letter-spacing: -.01em; margin: 16px 0 8px; }
+.art .by { margin-bottom: 14px; }
+.art .lede { font-size: 17px; line-height: 1.5; color: var(--muted); margin: 0 0 14px; }
+.art p { font-size: 17px; line-height: 1.6; margin: 0 0 15px; }
+.art h3 { font-size: 18px; margin: 22px 0 8px; }
+.art .q { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); }
+.art .li { padding-left: 16px; position: relative; }
+.art .li::before { content: '•'; position: absolute; left: 2px; color: var(--muted); }
+.art-moves { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+.art-foot { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.art-skel i { display: block; height: 14px; border-radius: 7px; background: var(--card); margin: 0 0 12px; animation: artpulse 1.2s ease-in-out infinite; }
+.art-skel i:nth-child(3n) { width: 72%; }
+@keyframes artpulse { 50% { opacity: .45; } }

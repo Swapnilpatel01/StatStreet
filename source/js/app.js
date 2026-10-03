@@ -1,5 +1,5 @@
 // StatStreet — UI layer.
-import { LEAGUES, posGroup } from './scoring.js';
+import { LEAGUES, posGroup, storyBlocks } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
   leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 27;
+const APP_VERSION = 28;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -63,7 +63,7 @@ const assetsList = () => Object.values(state.assets).filter((a) => leagueOn(a) &
 const fmtDate = (t, o = { month: 'short', day: 'numeric' }) => new Date(t).toLocaleDateString([], o);
 const fmtExp = (t) => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
 const fmtDateTime = (t) => new Date(t).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-const overlayOpen = () => !!(ui.detail || ui.chain || ui.order || ui.game || ui.draft);
+const overlayOpen = () => !!(ui.detail || ui.chain || ui.order || ui.game || ui.draft || ui.article);
 const view = () => $('#view');
 
 // ---------- small render helpers ----------
@@ -574,8 +574,8 @@ function renderNews() {
     <div class="list" style="margin-top:8px">${list.slice(0, 80).map((n) => {
       const s = n.score > 0.12 ? ['up', 'Bullish'] : n.score < -0.12 ? ['down', 'Bearish'] : ['flat', 'Neutral'];
       return `<div class="news">
-        <a href="${esc(n.url)}" target="_blank" rel="noopener" class="h" style="text-decoration:none;display:block">${esc(n.headline)}</a>
-        ${n.desc ? `<div class="small muted" style="margin-top:3px">${esc(n.desc)}</div>` : ''}
+        <a href="${esc(n.url)}" data-article="${esc(n.id)}" class="h" style="text-decoration:none;display:block">${esc(n.headline)}</a>
+        ${n.desc ? `<div class="small muted" data-article="${esc(n.id)}" style="margin-top:3px">${esc(n.desc)}</div>` : ''}
         <div class="meta">${lgTag(n.league)}<span class="senti ${s[0]}">${s[1]}${s[0] !== 'flat' ? ` ${n.score > 0 ? '+' : ''}${n.score.toFixed(2)}` : ''}</span>
           <span class="tiny faint">${timeAgo(n.published)}</span>
           ${(n.targets || []).slice(0, 4).map((id) => (state.assets[id] ? `<button class="tk" data-open="${id}">${esc(state.assets[id].ticker)}</button>` : '')).join('')}
@@ -1582,7 +1582,7 @@ function renderDetail({ keepScroll = true } = {}) {
       <div class="brk"><span>Fair price</span><b>${money(b.target)}</b></div>
     </div>` : ''}
 
-    ${news.length ? `<h3>News</h3><div class="list">${news.map((n) => `<a class="news" href="${esc(n.url)}" target="_blank" rel="noopener">
+    ${news.length ? `<h3>News</h3><div class="list">${news.map((n) => `<a class="news" href="${esc(n.url)}" data-article="${esc(n.id)}">
       <div class="h">${esc(n.headline)}</div><div class="meta"><span class="senti ${(n.fx?.[a.id] || 0) > 0.12 ? 'up' : (n.fx?.[a.id] || 0) < -0.12 ? 'down' : 'flat'}">${(n.fx?.[a.id] || 0) > 0.12 ? 'Bullish' : (n.fx?.[a.id] || 0) < -0.12 ? 'Bearish' : 'Mention'}</span><span class="tiny faint">${timeAgo(n.published)}</span></div></a>`).join('')}</div>` : ''}
   </div>`;
   const bar = $('#tradebar');
@@ -2078,6 +2078,7 @@ function closeOverlays() {
   if (ui.order) closeOrder(); if (ui.chain) closeChain(true);
   if (ui.detail) { ui.detail = null; $('#sheet').hidden = true; $('#tradebar').hidden = true; unlockBody(); }
   if (ui.game) { ui.game = null; $('#game').hidden = true; $('#game').innerHTML = ''; }
+  if (ui.article) closeArticle();
   if (ui.draft) { ui.draft = null; $('#draft').hidden = true; $('#draft').innerHTML = ''; $('#dfoot').hidden = true; }
 }
 
@@ -2156,8 +2157,9 @@ function announce() {
 }
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('button, [data-open], label, [data-optpos], [data-game], [data-flip]');
+  const el = e.target.closest('button, [data-article], [data-open], label, [data-optpos], [data-game], [data-flip]');
   if (!el) return;
+  if (el.dataset.article) { e.preventDefault(); openArticle(el.dataset.article); return; }
   const d = el.dataset;
   if (el.disabled) return;
   if (d.tab) {
@@ -2176,7 +2178,7 @@ document.addEventListener('click', async (e) => {
     openOrder({ mode: 'option', side: 'sell', under: pos.under, type: pos.type, strike: pos.strike, exp: pos.exp, amount: String(pos.qty), err: '' });
     return;
   }
-  if (d.open) { e.preventDefault(); openDetail(d.open); return; }
+  if (d.open) { e.preventDefault(); if (ui.article) closeArticle(); openDetail(d.open); return; }
   if (d.pick) {
     const [lg, gid] = d.pick.split('|');
     const g = upcomingPickGames(state, Date.now(), [lg]).find((x) => x.id === gid);
@@ -2377,6 +2379,7 @@ document.addEventListener('click', async (e) => {
       } catch (err) { toast(err.message); }
       break;
     }
+    case 'artback': closeArticle(); break;
     case 'gameback': if (history.state?.game) history.back(); else closeGame(); break;
     case 'bunequip': if (ui.order?.mode === 'booster') { unequip(state, ui.order.id); dirty = true; save(); closeOrder(); afterBoostChange(); } break;
     case 'bsell':
@@ -2564,6 +2567,7 @@ const draftSwipe = {
   el: $('#draft'), extra: () => [$('#dfoot')],
   onDismiss: () => { if (history.state?.draft) { ui.noAnim = true; history.back(); } else closeDraft({ animate: false }); },
 };
+const articleSwipe = { el: $('#article'), onDismiss: () => closeArticle({ animate: false }) };
 const chainSwipe = {
   el: $('#chain'),
   onDismiss: () => { if (history.state?.chain) { ui.noAnim = true; history.back(); } else closeChain(false, { animate: false }); },
@@ -2571,6 +2575,7 @@ const chainSwipe = {
 // The top-most full-screen page, for swipe-back.
 function topPage() {
   if (ui.order) return null;
+  if (ui.article) return articleSwipe;
   if (ui.draft) return draftSwipe;
   if (ui.chain) return chainSwipe;
   if (ui.game && (!ui.detail || $('#game').style.zIndex === '34')) return gameSwipe;
@@ -2584,6 +2589,59 @@ pullToRefresh($('#view'), $('#ptr'), {
   enabled: () => !overlayOpen() && ui.tab !== 'account',
   onRefresh: async () => { if (STATIC) { toast('Prices use a data snapshot in this version'); return; } await runSync({ manual: true }); },
 });
+
+// ---------- article reader ----------
+// Headlines open here instead of leaving the app. The text is fetched from ESPN when you
+// tap and kept only for this session; if ESPN won't serve it, you get the summary and a link.
+const articleCache = new Map();
+function openArticle(id) {
+  const n = state.news.find((x) => x.id === id);
+  if (!n) return;
+  ui.article = id;
+  const el = $('#article');
+  el.hidden = false; el.scrollTop = 0;
+  el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
+  renderArticle();
+  const aid = n.aid || n.url?.match(/\/id\/(\d+)/)?.[1];
+  if (articleCache.has(id) || STATIC) return;
+  if (!aid) { articleCache.set(id, { failed: true }); renderArticle(); return; }
+  api.article(n.league, aid).then((h) => {
+    const blocks = storyBlocks(h.story);
+    articleCache.set(id, blocks.length ? { blocks, by: h.byline || n.by || '', img: h.images?.find((i) => i.url)?.url || '' } : { failed: true });
+  }).catch(() => { articleCache.set(id, { failed: true }); }).then(() => { if (ui.article === id) renderArticle(); });
+}
+function closeArticle({ animate = true } = {}) {
+  ui.article = null;
+  const el = $('#article');
+  el.hidden = true; el.innerHTML = ''; el.style.transform = '';
+}
+function renderArticle() {
+  const n = state.news.find((x) => x.id === ui.article);
+  const el = $('#article');
+  if (!n) { closeArticle(); return; }
+  const c = articleCache.get(n.id);
+  const img = c?.img || n.img;
+  const moves = Object.entries(n.fx || {}).map(([id, sc]) => {
+    const a = state.assets[id]; if (!a) return '';
+    return `<button class="chip" data-open="${id}" data-artopen="1">${esc(a.ticker)} <b class="${sc > 0 ? 'up' : 'down'}">${sc > 0 ? '▲ Bullish' : '▼ Bearish'}</b></button>`;
+  }).join('');
+  const body = !c ? (STATIC ? '' : '<div class="art-skel"><i></i><i></i><i></i><i></i><i></i><i></i></div>')
+    : c.failed ? '<p class="small muted">The full story could not be loaded here.</p>'
+      : c.blocks.map((b) => (b.t === 'h' ? `<h3>${esc(b.x)}</h3>` : `<p class="${b.t === 'q' ? 'q' : b.t === 'li' ? 'li' : ''}">${esc(b.x)}</p>`)).join('');
+  el.innerHTML = `<div class="sheet-inner art">
+    <div class="row between"><button class="icon-btn" data-act="artback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="row" style="gap:6px">${lgTag(n.league)}<span class="tiny faint">ESPN</span></div><div style="width:38px"></div></div>
+    ${img ? `<img class="art-img" src="${esc(img)}" alt="" onerror="this.remove()">` : ''}
+    <h1>${esc(n.headline)}</h1>
+    <div class="by tiny faint">${esc([c?.by || n.by, timeAgo(n.published)].filter(Boolean).join(' · '))}</div>
+    ${moves ? `<div class="art-moves">${moves}</div>` : ''}
+    ${n.desc ? `<p class="lede">${esc(n.desc)}</p>` : ''}
+    ${body}
+    <div class="art-foot">
+      ${n.url ? `<a class="btn ghost" href="${esc(n.url)}" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">${c && !c.failed ? 'View on ESPN' : 'Read the full story on ESPN'}</a>` : ''}
+      <div class="tiny faint" style="text-align:center">Story by ESPN. StatStreet is not affiliated with ESPN.</div>
+    </div></div>`;
+}
 
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {

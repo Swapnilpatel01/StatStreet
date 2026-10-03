@@ -10,6 +10,8 @@
 const ALLOWED_HOSTS = new Set([
   'site.api.espn.com',
   'site.web.api.espn.com',
+  'content.core.api.espn.com',
+  'now.core.api.espn.com',
 ]);
 
 // Optional: lock the proxy to your own app's address (e.g. 'https://you.github.io').
