@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
+  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 25;
+const APP_VERSION = 26;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -383,7 +383,7 @@ function trendInfo(a, now = Date.now()) {
   const reasons = [];
   const ch = change(a, now);
   reasons.push([Math.abs(ch) * 120, `${ch >= 0 ? '▲' : '▼'} ${Math.abs(ch * 100).toFixed(1)}% today`]);
-  const news = state.news.filter((n) => (n.targets || []).includes(a.id) && now - n.published < 3 * DAY);
+  const news = state.news.filter((n) => n.fx?.[a.id] && now - n.published < 3 * DAY);
   if (news.length) reasons.push([news.length * 2.2, `📰 ${news.length} headline${news.length > 1 ? 's' : ''}`]);
   if (a.live) reasons.push([6, `🔴 Live: ${a.live.text}`]);
   const g = a.perf?.last?.[0];
@@ -445,8 +445,8 @@ function research(a) {
   const w = change(a, now, 7 * DAY);
   if (w > 0.08) bull.push(`Up ${Math.round(w * 100)}% this week`); else if (w < -0.08) bear.push(`Down ${Math.round(-w * 100)}% this week`);
   // News
-  const news = state.news.filter((n) => (n.targets || []).includes(a.id) && now - n.published < 7 * DAY);
-  const senti = news.length ? mean(news.map((n) => n.score)) : 0;
+  const news = state.news.filter((n) => n.fx?.[a.id] && now - n.published < 7 * DAY); // only stories about him
+  const senti = news.length ? mean(news.map((n) => n.fx[a.id])) : 0;
   if (news.length && senti > 0.15) bull.push(`Positive news flow (${news.length} headline${news.length > 1 ? 's' : ''} this week)`);
   if (news.length && senti < -0.15) bear.push(`Negative headlines this week (${news.length})`);
   // Schedule
@@ -1583,7 +1583,7 @@ function renderDetail({ keepScroll = true } = {}) {
     </div>` : ''}
 
     ${news.length ? `<h3>News</h3><div class="list">${news.map((n) => `<a class="news" href="${esc(n.url)}" target="_blank" rel="noopener">
-      <div class="h">${esc(n.headline)}</div><div class="meta"><span class="senti ${n.score > 0.12 ? 'up' : n.score < -0.12 ? 'down' : 'flat'}">${n.score > 0.12 ? 'Bullish' : n.score < -0.12 ? 'Bearish' : 'Neutral'}</span><span class="tiny faint">${timeAgo(n.published)}</span></div></a>`).join('')}</div>` : ''}
+      <div class="h">${esc(n.headline)}</div><div class="meta"><span class="senti ${(n.fx?.[a.id] || 0) > 0.12 ? 'up' : (n.fx?.[a.id] || 0) < -0.12 ? 'down' : 'flat'}">${(n.fx?.[a.id] || 0) > 0.12 ? 'Bullish' : (n.fx?.[a.id] || 0) < -0.12 ? 'Bearish' : 'Mention'}</span><span class="tiny faint">${timeAgo(n.published)}</span></div></a>`).join('')}</div>` : ''}
   </div>`;
   const bar = $('#tradebar');
   bar.hidden = !!ui.chain;
@@ -2704,6 +2704,7 @@ function afterLoad() {
   if (Object.keys(state.assets).length) {
     upgradeModel(state, Date.now());
     repairNewcomers(state, Date.now());
+    rescoreNews(state, Date.now());
     if ((state.histV || 1) < HIST_V) resetHistory(state, Date.now()); // charts from the old pricing model
     ensureFunds(state, Date.now());
   }

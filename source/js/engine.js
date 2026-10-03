@@ -3,7 +3,7 @@
 
 import { clamp, gauss, mean, std, median, decay, HOUR, DAY, tickerFrom } from './util.js';
 import {
-  LEAGUES, posGroup, posMultiplier, gameScore, lineText, milestone, injuryFactor, sentimentScore,
+  LEAGUES, posGroup, posMultiplier, gameScore, lineText, milestone, injuryFactor, sentimentScore, newsEffects,
 } from './scoring.js';
 import { optionsValue, optionMid, CONTRACT } from './bs.js';
 
@@ -58,7 +58,7 @@ export const MILESTONE_DIV = 0.004;
 const FIX_V_NEW = 2;
 export function newState(startCash = START_CASH) {
   return {
-    v: 1, modelV: PRICE_V, histV: 2, fixV: FIX_V_NEW, created: Date.now(), startCash,
+    v: 1, modelV: PRICE_V, histV: 2, fixV: FIX_V_NEW, newsV: 2, created: Date.now(), startCash,
     cash: startCash, holdings: {}, txns: [], watch: [],
     assets: {}, stats: {}, mood: { nba: 0, nfl: 0, mlb: 0 },
     games: {}, liveGames: {}, newsSeen: {}, news: [], sync: {},
@@ -731,26 +731,32 @@ export function clearStaleLive(state, now = Date.now()) {
 
 // ---------- news & injuries ----------
 
+const NEWS_W = { player: 0.07, team: 0.035 };
+const effectsFor = (state, art, targets) => newsEffects(art, targets.map((id) => state.assets[id]).filter(Boolean)
+  .map((a) => ({ id: a.id, kind: a.kind, name: a.name, abbr: a.abbr })));
+
 export function applyNews(state, league, articles, { now = Date.now() } = {}) {
   let added = 0;
   for (const art of articles) {
     if (state.newsSeen[art.id]) continue;
     state.newsSeen[art.id] = art.published;
-    const { score, hits } = sentimentScore(`${art.headline}. ${art.desc}`);
+    const { score, hits } = sentimentScore(art.headline);
     const targets = [
       ...art.athletes.map((i) => pid(league, i)),
       ...art.teams.map((i) => tid(league, i)),
     ].filter((id) => state.assets[id]);
     const age = now - art.published;
-    const item = { ...art, score: Math.round(score * 100) / 100, hits, targets };
+    // Each player and team gets only what the story says about them.
+    const fx = effectsFor(state, art, targets);
+    for (const k of Object.keys(fx)) { fx[k] = Math.round(fx[k] * 100) / 100; if (Math.abs(fx[k]) < 0.12) delete fx[k]; }
+    const item = { ...art, score: Math.round(score * 100) / 100, hits, targets, fx };
     state.news.unshift(item);
     added++;
-    if (Math.abs(score) < 0.12 || age > 5 * DAY) continue;
-    for (const id of targets) {
+    if (age > 5 * DAY) continue;
+    for (const [id, sc] of Object.entries(fx)) {
       const a = state.assets[id];
-      const w = a.kind === 'player' ? 0.07 : 0.035;
       withEvent(state, a, now, Math.min(art.published, now), 'news', art.headline, () => {
-        a.shocks.push({ t: art.published, v: w * score });
+        a.shocks.push({ t: art.published, v: NEWS_W[a.kind] * sc, news: 1 });
       }, { force: true, histAt: now }); // chart moves when we learn the news
     }
   }
@@ -936,6 +942,39 @@ export function repairNewcomers(state, now = Date.now()) {
     a.events = (a.events || []).map((e) => ({ ...e, pct: 0 }));
   }
   return fixed.length;
+}
+
+// One-time: re-read stored headlines with the current rules (who a story is about, and
+// "back from injury" counted as good news) and redo their effect on prices.
+export const NEWS_V = 2;
+export function rescoreNews(state, now = Date.now()) {
+  if ((state.newsV || 1) >= NEWS_V) return;
+  state.newsV = NEWS_V;
+  const touched = new Set();
+  for (const item of state.news || []) {
+    const targets = item.targets || [];
+    const old = item.score || 0;
+    for (const id of targets) {
+      const a = state.assets[id]; if (!a) continue;
+      const v0 = NEWS_W[a.kind] * old;
+      const i = (a.shocks || []).findIndex((x) => x.t === item.published && Math.abs(x.v - v0) < 1e-6);
+      if (i >= 0) { a.shocks.splice(i, 1); touched.add(a); }
+      a.events = (a.events || []).filter((e) => !(e.kind === 'news' && e.text === item.headline));
+    }
+    item.score = Math.round(sentimentScore(item.headline).score * 100) / 100;
+    const fx = effectsFor(state, item, targets);
+    for (const k of Object.keys(fx)) { fx[k] = Math.round(fx[k] * 100) / 100; if (Math.abs(fx[k]) < 0.12) delete fx[k]; }
+    item.fx = fx;
+    if (now - item.published > 12 * DAY) continue;
+    for (const [id, sc] of Object.entries(fx)) {
+      const a = state.assets[id];
+      const v = NEWS_W[a.kind] * sc;
+      a.shocks.push({ t: item.published, v, news: 1 });
+      addEvent(a, item.published, 'news', item.headline, v);
+      touched.add(a);
+    }
+  }
+  for (const a of touched) setPrice(state, a, now, { record: false });
 }
 
 // ---------- trading ----------

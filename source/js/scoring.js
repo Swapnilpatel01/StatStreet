@@ -330,22 +330,34 @@ const LEXICON = [
   ['domestic', -2.5], ['lawsuit', -1.5], ['investigation', -1.5], ['fined', -1], ['ejected', -1],
   // mild negative
   ['ruled out', -1.5], ['will miss', -1.5], ['to miss', -1.2], ['sidelined', -1.5], ['hamstring', -1], ['ankle', -0.8], ['knee', -1],
-  ['strain', -0.8], ['sprain', -0.8], ['injury', -0.8], ['injured', -1], ['questionable', -0.6], ['doubtful', -1],
+  ['strain', -0.8], ['sprain', -0.8], ['injury', -0.8], ['injuries', -0.8], ['injured', -1], ['to sit', -1.2], ['inactive', -1.2], ['out vs', -1.3], ['out for', -1.3], ['questionable', -0.6], ['doubtful', -1],
   ['benched', -1.5], ['demoted', -1.5], ['released', -1.5], ['waived', -1.5], ['slump', -1.2], ['struggle', -1], ['struggles', -1],
   ['losing streak', -1.5], ['skid', -1], ['blowout loss', -1.5], ['collapse', -1.2], ['blown', -1], ['fumble', -0.6], ['turnovers', -0.5],
   ['trade request', -1.5], ['holdout', -1.2], ['fired', -1.2], ['eliminated', -1.5], ['upset by', -1],
   // mild positive
   ['returns', 1], ['return from', 1], ['activated', 1.2], ['cleared', 1.2], ['back in lineup', 1.2], ['expected to play', 0.8],
+  ['set to return', 1.2], ['to return', 1], ['will return', 1], ['will play', 0.9], ['good to go', 1.2], ['back vs', 1.2], ['back against', 1.2],
+  ['back for', 1], ['back at practice', 0.9], ['returns to practice', 1], ['full participant', 0.9], ['off injury report', 1.2],
+  ['off the injury report', 1.2], ['active for', 0.9], ['makes debut', 0.8], ['named starter', 1.3], ['to start', 0.6],
   ['wins', 0.8], ['win over', 0.8], ['beat', 0.7], ['beats', 0.7], ['victory', 0.8], ['rally', 0.8], ['comeback', 1], ['clinch', 1.5],
   ['clinches', 1.5], ['playoff berth', 1.5], ['winning streak', 1.2], ['streak', 0.3], ['extension', 1.2], ['signs', 0.6],
   ['contract', 0.3], ['breakout', 1.3], ['dominant', 1.3], ['dominates', 1.3], ['stars', 0.8], ['shines', 1], ['leads', 0.5],
   ['walk-off', 1.5], ['shutout', 1.2], ['no-hitter', 2.5], ['perfect game', 3], ['grand slam', 1.3], ['hat trick', 1.2],
   ['triple-double', 1.5], ['double-double', 0.6], ['career-high', 1.8], ['career high', 1.8], ['season-high', 1],
   // records / honors
-  ['record', 1.2], ['breaks record', 2.5], ['sets record', 2.5], ['franchise record', 2.2], ['all-time', 1.5], ['milestone', 1.5],
+  ['record', 0.4], ['breaks record', 2.5], ['sets record', 2.5], ['franchise record', 2.2], ['all-time', 1.5], ['milestone', 1.5],
   ['first player', 1.2], ['mvp', 1.8], ['player of the week', 1.5], ['player of the month', 1.8], ['all-star', 1.5], ['pro bowl', 1.3],
   ['rookie of the year', 1.5], ['cy young', 1.8], ['award', 0.8],
 ];
+
+// "Texans get Collins (hamstring) back": when a headline is about a return, the injury it
+// mentions is the one he is coming back from, so it doesn't count against him.
+const RETURN_RE = /\b(gets?|getting|welcomes?) [^,;:]{0,40}\bback\b|\bback (vs|against|for|in lineup|at practice)\b|\breturn(s|ed|ing)?\b|\bactivated\b|\bcleared\b|\bgood to go\b|\bwill play\b|\bexpected to play\b|\boff (the )?injury report\b|\bfull participant\b/;
+const INJURY_WORDS = new Set(['acl', 'achilles', 'surgery', 'fracture', 'broken', 'injured reserve', 'injured list', 'concussion', 'hamstring',
+  'ankle', 'knee', 'strain', 'sprain', 'injury', 'injuries', 'injured', 'questionable', 'doubtful', 'sidelined']);
+const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Whole words only ("wins" must not match "Twins"), allowing simple endings.
+const LEX_RE = LEXICON.map(([phrase, w]) => [phrase, w, new RegExp(`(?<![a-z])${esc(phrase)}(?:s|es|ed|ing)?(?![a-z])`, 'g')]);
 
 const NEGATORS = ['not ', "won't ", 'avoids ', 'avoided ', 'no ', 'without ', 'escapes '];
 
@@ -353,20 +365,72 @@ export function sentimentScore(text) {
   const t = ` ${String(text).toLowerCase().replace(/[’']/g, "'")} `;
   let score = 0; const hits = [];
   const used = [];
-  for (const [phrase, w] of LEXICON) {
-    let idx = t.indexOf(phrase);
-    while (idx !== -1) {
-      const end = idx + phrase.length;
-      if (!used.some(([s, e]) => idx < e && end > s)) {
-        const clause = t.slice(Math.max(0, idx - 40), idx).split(/[,.;:!?]/).pop();
-        const before = ' ' + clause.trim().split(/\s+/).slice(-3).join(' ') + ' ';
-        const neg = NEGATORS.some((n) => before.includes(' ' + n));
-        score += neg ? -w * 0.6 : w;
-        used.push([idx, end]);
-        hits.push(phrase);
-      }
-      idx = t.indexOf(phrase, end);
+  const comeback = RETURN_RE.test(t);
+  for (const [phrase, w0, re] of LEX_RE) {
+    const w = comeback && INJURY_WORDS.has(phrase) ? 0 : w0;
+    re.lastIndex = 0;
+    for (let m = re.exec(t); m; m = re.exec(t)) {
+      const idx = m.index; const end = idx + m[0].length;
+      if (used.some(([s0, e]) => idx < e && end > s0)) continue;
+      used.push([idx, end]);
+      if (!w) continue;
+      const clause = t.slice(Math.max(0, idx - 40), idx).split(/[,.;:!?]/).pop();
+      const before = ' ' + clause.trim().split(/\s+/).slice(-3).join(' ') + ' ';
+      const neg = NEGATORS.some((n) => before.includes(' ' + n));
+      score += neg ? -w * 0.6 : w;
+      hits.push(phrase);
     }
   }
+  if (comeback && !hits.length) { score += 1; hits.push('back'); }
   return { score: clamp(Math.tanh(score / 2.5), -1, 1), hits };
+}
+
+// ---------- Who a headline is actually about ----------
+
+// Round-ups (fantasy columns, rankings, previews) tag dozens of players; they only say
+// something about the ones named in the headline.
+const ROUNDUP_RE = /\b(fantasy|rankings?|mock draft|picks|odds|betting|best bets|start ?'?em|sit ?'?em|waiver|inactives|takeaways|grades|predictions?|what to know|how to watch|preview|props|dfs|sleepers|buzz|mailbag|podcast|tracker|round-?up|winners and losers|injury report|live updates|questions)\b/i;
+const nameRe = (w) => new RegExp(`(?<![A-Za-z])${esc(w)}(?![A-Za-z])`, 'i');
+function nameIn(text, name) {
+  const parts = String(name || '').replace(/\b(jr|sr|ii|iii|iv)\.?$/i, '').trim().split(/\s+/);
+  if (!parts[0]) return -1;
+  const last = parts[parts.length - 1]; const first = parts[0];
+  let m = last.length >= 3 ? nameRe(last).exec(text) : null;
+  if (!m && parts.length > 1 && first.length >= 5) m = nameRe(first).exec(text);
+  return m ? m.index : -1;
+}
+
+// How much one article says about each tagged player or team: { assetId: score }.
+// subjects: [{ id, kind, name, abbr }]
+export function newsEffects(art, subjects) {
+  const head = art.headline || '';
+  const roundup = ROUNDUP_RE.test(head);
+  const players = subjects.filter((x) => x.kind === 'player');
+  const whole = sentimentScore(roundup ? head : `${head}. ${art.desc || ''}`).score;
+  const headOnly = sentimentScore(head).score;
+  // Clause by clause: "Daniels, DeVonta to sit, McConkey questionable". A bare name
+  // takes the verdict of the clause that follows it.
+  const clauses = []; let pos = 0;
+  for (const c of head.split(/[,;:]| and | but /)) { clauses.push({ start: pos, end: pos + c.length, score: sentimentScore(c).score }); pos += c.length + 1; }
+  for (let i = clauses.length - 2; i >= 0; i--) if (!clauses[i].score && head.slice(clauses[i].start, clauses[i].end).trim().split(/\s+/).length <= 3) clauses[i].score = clauses[i + 1].score;
+  const named = players.map((x) => [x, nameIn(head, x.name)]).filter(([, i]) => i >= 0);
+  const out = {};
+  for (const x of players) {
+    const at = nameIn(head, x.name);
+    if (at >= 0) {
+      const several = named.length > 1 || roundup;
+      out[x.id] = several ? (clauses.find((c) => at >= c.start && at <= c.end)?.score ?? 0) : whole;
+    } else if (players.length === 1 && !roundup) {
+      out[x.id] = whole; // the only player tagged: the story is about him
+    }
+  }
+  if (!roundup) {
+    const teams = subjects.filter((x) => x.kind === 'team');
+    for (const x of teams) {
+      const nick = String(x.name || '').split(/\s+/).pop();
+      const inHead = (nick && nameRe(nick).test(head)) || (x.abbr && new RegExp(`(?<![A-Za-z])${esc(x.abbr)}(?![A-Za-z])`).test(head));
+      if (inHead || teams.length === 1) out[x.id] = headOnly || (inHead ? whole : 0);
+    }
+  }
+  return out;
 }
