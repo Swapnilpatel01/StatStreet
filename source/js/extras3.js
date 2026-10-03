@@ -100,11 +100,11 @@ function runIpos(state, now) {
   for (const [lg, v] of Object.entries(state.sync || {})) if (v?.seeded) state.ipoArm[lg] = true;
 }
 
-// ---------- monthly player reports ----------
-// About every four weeks each player gets a report card on his games since the last one.
+// ---------- player report cards ----------
+// About every two weeks each player gets a report card on his games since the last one.
 // The grade mixes how he did against his usual level with the analysts' own read, so a
 // good month usually grades well but not always.
-export const REPORT_EVERY = 28 * DAY;
+export const REPORT_EVERY = 14 * DAY;
 const GRADES = [[1.5, 'A'], [0.5, 'B'], [-0.5, 'C'], [-1.5, 'D'], [-Infinity, 'F']];
 export function runReport(state, a, now = Date.now(), noise = gauss()) {
   const last = a.report?.t || 0;
@@ -119,7 +119,7 @@ export function runReport(state, a, now = Date.now(), noise = gauss()) {
   const grade = GRADES.find(([min]) => score > min)[1];
   const v = clamp(0.025 * score, -0.08, 0.08);
   (a.shocks ||= []).push({ t: now, v });
-  const text = `Monthly report: ${grade} · ${games.length} games averaging ${mean.toFixed(1)} against his usual ${base.toFixed(1)}`;
+  const text = `Report card: ${grade} · ${games.length} games averaging ${mean.toFixed(1)} against his usual ${base.toFixed(1)}`;
   (a.events ||= []).unshift({ t: now, kind: 'report', text, pct: Math.round(v * 10000) / 10000 });
   if (a.events.length > 25) a.events.length = 25;
   a.report = { t: now, grade, next: now + REPORT_EVERY, n: games.length };
@@ -131,7 +131,8 @@ function runReports(state, now) {
   state.reportsRun = now;
   for (const a of Object.values(state.assets)) {
     if (a.kind !== 'player' || a.perf?.ema == null || a.ipo) continue;
-    if (!a.report?.next) { a.report = { ...(a.report || {}), next: now + (1 + hash(a.id) % 28) * DAY }; continue; } // staggered: a few every day
+    if (!a.report?.next) { a.report = { ...(a.report || {}), next: now + (1 + hash(a.id) % 14) * DAY }; continue; }
+    if (a.report.next - now > REPORT_EVERY) a.report.next = now + ((a.report.next - now) % REPORT_EVERY); // scheduled under the old four-week cycle // staggered: a few every day
     if (now >= a.report.next) runReport(state, a, now);
   }
 }

@@ -60,7 +60,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 37;
+const APP_VERSION = 38;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3328,7 +3328,7 @@ function reportLine(a) {
   const g = a.report.grade;
   return `<div class="card repc"><div class="row between"><div><div class="tiny muted">REPORT CARD</div><b>${g ? `Last grade: <span class="grade g${g}">${g}</span>` : 'No report yet'}</b>${a.report.t ? `<div class="tiny faint">${timeAgo(a.report.t)} · ${a.report.n} games</div>` : ''}</div>
     <div style="text-align:right"><div class="tiny muted">NEXT REPORT</div><b>${a.report.next ? fmtDate(a.report.next) : '—'}</b></div></div>
-    <div class="tiny faint" style="margin-top:6px">About every four weeks, graded on his games since the last one plus the analysts' own read. The price reacts when it lands.</div></div>`;
+    <div class="tiny faint" style="margin-top:6px">About every two weeks, graded on his games since the last one plus the analysts' own read. The price reacts when it lands.</div></div>`;
 }
 function pinBar(a, ch) {
   return `<div class="pin" id="dpin"><div class="pin-in"><button class="icon-btn" data-act="pinback" aria-label="Back">${BACK_SVG}</button><b class="ellipsis">${esc(a.kind === 'player' ? a.name : a.ticker)}</b>
