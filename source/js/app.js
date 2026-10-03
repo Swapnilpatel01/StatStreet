@@ -48,7 +48,7 @@ import {
 import { RIVALS } from './social.js';
 import {
   runExtras3, activeEvents, ipoList, ipoPhase, ipoRoom, buyIpo, IPO_WINDOW, IPO_ALLOC, updateHof, duelCode, duelResult,
-  marketStatus, dividendCalendar, feedCards, parseBio,
+  marketStatus, dividendCalendar, parseBio,
 } from './extras3.js';
 import { weekId } from './util.js';
 
@@ -61,7 +61,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 43;
+const APP_VERSION = 44;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3071,7 +3071,7 @@ function applyLook() {
 // ====================================================================================
 
 const HOME_SECTIONS = [
-  ['feed', 'Activity cards'], ['since', 'Since you last opened'], ['recap', 'Weekly recap'], ['today', 'Top gainer and loser'], ['lineup', 'Playing today'], ['challenge', 'Daily challenge'],
+  ['since', 'Since you last opened'], ['recap', 'Weekly recap'], ['today', 'Top gainer and loser'], ['lineup', 'Playing today'], ['challenge', 'Daily challenge'],
   ['rival', 'Rival of the week'], ['tools', 'Shortcuts'], ['movers', 'Top movers'], ['alloc', 'Allocation bar'], ['season', 'Season and daily reward'], ['live', 'Live games'],
   ['orders', 'Open orders and options', true], ['stocks', 'Stocks', true], ['shorts', 'Short positions', true], ['funds', 'Index funds'], ['watch', 'Watchlist'],
   ['upcoming', 'Upcoming games'], ['discover', 'Discover'],
@@ -3094,7 +3094,6 @@ function homeParts(now, holdings, movers) {
   const wl = (x, label) => `<button class="stat wl" data-open="${x.a.id}"><div class="k">${label}</div><div class="v ${cls(x.d)}">${signMoney(x.d)}</div><div class="tiny muted ellipsis">${esc(x.a.name)} · ${fmtPct(x.c, 1)}</div></button>`;
   const rv = rivalStatus(state, now);
   return {
-    feed: feedSection(now),
     since: since ? `<div class="card since"><button class="x-btn" data-act="sincex" aria-label="Dismiss">✕</button><div class="tiny muted">SINCE YOU LAST OPENED · ${timeAgo(since.t)}</div>
       <div class="s-line">Your portfolio is <b class="${cls(since.change)}">${since.change >= 0 ? 'up' : 'down'} ${money(Math.abs(since.change))}</b> (${fmtPct(since.pct)})${since.top ? `. Biggest mover: <button class="tlink" data-open="${since.top.a.id}">${esc(since.top.a.ticker)}</button> <span class="${cls(since.top.d)}">${signMoney(since.top.d)}</span>` : ''}${since.nDivs ? `. ${since.nDivs} dividend${since.nDivs > 1 ? 's' : ''} paid <span class="up">${money(since.divs)}</span>` : ''}.</div></div>` : '',
     recap: recapDue(state, now) ? `<button class="card promo" data-page="recap"><span class="e">🗓️</span><div class="grow"><div class="name">Your week in review</div><div class="tiny muted">Best and worst calls, dividends and your rank</div></div><span class="muted">›</span></button>` : '',
@@ -3448,14 +3447,6 @@ function marketPill() {
   const m = marketStatus(state);
   return `<button class="mkt ${m.state}" data-tab="games" aria-label="Market status: ${esc(m.text)}"><span class="dot"></span>${m.state === 'live' ? 'Market live' : m.state === 'soon' ? 'Opens later' : 'Market quiet'} <span class="muted">· ${esc(m.text)}</span></button>`;
 }
-function feedSection(now) {
-  const cards = feedCards(state, now);
-  if (!cards.length) return '';
-  return `<div class="hscroll feed" aria-label="Recent activity">${cards.map((c) => `<button class="fcard k-${c.kind}" ${c.id && state.assets[c.id] ? `data-open="${c.id}"` : c.kind === 'ipo' || c.kind === 'event' ? 'data-tab="market"' : c.kind === 'rival' ? 'data-page="rival"' : c.kind === 'future' ? 'data-page="futures"' : 'data-act="inbox"'}>
-    <div class="row between"><span class="tiny muted"><span class="fi">${c.icon}</span> ${esc(c.title.toUpperCase())}</span><span class="tiny faint">${timeAgo(c.t)}</span></div>
-    <div class="ft">${esc(c.text)}</div></button>`).join('')}</div>`;
-}
-
 // ---------- about ----------
 const bioLoading = new Set();
 function loadBio(a) {

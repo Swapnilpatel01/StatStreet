@@ -101,7 +101,7 @@ t('friend challenge code round-trips and compares', () => {
   const r = X.duelResult(st, code, now);
   assert.ok(r.ahead && !r.stale);
 });
-t('market indicator, dividend calendar, feed and bio', () => {
+t('market indicator, dividend calendar and bio', () => {
   const st = build();
   assert.equal(X.marketStatus(st, now).state, 'closed');
   st.schedule.nba = [{ id: 'g1', date: now + 5 * HOUR, name: 'WAS @ BOS', teams: [{ id: '1', abbr: 'BOS', home: true }, { id: '2', abbr: 'WAS' }] }];
@@ -119,15 +119,6 @@ t('market indicator, dividend calendar, feed and bio', () => {
   assert.equal(dc.rows.length, 1);
   const h = dc.rows[0].holdings[0];
   assert.equal(h.perPay, 2); assert.equal(h.rate, 0.5); assert.equal(dc.expected, 1);
-  // feed
-  st.inbox = [];
-  E.notify(st, 'div', 'P4 paid you $1.00', a.id, now - HOUR); E.notify(st, 'div', 'P4 paid you $2.00', a.id, now - 2 * HOUR);
-  st.inbox.sort((x, y) => y.t - x.t);
-  st.inbox.unshift({ t: now, kind: 'report', text: 'P4 report card: A', id: a.id, seen: false });
-  st.inbox.push({ t: now - 3 * DAY, kind: 'level', text: 'old', id: null });
-  st.divs = [{ t: now - HOUR, id: a.id, amt: 1 }, { t: now - 2 * HOUR, id: a.id, amt: 2 }];
-  const f = X.feedCards(st, now);
-  assert.equal(f.length, 2); assert.equal(f[0].kind, 'report'); assert.match(f[1].text, /2 payments.*\$3\.00/);
   // bio
   const b = X.parseBio({ athlete: { age: 27, displayHeight: "6' 6\"", displayWeight: '230 lbs', college: { name: 'Duke' }, experience: { years: 0 }, displayDraft: '2024: Rd 1, Pk 3',
     statsSummary: { displayName: '2026 season', statistics: [{ shortDisplayName: 'PTS', displayValue: '27.1', rankDisplayValue: '5th' }] } } });

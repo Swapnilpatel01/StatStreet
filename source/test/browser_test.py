@@ -219,10 +219,6 @@ with sync_playwright() as p:
     page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300)
     page.check('#drip', force=True) if False else page.click('label:has(#drip)')
     page.screenshot(path=f'{OUT}/10-account.png', full_page=True)
-    page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
-    nf = page.locator('#view .feed .fcard').count(); print('feed cards with activity:', nf); assert nf >= 1
-    page.evaluate("document.querySelector('#view').scrollTop = 0"); page.screenshot(path=f'{OUT}/51-feed.png')
-    page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(200)
     page.click('#tabbar [data-tab=games]'); page.click('[data-gtab=season]'); page.wait_for_timeout(300)
     nt = page.locator('.trophy.got').count()
     page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
@@ -446,8 +442,7 @@ with sync_playwright() as p:
     # --- v43: market indicator, feed, dividend calendar, about
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
     assert page.locator('#view .mkt').count() == 1 and 'live' in page.locator('#view .mkt').get_attribute('class')
-    print('feed cards:', page.locator('#view .feed .fcard').count())
-    page.evaluate("document.querySelector('#view').scrollTop = 0"); page.screenshot(path=f'{OUT}/51-feed.png')
+    assert page.locator('#view .feed').count() == 0
     page.evaluate("document.querySelector('.tools [data-page=divcal]').click()"); page.wait_for_timeout(450)
     assert 'Likely this week' in page.text_content('#page'); page.screenshot(path=f'{OUT}/52-divcal.png')
     page.click('#page [data-act=pageback]'); page.wait_for_timeout(150)

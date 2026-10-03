@@ -237,33 +237,6 @@ export function dividendCalendar(state, now = Date.now(), days = 7) {
   return { rows, expected, last30, total: state.divTotal || 0 };
 }
 
-// ---------- the feed ----------
-// The last day's notable items, newest first, as cards for the top of the Portfolio page.
-const FEED = { div: ['💵', 'Dividend'], report: ['📋', 'Report card'], ipo: ['🔔', 'IPO'], event: ['⚡', 'Market event'], mover: ['📈', 'Big move'], challenge: ['🎯', 'Daily challenge'],
-  rival: ['⚔️', 'Rival'], future: ['🔮', 'Futures'], order: ['✅', 'Order'], season: ['🏅', 'Season'], level: ['⭐', 'Level up'], trophy: ['🏆', 'Trophy'], goal: ['🎯', 'Weekly goal'],
-  alert: ['🔔', 'Price alert'], market: ['🃏', 'Marketplace'], pick: ['🏟️', 'Pick\'em'], contest: ['🏆', 'Contest'], prop: ['🎲', 'Prop'], booster: ['🚀', 'Card boost'], option: ['📄', 'Options'], card: ['🃏', 'Card'] };
-export function feedCards(state, now = Date.now(), max = 10) {
-  const out = []; let divs = null;
-  for (const n of state.inbox || []) {
-    if (now - n.t > 36 * HOUR) break;
-    const f = FEED[n.kind]; if (!f) continue;
-    if (n.kind === 'div') { // many small payments read better as one card
-      if (!divs) { divs = { kind: 'div', icon: f[0], title: 'Dividends', n: 0, t: n.t, id: n.id, text: '' }; out.push(divs); }
-      divs.n += 1; divs.items = (divs.items || []).concat(n.text);
-      continue;
-    }
-    out.push({ kind: n.kind, icon: f[0], title: f[1], text: n.text, t: n.t, id: n.id || null });
-    if (out.length >= max) break;
-  }
-  if (divs) {
-    const amt = (state.divs || []).filter((d) => now - d.t <= 36 * HOUR).reduce((s, d) => s + d.amt, 0);
-    divs.text = divs.n === 1 ? divs.items[0] : `${divs.n} payments in the last day, ${money(amt)} in total.`;
-    if (divs.n > 1) divs.id = null;
-    delete divs.items;
-  }
-  return out.slice(0, max);
-}
-
 // ---------- about a player ----------
 // Picks the useful facts out of ESPN's athlete profile. Anything missing is simply left out.
 export function parseBio(json) {

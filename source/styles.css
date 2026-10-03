@@ -895,11 +895,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .mkt.live .dot { background: var(--live); box-shadow: 0 0 0 0 var(--live); animation: mktpulse 1.6s infinite; }
 .mkt.soon .dot { background: #ffb020; }
 @keyframes mktpulse { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
-.feed { margin-top: 2px; margin-bottom: 10px; scroll-snap-type: x mandatory; }
-.fcard { width: min(82vw, 330px); background: var(--card); border-radius: 16px; padding: 12px 14px; text-align: left; display: grid; gap: 6px; align-content: start; border: 1px solid var(--line); scroll-snap-align: center; }
-.fcard .fi { font-size: 14px; }
-.fcard .ft { font-size: 14.5px; line-height: 1.35; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.fcard.k-div { border-color: color-mix(in srgb, var(--up) 40%, var(--line)); }
 .confirm { position: absolute; inset: 0; z-index: 62; background: var(--bg); animation: chartfade .18s both; overflow-y: auto; }
 .cf-in { min-height: 100%; max-width: 520px; margin: 0 auto; padding: calc(var(--safe-t) + 44px) 20px calc(var(--safe-b) + 20px); display: flex; flex-direction: column; align-items: center; text-align: center; }
 .cf-check svg { width: 76px; height: 76px; fill: none; stroke: var(--up); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
