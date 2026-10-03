@@ -10,6 +10,7 @@ const WEB = 'https://site.web.api.espn.com/apis/common/v3/sports';
 
 let proxyUrl = '';
 let preferProxy = false;
+let articleSrc = null;
 export const netStats = { ok: 0, failed: 0, proxied: 0, lastError: '' };
 
 export function setProxy(url) {
@@ -59,12 +60,19 @@ export const api = {
   summary: (lg, eventId) => fetchJSON(`${SITE}/${P(lg)}/summary?event=${eventId}`),
   news: (lg) => fetchJSON(`${SITE}/${P(lg)}/news?limit=50`),
   // One story's full text. ESPN serves it from a few places; use the first that answers.
+  // All sources are asked at once and the first with text wins; the one that worked is
+  // asked alone next time.
   article: async (lg, id) => {
-    let err;
-    for (const url of [`${SITE}/${P(lg)}/news/${id}`, `https://content.core.api.espn.com/v1/sports/news/${id}`, `https://now.core.api.espn.com/v1/sports/news/${id}`]) {
-      try { const j = await fetchJSON(url); const h = j?.headlines?.[0] || (j?.story ? j : null); if (h?.story) return h; } catch (e) { err = e; }
-    }
-    throw err || new Error('No story text');
+    const urls = [`${SITE}/${P(lg)}/news/${id}`, `https://content.core.api.espn.com/v1/sports/news/${id}`, `https://now.core.api.espn.com/v1/sports/news/${id}`];
+    const one = async (i) => {
+      const j = await get(urls[i], 7000).catch((e) => { if (!proxyUrl) throw e; return get(`${proxyUrl}/?u=${encodeURIComponent(urls[i])}`, 7000); });
+      const h = j?.headlines?.[0] || (j?.story ? j : null);
+      if (!h?.story) throw new Error('No story text');
+      articleSrc = i;
+      return h;
+    };
+    if (articleSrc != null) { try { return await one(articleSrc); } catch { articleSrc = null; } }
+    return Promise.any(urls.map((_, i) => one(i)));
   },
   injuries: (lg) => fetchJSON(`${SITE}/${P(lg)}/injuries`),
   seasonStats: (lg, { season, category, page = 1, limit = 200 } = {}) => {

@@ -328,6 +328,16 @@ with sync_playwright() as p:
     assert art.locator('.art-foot a').get_attribute('href').startswith('https://www.espn.com/')
     page.click('#article [data-act=artback]'); page.wait_for_timeout(200)
     assert not art.is_visible()
+    # prefetched: reopening shows text at once; swipe right anywhere closes it
+    page.wait_for_timeout(1500)
+    page.locator('#view a[data-article]').nth(1).click(); page.wait_for_timeout(60)
+    assert 'First paragraph of the story.' in art.text_content(), 'prefetched story shows immediately'
+    page.evaluate('''() => { const el = document.querySelector('#article');
+      const mk = (type, x) => { const t = new Touch({ identifier: 1, target: el, clientX: x, clientY: 400 });
+        el.dispatchEvent(new TouchEvent(type, { touches: type === 'touchend' ? [] : [t], changedTouches: [t], bubbles: true })); };
+      mk('touchstart', 150); mk('touchmove', 180); mk('touchmove', 260); mk('touchmove', 340); mk('touchend', 340); }''')
+    page.wait_for_timeout(400)
+    assert not art.is_visible(), 'swipe right closes the article'
     print('article reader ok')
     b.close()
 srv.shutdown()

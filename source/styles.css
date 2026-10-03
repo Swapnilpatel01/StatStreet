@@ -711,7 +711,7 @@ details .prose { padding: 12px 14px 4px; }
 .rs-sched span.up { color: var(--up); } .rs-sched span.down { color: var(--down); }
 
 /* ---------- v28: in-app article reader ---------- */
-#article { z-index: 40; padding-bottom: calc(var(--safe-b) + 28px); }
+#article { z-index: 37; touch-action: pan-y; padding-bottom: calc(var(--safe-b) + 28px); }
 .art-img { width: 100%; border-radius: 14px; margin: 14px 0 0; display: block; aspect-ratio: 16 / 9; object-fit: cover; background: var(--card); }
 .art h1 { font-size: 24px; line-height: 1.2; letter-spacing: -.01em; margin: 16px 0 8px; }
 .art .by { margin-bottom: 14px; }

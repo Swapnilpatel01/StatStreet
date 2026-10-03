@@ -46,7 +46,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 28;
+const APP_VERSION = 29;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -566,6 +566,7 @@ function emptyMarketText() {
 }
 
 function renderNews() {
+  prefetchArticles();
   const list = state.news.filter((n) => state.settings.leagues[n.league] && (ui.newsLeague === 'all' || n.league === ui.newsLeague));
   $('#view').innerHTML = `
     ${topbar('<h1>News</h1>')}
@@ -1499,6 +1500,7 @@ function closeDetail({ animate = true } = {}) {
 }
 
 function renderDetail({ keepScroll = true } = {}) {
+  prefetchArticles();
   const a = state.assets[ui.detail];
   if (!a) return;
   const sheet = $('#sheet');
@@ -2602,13 +2604,59 @@ function openArticle(id) {
   el.hidden = false; el.scrollTop = 0;
   el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
   renderArticle();
+  loadArticle(n).then(() => { if (ui.article === id) renderArticle(); });
+}
+// Fetch a story's text once. Stories are loaded ahead of time (the ones on screen, and the
+// one under your finger as you touch it), so most open instantly.
+const articleLoading = new Map();
+function loadArticle(n) {
+  if (articleCache.has(n.id) || STATIC) return Promise.resolve();
+  if (articleLoading.has(n.id)) return articleLoading.get(n.id);
   const aid = n.aid || n.url?.match(/\/id\/(\d+)/)?.[1];
-  if (articleCache.has(id) || STATIC) return;
-  if (!aid) { articleCache.set(id, { failed: true }); renderArticle(); return; }
-  api.article(n.league, aid).then((h) => {
+  if (!aid) { articleCache.set(n.id, { failed: true }); return Promise.resolve(); }
+  const p = api.article(n.league, aid).then((h) => {
     const blocks = storyBlocks(h.story);
-    articleCache.set(id, blocks.length ? { blocks, by: h.byline || n.by || '', img: h.images?.find((i) => i.url)?.url || '' } : { failed: true });
-  }).catch(() => { articleCache.set(id, { failed: true }); }).then(() => { if (ui.article === id) renderArticle(); });
+    articleCache.set(n.id, blocks.length ? { blocks, by: h.byline || n.by || '', img: h.images?.find((i) => i.url)?.url || '' } : { failed: true });
+    if (n.img || articleCache.get(n.id).img) new Image().src = articleCache.get(n.id).img || n.img; // warm the photo too
+  }).catch(() => { articleCache.set(n.id, { failed: true }); }).then(() => { articleLoading.delete(n.id); });
+  articleLoading.set(n.id, p);
+  return p;
+}
+let prefetchTimer = 0;
+function prefetchArticles() {
+  clearTimeout(prefetchTimer);
+  prefetchTimer = setTimeout(async () => {
+    const ids = [...new Set([...document.querySelectorAll('#view [data-article], #sheet [data-article]')].map((x) => x.dataset.article))].slice(0, 8);
+    for (const id of ids) { // two at a time, so it never competes with price updates
+      if (document.hidden || busyScrolling(400)) break;
+      const n = state.news.find((x) => x.id === id);
+      if (n) await loadArticle(n);
+    }
+  }, 600);
+}
+document.addEventListener('touchstart', (e) => {
+  const el = e.target.closest?.('[data-article]');
+  const n = el && state.news.find((x) => x.id === el.dataset.article);
+  if (n) loadArticle(n);
+}, { passive: true });
+// Swipe right anywhere on the story to go back (it only scrolls up and down itself).
+{
+  const el = $('#article'); let sx = 0; let sy = 0; let t0 = 0; let on = null; let dist = 0;
+  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; t0 = performance.now(); on = null; dist = 0; }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    if (on === false) return;
+    const t = e.touches[0]; const dx = t.clientX - sx; const dy = t.clientY - sy;
+    if (on === null) { if (dx > 10 && dx > 1.5 * Math.abs(dy)) on = true; else if (Math.abs(dy) > 10 || dx < -10) { on = false; return; } else return; }
+    dist = Math.max(0, dx); el.style.transition = 'none'; el.style.transform = `translateX(${dist}px)`;
+  }, { passive: true });
+  const end = () => {
+    if (!on) return; on = null;
+    const fast = dist / Math.max(1, performance.now() - t0) > 0.5 && dist > 40;
+    el.style.transition = 'transform .2s ease-out';
+    if (dist > el.offsetWidth * 0.3 || fast) { el.style.transform = 'translateX(100%)'; setTimeout(() => { el.style.transition = ''; closeArticle(); }, 190); }
+    else { el.style.transform = ''; setTimeout(() => { el.style.transition = ''; }, 210); }
+  };
+  el.addEventListener('touchend', end, { passive: true }); el.addEventListener('touchcancel', end, { passive: true });
 }
 function closeArticle({ animate = true } = {}) {
   ui.article = null;
