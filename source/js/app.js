@@ -37,7 +37,7 @@ import {
 import { squarify, heatColor } from './heatmap.js';
 import { portfolioCard, assetCard, shareCanvas, achievementsCard } from './sharecard.js';
 import { cardArt } from './cardart.js';
-import { parsePlays } from './moments.js';
+import { parsePlays, parseAtBat } from './moments.js';
 import {
   closedTrades, journalStats, lineupToday, calendar, moverAlerts, dailyChallenge, answerChallenge, collections, SET_SIZE, SET_BONUS,
   achievements, searchAll, sinceLastOpen, markOpen, compareRows,
@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 53;
+const APP_VERSION = 54;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1447,6 +1447,7 @@ function renderGame() {
   const el = $('#game');
   if (!g) { el.hidden = true; return; }
   const now = Date.now();
+  const gview = g.status === 'pre' ? 'summary' : (ui.gview || 'summary');
   const away = g.teams.find((t) => !t.home) || g.teams[0];
   const home = g.teams.find((t) => t !== away) || g.teams[1];
   const teamIds = new Set(g.teams.map((t) => t.id));
@@ -1479,8 +1480,10 @@ function renderGame() {
     <div class="wp"><div class="tiny muted row between"><span>${esc(away.abbr)} ${Math.round(pAway * 100)}%</span><span>Win probability (from share prices)</span><span>${Math.round((1 - pAway) * 100)}% ${esc(home.abbr)}</span></div>
       <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div></div>
     ${up ? `<h3>Your pick</h3>${pickGame(up)}` : pk ? `<div class="card small" style="margin-top:12px">Your pick: <b>${esc(pk.abbr)}</b> · ${pk.result ? { won: `won <b class="up">+${money(pk.paid || 0)}</b>`, lost: '<span class="down">missed</span>', push: 'push', void: 'voided' }[pk.result] : 'locked — game in progress'}</div>` : ''}
+    ${g.status !== 'pre' ? `<div class="dtabs gtabs">${[['summary', 'Game'], ['plays', 'Play by play']].map(([k, t]) => `<button data-gview="${k}" class="${gview === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
+    <div class="gsec" data-gsec="plays" ${gview === 'plays' ? '' : 'hidden'}>${playsSection(g, league)}</div>
+    <div class="gsec" data-gsec="summary" ${gview === 'summary' ? '' : 'hidden'}>
     ${gameStake(g, league)}
-    ${playsSection(g, league)}
     <h3>${g.status === 'pre' ? 'Players to watch' : 'Player movers'}</h3>
     <div class="list">${players.map(({ a, text, live }) => {
       const h = state.holdings[a.id]; const c = change(a, now);
@@ -1488,6 +1491,7 @@ function renderGame() {
         <div class="sub ellipsis">${esc(a.teamAbbr || '')} · ${g.status === 'pre' ? (a.injury ? `<span class="down">${esc(shortInj(a.injury.status))}</span>` : esc(a.pos || '')) : esc(text || '')}${live ? ' <span class="tag live">LIVE</span>' : ''}</div></div>
         <div class="price-col"><div class="price" data-p="${a.id}">${money(a.price)}</div><div class="small ${cls(c)}" data-c="${a.id}" data-plain="1">${fmtPct(c)}</div></div></button>`;
     }).join('') || `<div class="empty">${g.status === 'final' ? 'Box score not loaded for this game.' : 'No player data yet.'}</div>`}</div>
+    </div>
   </div>`;
 }
 
@@ -2268,6 +2272,7 @@ document.addEventListener('click', async (e) => {
   if (d.page) { if (ui.article) closeArticle(); openPage(d.page); return; }
   if (d.cmp != null && ui.page?.type === 'compare') { ui.page.b = d.cmp || null; ui.page.q = ''; renderPage(); $('#page').scrollTop = 0; if (!d.cmp) setTimeout(() => $('#pageq')?.focus(), 50); return; }
   if (d.cmprange && ui.page) { ui.page.range = d.cmprange; renderPage(); return; }
+  if (d.gview) { ui.gview = d.gview; document.querySelectorAll('#game .gsec').forEach((x) => { x.hidden = x.dataset.gsec !== d.gview; }); document.querySelectorAll('#game .gtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === d.gview)); if (d.gview === 'plays' && ui.game) loadPlays(ui.game.league, ui.game.id); return; }
   if (d.dtab) { ui.dtab = d.dtab; const inner = $('#dinner'); if (inner) { inner.dataset.dtab = d.dtab; inner.querySelectorAll('.dtabs button').forEach((b) => b.classList.toggle('on', b.dataset.dtab === d.dtab)); } return; }
   if (d.wfolder != null && ui.detail) { (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: d.wfolder }; dirty = true; save(); renderDetail(); return; }
   if (d.chal) { try { answerChallenge(state, d.chal === 'yes'); dirty = true; save(); buzz(); toast('Locked in. Good luck!'); renderHome(); } catch (err) { toast(err.message); } return; }
@@ -3574,7 +3579,7 @@ function loadPlays(league, id, { force = false } = {}) {
   if (c.loading || (!force && c.t && (g.status !== 'live' || Date.now() - c.t < 20e3))) return;
   playsCache.set(id, { ...c, loading: true });
   api.summary(league, id).then((j) => {
-    playsCache.set(id, { plays: parsePlays(league, j), t: Date.now(), loading: false });
+    playsCache.set(id, { plays: parsePlays(league, j), atBat: league === 'mlb' ? parseAtBat(j) : null, t: Date.now(), loading: false });
   }).catch(() => { playsCache.set(id, { ...c, loading: false, failed: !c.plays, t: Date.now() }); })
     .then(() => {
       // Show the new plays as soon as the screen is at rest (never swap content under a finger).
@@ -3584,25 +3589,50 @@ function loadPlays(league, id, { force = false } = {}) {
 }
 // While a live game's screen is open, pull new plays every 20 seconds.
 setInterval(() => { if (ui.game && !document.hidden) loadPlays(ui.game.league, ui.game.id); }, 20e3);
+// The at-bat in progress: each pitch, and where it crossed the plate.
+function atBatCard(ab, league) {
+  const bat = ab.batter ? state.assets[`${league}:p:${ab.batter}`] : null; const pit = ab.pitcher ? state.assets[`${league}:p:${ab.pitcher}`] : null;
+  const col = { ball: 'var(--up)', strike: 'var(--down)', inplay: '#4cc9ff' };
+  const z = ab.zone; const pts = ab.pitches.filter((p) => p.x != null && p.y != null);
+  let plot = '';
+  if (z && pts.length) {
+    // The zone sits in the middle of the plot, with a zone's width of room around it.
+    const zw = z.x1 - z.x0; const zh = z.y1 - z.y0; const W = 150; const H = 190;
+    const X = (x) => W / 2 + ((x - (z.x0 + z.x1) / 2) / zw) * 62; const Y = (y) => H / 2 + ((y - (z.y0 + z.y1) / 2) / zh) * 78;
+    const inb = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    plot = `<svg class="zone" viewBox="0 0 ${W} ${H}" role="img" aria-label="Pitch locations for this at-bat">
+      <rect x="${W / 2 - 31}" y="${H / 2 - 39}" width="62" height="78" rx="3" fill="rgba(255,255,255,.05)" stroke="var(--muted)" stroke-width="1.5"/>
+      <path d="M${W / 2 - 10.3} ${H / 2 - 39}v78M${W / 2 + 10.3} ${H / 2 - 39}v78M${W / 2 - 31} ${H / 2 - 13}h62M${W / 2 - 31} ${H / 2 + 13}h62" stroke="var(--line)" stroke-width="1"/>
+      <path d="M${W / 2 - 22} ${H - 8}h44l-6 -8h-32z" fill="var(--card2)" stroke="var(--line)"/>
+      ${pts.map((p) => `<g transform="translate(${inb(X(p.x), 9, W - 9).toFixed(1)} ${inb(Y(p.y), 9, H - 20).toFixed(1)})"><circle r="8" fill="${col[p.kind]}"/><text y="3.5" text-anchor="middle" font-size="10" font-weight="800" fill="#04140b">${p.n}</text></g>`).join('')}</svg>`;
+  }
+  return `<h3>${ab.done ? 'Last at-bat' : 'At bat now'} <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">${esc(ab.sit)}${ab.done ? '' : ` · count ${ab.count}`}</span></h3>
+    <div class="card atbat">
+      <div class="row" style="gap:10px">${bat ? `<button data-open="${bat.id}" class="row" style="gap:10px;min-width:0;text-align:left">${avatar(bat)}<div style="min-width:0"><div class="name ellipsis">${esc(bat.name)}</div><div class="tiny muted">Batting${pit ? ` · vs ${esc(pit.name)}` : ''}</div></div></button>` : `<div class="tiny muted">${pit ? `Pitching: ${esc(pit.name)}` : 'Current batter'}</div>`}</div>
+      ${ab.done && ab.result ? `<div class="ab-res">${esc(ab.result)}</div>` : ''}
+      <div class="ab-body ${plot ? '' : 'noplot'}"><div class="ab-list">${ab.pitches.slice().reverse().map((p) => `<div class="ab-p"><span class="ab-n" style="background:${col[p.kind]}">${p.n}</span><div><div class="ab-call">${esc(p.call)}</div>
+        <div class="tiny muted">${esc([p.type, p.mph ? `${p.mph.toFixed(1)} mph` : ''].filter(Boolean).join(' · '))}</div></div></div>`).join('')}</div>${plot}</div>
+      ${plot ? '<div class="tiny faint" style="margin-top:6px">Box: the strike zone, placed from this game\'s called strikes.</div>' : ''}</div>`;
+}
 function playsSection(g, league) {
   if (g.status === 'pre') return '';
   const c = playsCache.get(g.id);
   if (!c?.plays) return `<h3>Play by play</h3><div class="card small muted">${c?.failed ? 'Plays aren\'t available for this game.' : 'Loading plays…'}</div>`;
   if (!c.plays.length) return '';
   const [away, home] = [g.teams.find((t) => !t.home) || g.teams[0], g.teams.find((t) => t.home) || g.teams[1]];
-  const show = ui.playsAll === g.id ? c.plays : c.plays.slice(0, 12);
+  const show = ui.playsAll === g.id ? c.plays : c.plays.slice(0, 25);
   const now = Date.now();
-  return `<h3>Play by play ${g.status === 'live' ? '<span class="tag live" style="margin-left:6px">LIVE</span>' : ''}</h3>
+  return `${g.status === 'live' && c.atBat ? atBatCard(c.atBat, league) : ''}
+    <h3>Play by play ${g.status === 'live' ? '<span class="tag live" style="margin-left:6px">LIVE</span>' : ''}</h3>
     <div class="list pbp">${show.map((p) => {
       const a = p.pid ? state.assets[`${league}:p:${p.pid}`] : null;
-      const ch = a ? change(a, now) : 0;
       return `<${a ? `button data-open="${a.id}"` : 'div'} class="pb ${p.scoring ? 'sc' : ''}">
         ${a ? avatar(a) : `<div class="avatar-fallback pb-dot">${p.scoring ? '★' : '•'}</div>`}
         <div class="grow"><div class="pb-sit">${p.away != null && p.home != null ? `<b>${esc(away.abbr)} ${p.away}-${p.home} ${esc(home.abbr)}</b> · ` : ''}${esc(p.sit)}${p.t ? ` · ${timeAgo(p.t)}` : ''}</div>
           <div class="pb-text">${esc(p.text)}</div>
-          ${a ? `<div class="pb-who"><span>${esc(a.name)}</span> <span class="${cls(ch)}" data-c="${a.id}" data-plain="1" data-r="1D">${fmtPct(ch)}</span>${state.holdings[a.id] ? ' <span class="tag own">Owned</span>' : ''}</div>` : ''}</div>
+          ${a ? `<div class="pb-who"><span>${esc(a.name)}</span>${state.holdings[a.id] ? ' <span class="tag own">Owned</span>' : ''}</div>` : ''}</div>
         ${p.scoring ? `<div class="pb-pts">+${p.value || ''}</div>` : ''}</${a ? 'button' : 'div'}>`; }).join('')}</div>
-    ${c.plays.length > 12 && ui.playsAll !== g.id ? `<button class="more" data-act="playsall">Show all ${c.plays.length} plays</button>` : ''}`;
+    ${c.plays.length > 25 && ui.playsAll !== g.id ? `<button class="more" data-act="playsall">Show all ${c.plays.length} plays</button>` : ''}`;
 }
 
 // ---------- card tilt ----------

@@ -208,3 +208,23 @@ console.log('ok - packs and flipping lose money on average');
   assert.equal(M.parsePlays('nba', {}).length, 0);
   console.log('ok - play-by-play feed');
 }
+
+// The at-bat in progress: pitches in order, zone placed from the game's called strikes.
+{
+  const plays = [];
+  for (let k = 0; k < 10; k++) plays.push({ text: 'Strike Looking', type: { type: 'pitch', text: 'Strike Looking' }, atBatId: 'o' + k, pitchCoordinate: { x: 100 + k * 4, y: 150 + k * 6 }, pitchVelocity: 95 });
+  plays.push({ text: 'X struck out looking.', type: { type: 'play-result', text: 'Strikeout' }, atBatId: 'o9' });
+  const part = [{ athlete: { id: '88' }, type: 'batter' }, { athlete: { id: '99' }, type: 'pitcher' }];
+  plays.push({ text: 'Pitch 1 : Ball', type: { type: 'pitch', text: 'Ball' }, atBatId: 'c', atBatPitchNumber: 1, pitchCoordinate: { x: 60, y: 120 }, pitchVelocity: 97.6, pitchType: { text: 'Four-seam FB' }, period: { type: 'Bottom', number: 1 }, outs: 2, participants: part });
+  plays.push({ text: 'Pitch 2 : Strike Swinging', type: { type: 'pitch', text: 'Strike Swinging' }, atBatId: 'c', atBatPitchNumber: 2, pitchCoordinate: { x: 120, y: 170 }, pitchVelocity: 84.3, pitchType: { text: 'Changeup' }, period: { type: 'Bottom', number: 1 }, outs: 2, participants: part });
+  const ab = M.parseAtBat({ plays });
+  assert.equal(ab.pitches.length, 2); assert.equal(ab.done, false);
+  assert.deepEqual(ab.pitches.map((p) => [p.n, p.kind, p.type, p.mph]), [[1, 'ball', 'Four-seam FB', 97.6], [2, 'strike', 'Changeup', 84.3]]);
+  assert.equal(ab.count, '1-1'); assert.equal(ab.batter, '88'); assert.equal(ab.pitcher, '99'); assert.equal(ab.sit, 'Bot 1 · 2 outs');
+  assert.ok(ab.zone && ab.zone.x0 >= 100 && ab.zone.x1 <= 136 && ab.pitches[0].x < ab.zone.x0, 'the ball is outside the zone the strikes define');
+  assert.equal(M.parseAtBat({ plays: plays.slice(-2) }).zone, null, 'no zone without enough called strikes');
+  assert.equal(M.parseAtBat({ plays: [] }), null);
+  // the feed still drops pitches
+  assert.equal(M.parsePlays('mlb', { plays }).length, 1);
+  console.log('ok - at-bat pitch view');
+}

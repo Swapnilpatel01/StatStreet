@@ -250,3 +250,45 @@ export function parsePlays(league, json, limit = 60) {
   }
   return out.slice(-limit).reverse();
 }
+
+// ---------- the current at-bat, pitch by pitch (baseball) ----------
+// Returns the latest at-bat's pitches, plus a strike zone worked out from this game's own
+// called strikes (so the plot is right whatever units the feed uses). zone is null until
+// there are enough called strikes to place it.
+const isPitch = (p) => !/play-result|result/i.test(p.type?.type || '') && (p.pitchVelocity != null || p.pitchType || p.pitchCoordinate || /^pitch\b/i.test(p.text || ''));
+export function parseAtBat(json) {
+  const plays = json?.plays || [];
+  if (!plays.length) return null;
+  const pitches = plays.filter(isPitch);
+  if (!pitches.length) return null;
+  const lastId = pitches[pitches.length - 1].atBatId;
+  let cur = lastId != null ? pitches.filter((p) => p.atBatId === lastId) : [];
+  if (!cur.length) { // no at-bat ids: take the run of pitches after the last result
+    let i = plays.length - 1; while (i >= 0 && !isPitch(plays[i])) i--;
+    const end = i; while (i >= 0 && isPitch(plays[i])) i--;
+    cur = plays.slice(i + 1, end + 1);
+  }
+  const kindOf = (t) => (/in play|hit by/i.test(t) ? 'inplay' : /ball\b/i.test(t) && !/foul/i.test(t) ? 'ball' : 'strike');
+  const list = cur.map((p, i) => {
+    const call = clean(p.type?.text || String(p.text || '').replace(/^pitch\s*\d+\s*:?\s*/i, '')) || 'Pitch';
+    const c = p.pitchCoordinate;
+    return { n: num(p.atBatPitchNumber) ?? i + 1, call, kind: kindOf(call), type: p.pitchType?.text || p.pitchType?.abbreviation || '', mph: num(p.pitchVelocity),
+      x: c && num(c.x) != null ? num(c.x) : null, y: c && num(c.y) != null ? num(c.y) : null };
+  });
+  // Zone: the middle 90% of where called strikes crossed the plate in this game.
+  const called = pitches.filter((p) => /strike looking|called strike/i.test(p.type?.text || p.text || '') && p.pitchCoordinate && num(p.pitchCoordinate.x) != null);
+  let zone = null;
+  if (called.length >= 8) {
+    const q = (arr, f) => { const s = arr.slice().sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.max(0, Math.round(f * (s.length - 1))))]; };
+    const xs = called.map((p) => num(p.pitchCoordinate.x)); const ys = called.map((p) => num(p.pitchCoordinate.y));
+    zone = { x0: q(xs, 0.05), x1: q(xs, 0.95), y0: q(ys, 0.05), y1: q(ys, 0.95) };
+    if (!(zone.x1 > zone.x0) || !(zone.y1 > zone.y0)) zone = null;
+  }
+  const last = cur[cur.length - 1]; const idx = plays.indexOf(last);
+  const result = plays.slice(idx + 1).find((p) => /play-result|result/i.test(p.type?.type || ''));
+  const who = (x, re) => { const part = (x?.participants || []).find((q) => re.test(q.type || '')); return part?.athlete?.id != null ? String(part.athlete.id) : null; };
+  const src = result || last;
+  const balls = list.filter((p) => p.kind === 'ball').length; const strikes = Math.min(2 + (result ? 1 : 0), list.filter((p) => p.kind === 'strike' && !(/foul/i.test(p.call))).length + Math.min(2, list.filter((p) => /foul/i.test(p.call)).length));
+  return { pitches: list, zone, done: !!result, result: result ? clean(result.text).replace(/\.$/, '') : '', batter: who(src, /batter/i) || who(last, /batter/i), pitcher: who(src, /pitcher/i) || who(last, /pitcher/i),
+    count: `${Math.min(balls, 4)}-${Math.min(strikes, 3)}`, sit: situation('mlb', src).text };
+}

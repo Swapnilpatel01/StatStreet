@@ -459,11 +459,23 @@ with sync_playwright() as p:
     lg = page.locator('#view .live-strip [data-game]').first
     if lg.count():
         lg.click(); page.wait_for_timeout(1200)
+        assert page.locator('#game .gtabs button').count() == 2 and page.locator('#game .gsec[data-gsec=plays]').is_hidden()
+        page.click('#game [data-gview=plays]'); page.wait_for_timeout(1200)
+        assert page.locator('#game .gsec[data-gsec=summary]').is_hidden()
         gt = page.text_content('#game'); assert 'Play by play' in gt, gt[:200]
+        assert page.locator('#game .pbp .pb [data-c]').count() == 0, 'no price change on plays'
         print('plays shown:', page.locator('#game .pbp .pb').count())
         assert page.locator('#game .pbp .pb').count() >= 1
         assert int(page.evaluate("getComputedStyle(document.querySelector('.gc-score')).fontWeight")) >= 900
         page.screenshot(path=f'{OUT}/60-game-pbp.png'); page.evaluate("document.querySelector('#game .pbp').scrollIntoView()"); page.wait_for_timeout(150); page.screenshot(path=f'{OUT}/61-pbp.png')
+        page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
+    # the MLB at-bat view
+    ml = page.locator('#view .live-strip [data-game^="mlb|"]').first
+    if ml.count():
+        ml.click(); page.wait_for_timeout(600); page.click('#game [data-gview=plays]'); page.wait_for_timeout(1500)
+        t = page.text_content('#game .atbat'); assert 'Changeup' in t and '84.3 mph' in t and 'Strike Swinging' in t, t
+        assert page.locator('#game .zone circle').count() == 4
+        page.screenshot(path=f'{OUT}/62-atbat.png')
         page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     print('v43 features ok')
     print('v37 features ok')

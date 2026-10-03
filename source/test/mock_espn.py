@@ -142,6 +142,14 @@ def summary(lg, eid):
             plays.append({'text': f'{name} {kind}.', 'type': {'text': 'Home Run' if 'homer' in kind else 'Hit'}, 'scoringPlay': True, 'scoreValue': 1,
                           'homeScore': hs, 'awayScore': as_, 'period': {'type': 'Bottom' if k % 2 == 0 else 'Top', 'number': k + 3}, 'outs': r.randint(0, 2),
                           'participants': [{'athlete': {'id': pid}, 'type': 'batter'}]})
+        # called strikes around the zone (so the app can place it), then the at-bat in progress
+        for k in range(12):
+            plays.append({'text': f'Pitch {k}: Strike Looking', 'type': {'type': 'strike-looking', 'text': 'Strike Looking'}, 'atBatId': f'old{k}', 'pitchCoordinate': {'x': 100 + (k % 4) * 12, 'y': 150 + (k % 5) * 14}, 'pitchVelocity': 94, 'pitchType': {'text': 'Four-seam FB'}})
+        bat = [p for p in plist if p[2] != 'SP'][0]; pit = [p for p in plist if p[2] == 'SP'][0]
+        part = [{'athlete': {'id': bat[0]}, 'type': 'batter'}, {'athlete': {'id': pit[0]}, 'type': 'pitcher'}]
+        for n, (call, x, y, ty, v) in enumerate([('Strike Swinging', 110, 170, 'Four-seam FB', 97.5), ('Strike Swinging', 125, 190, 'Changeup', 84.3), ('Ball', 70, 120, 'Four-seam FB', 97.6), ('Foul', 118, 160, 'Slider', 88.0)], 1):
+            plays.append({'text': f'Pitch {n} : {call}', 'type': {'type': 'pitch', 'text': call}, 'atBatId': 'cur', 'atBatPitchNumber': n, 'pitchCoordinate': {'x': x, 'y': y}, 'pitchVelocity': v, 'pitchType': {'text': ty},
+                          'period': {'type': 'Top', 'number': 9}, 'outs': 1, 'participants': part})
         return {'boxscore': {'players': players}, 'plays': plays}
     if lg == 'nba':
         plays = []
