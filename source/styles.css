@@ -767,7 +767,7 @@ details .prose { padding: 12px 14px 4px; }
 .wedit { margin-top: 14px; }
 .wedit textarea { width: 100%; margin-top: 8px; background: var(--card2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 16px; resize: none; outline: none; }
 .chip-input { background: transparent; border: 1px dashed var(--line); border-radius: 999px; color: var(--text); padding: 7px 12px; font-size: 16px; width: 132px; outline: none; }
-.dtabs { display: flex; gap: 4px; margin-top: 14px; background: var(--card); border-radius: 12px; padding: 4px; position: sticky; top: calc(var(--safe-t) + 52px); z-index: 3; box-shadow: 0 0 0 6px var(--bg); }
+.dtabs { display: flex; gap: 4px; margin-top: 14px; background: var(--card); border-radius: 12px; padding: 4px; position: sticky; top: var(--safe-t); z-index: 3; box-shadow: 0 0 0 6px var(--bg); }
 .dtabs button { flex: 1; padding: 9px 4px; border-radius: 9px; font-weight: 700; font-size: 13.5px; color: var(--muted); }
 .dtabs button.on { background: var(--card2); color: var(--text); }
 .dtabs i { font-style: normal; font-size: 11px; color: var(--faint); margin-left: 2px; }
@@ -878,17 +878,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .grade { display: inline-block; min-width: 26px; text-align: center; padding: 1px 7px; border-radius: 7px; background: var(--card2); }
 .grade.gA, .grade.gB { background: var(--up-bg); color: var(--up); }
 .grade.gD, .grade.gF { background: var(--down-bg); color: var(--down); }
-/* Pinned price bar on a player's page: slides in once the big price has scrolled away. */
-.pin { position: sticky; top: 0; z-index: 4; height: 0; margin: 0 -16px; pointer-events: none; }
-.pin-in { display: flex; align-items: center; gap: 10px; padding: calc(var(--safe-t) + 6px) 16px 8px; margin-top: calc(-1 * var(--safe-t) - 8px);
-  background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);
-  /* Fully removed from view until pinned: on iPhone a see-through blurred bar still blurs what is under it. */
-  visibility: hidden; opacity: 0; transform: translateY(-8px); transition: opacity .18s, transform .18s, visibility 0s .18s; }
-.pin.on .pin-in { visibility: visible; opacity: 1; transform: none; pointer-events: auto; transition: opacity .18s, transform .18s, visibility 0s; }
-.pin-in > b { font-size: 16px; min-width: 0; }
-.pin-in .icon-btn { width: 34px; height: 34px; flex: none; }
-.pin-p { display: grid; justify-items: end; line-height: 1.15; flex: none; }
-.pin-p span { font-size: 12px; font-weight: 700; }
 /* Long-press quick actions */
 .qa { position: absolute; inset: 0; z-index: 60; }
 .qa-back { position: absolute; inset: 0; background: rgba(0,0,0,.5); animation: chartfade .15s both; }

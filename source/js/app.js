@@ -60,7 +60,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list', gamesLeague: 'all',
 };
-const APP_VERSION = 41;
+const APP_VERSION = 42;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1584,7 +1584,6 @@ function renderDetail({ keepScroll = true } = {}) {
   sheet.hidden = false;
   sheet.classList.toggle('acc-down', ch < 0);
   sheet.innerHTML = `<div class="sheet-inner" id="dinner" data-dtab="${dtab}">
-    ${pinBar(a, ch)}
     <div class="row between">
       <button class="icon-btn" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="icons-right">
@@ -2441,7 +2440,6 @@ document.addEventListener('click', async (e) => {
   }
   if (d.alertpct) { const a = state.assets[ui.detail]; $('#alertpx').value = (a.price * (1 + Number(d.alertpct) / 100)).toFixed(2); return; }
   switch (d.act) {
-    case 'pinback':
     case 'back': if (history.state?.sheet) history.back(); else closeDetail(); break;
     case 'chainback': if (history.state?.chain) history.back(); else closeChain(); break;
     case 'chain': openChain(); break;
@@ -3330,12 +3328,6 @@ function reportLine(a) {
     <div style="text-align:right"><div class="tiny muted">NEXT REPORT</div><b>${a.report.next ? fmtDate(a.report.next) : '—'}</b></div></div>
     <div class="tiny faint" style="margin-top:6px">About every two weeks, graded on his games since the last one plus the analysts' own read. The price reacts when it lands.</div></div>`;
 }
-function pinBar(a, ch) {
-  return `<div class="pin" id="dpin"><div class="pin-in"><button class="icon-btn" data-act="pinback" aria-label="Back">${BACK_SVG}</button><b class="ellipsis">${esc(a.kind === 'player' ? a.name : a.ticker)}</b>
-    <span class="grow"></span>${sparkline(a.hist.concat([Date.now(), a.price]), Date.now() - RANGES[ui.range], 70, 26)}<div class="pin-p"><b data-p="${a.id}">${money(a.price)}</b><span class="${cls(ch)}">${fmtPct(ch, 1)}</span></div></div></div>`;
-}
-$('#sheet').addEventListener('scroll', () => { const p = $('#dpin'); if (p) p.classList.toggle('on', $('#sheet').scrollTop > 250); }, { passive: true });
-
 // ---------- hall of fame and friend challenge ----------
 function pageHof() {
   const h = updateHof(state);

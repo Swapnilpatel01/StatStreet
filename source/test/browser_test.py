@@ -420,12 +420,7 @@ with sync_playwright() as p:
     page.click('#qa [data-qa=compare]'); page.wait_for_timeout(600)
     assert page.locator('#page').is_visible() and 'Pick who to compare' in page.text_content('#page')
     page.click('#page [data-act=pageback]'); page.wait_for_timeout(200)
-    page.evaluate("document.querySelector('#sheet').scrollTop = 600"); page.wait_for_timeout(350)
-    assert page.evaluate("document.querySelector('#dpin').classList.contains('on')"), 'price bar pins when scrolled'
-    page.screenshot(path=f'{OUT}/41-pinned.png')
-    page.evaluate("document.querySelector('#sheet').scrollTop = 0"); page.wait_for_timeout(250)
-    assert not page.evaluate("document.querySelector('#dpin').classList.contains('on')")
-    page.wait_for_timeout(250); assert page.evaluate("getComputedStyle(document.querySelector('#dpin .pin-in')).visibility") == 'hidden', 'the unpinned bar must not cover the header'
+    assert page.locator('#dpin').count() == 0
     page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
     page.evaluate("document.querySelector('.tools [data-page=hof]').click()"); page.wait_for_timeout(450)
