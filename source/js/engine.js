@@ -303,6 +303,61 @@ export function setTeamPrior(state, league, t) {
   a.prior = { pct: (t.w + 0.5 * (t.t || 0)) / t.gp, dpg: t.diff / t.gp };
 }
 
+// ---------- form rating (0–15) ----------
+// One number for how a player is playing right now.
+//
+//   recent   R = weighted average game score of his last 5 games (weights 5,4,3,2,1, newest first)
+//   quality  Q = (R − μ) / σ            how good that is for his position (μ, σ: position group; capped at ±6)
+//   momentum M = (R − S) / (d / √n)     how far above his own season average S he is running,
+//                                        in units of his own game-to-game spread d (capped at ±3)
+//   steadiness C = 1 − spread of the last 5 / d   (capped at −1.5…+1; needs 3+ games)
+//
+//   z = (0.55·Q + 0.30·M + 0.15·C) · n / (n + 1)     fewer games count for less
+//
+// z becomes the rating on a curve that is straight through the middle and flattens at the top:
+//   z ≤ 1:  7.5 + 3·z                 (0 at z = −2.5, 4.5 at z = −1, 7.5 average, 10.5 at z = +1)
+//   z > 1:  10.5 + 4.5·(1 − e^−(z−1)/1.3) / k      (13.3 at +2, 14.6 at +3)
+// k scales the curve so that 15.0 lands exactly on the highest z the formula can produce:
+// every part at its cap at once (Q = +6, M = +3, C = +1 over five games), i.e. five identical,
+// historically great games. Nothing short of that reads 15.
+const Q_CAP = 6;
+const Z_TOP = (0.55 * Q_CAP + 0.30 * 3 + 0.15 * 1) * 5 / 6;
+export function ratingFromZ(z) {
+  if (!Number.isFinite(z)) return 7.5;
+  const r = z <= 1 ? 7.5 + 3 * z : 10.5 + 4.5 * Math.min(1, (1 - Math.exp(-(z - 1) / 1.3)) / (1 - Math.exp(-(Z_TOP - 1) / 1.3)));
+  return Math.round(clamp(r, 0, 15) * 10) / 10;
+}
+const FORM_W = [5, 4, 3, 2, 1];
+export function formRating(state, a) {
+  if (a.kind !== 'player' || !a.perf) return null;
+  const grp = posGroup(a.league, a.pos);
+  const st = state.stats[a.league]?.[grp];
+  const games = (a.perf.last || []).slice(0, 5).map((g) => g.gs).filter((x) => Number.isFinite(x));
+  const n = games.length;
+  if (!st?.sd || (!n && a.perf.ema == null)) return null;
+  const d = a.perf.gn ?? gameNoise(state, a.league, grp);
+  const wsum = FORM_W.slice(0, n).reduce((t, w) => t + w, 0);
+  const R = n ? games.reduce((t, g, i) => t + g * FORM_W[i], 0) / wsum : a.perf.ema;
+  const S = a.perf.season?.gp ? a.perf.season.gs : a.perf.ema ?? R;
+  const nEff = n ? wsum * wsum / FORM_W.slice(0, n).reduce((t, w) => t + w * w, 0) : 1;
+  const Q = clamp((R - st.mu) / st.sd, -Q_CAP, Q_CAP);
+  const M = n ? clamp((R - S) / (d / Math.sqrt(nEff)), -3, 3) : 0;
+  const mean = n ? games.reduce((t, g) => t + g, 0) / n : 0;
+  const C = n >= 3 ? clamp(1 - Math.sqrt(games.reduce((t, g) => t + (g - mean) ** 2, 0) / (n - 1)) / d, -1.5, 1) : 0;
+  const conf = n ? n / (n + 1) : 0.5;
+  const z = (0.55 * Q + 0.30 * M + 0.15 * C) * conf;
+  return { rating: ratingFromZ(z), z, Q, M, C, n, recent: R, season: S };
+}
+// One game on the same scale: his game score against the position, allowing for how much
+// any single game swings.
+export function gameRating(state, a, gs) {
+  const grp = posGroup(a.league, a.pos);
+  const st = state.stats[a.league]?.[grp];
+  if (!st?.sd) return 7.5;
+  const d = a.perf?.gn ?? gameNoise(state, a.league, grp);
+  return ratingFromZ((gs - st.mu) / Math.sqrt(st.sd * st.sd + d * d));
+}
+
 export function playerZ(state, a) {
   const st = state.stats[a.league]?.[posGroup(a.league, a.pos)];
   const ema = a.live?.ema ?? a.perf.ema;

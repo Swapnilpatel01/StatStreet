@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup, storyBlocks, parseScoreboard, parseBoxScore, lineText, gameScore } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
+  leagueIndex, rebuildInjuryCache, formRating, gameRating, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 68;
+const APP_VERSION = 69;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1827,26 +1827,27 @@ function updateDetailHeader() {
 
 function playerStats(a) {
   const pctile = Math.round(100 * normCdf(formZ(a)));
-  // Each of the last five games rated against his own usual game: 50 is a normal night for him.
-  const base = a.perf.season?.gs ?? a.perf.ema ?? 0;
-  const sd = a.perf.gn || Math.max(2, Math.abs(base) * 0.4);
-  const rate = (g) => form15((g.gs - base) / sd);
+  const fr = formRating(state, a);
+  const rate = (g) => gameRating(state, a, g.gs);
   const tone = formTone;
   const last = a.perf.last.slice(0, 5);
-  const avg = last.length ? Math.round((last.reduce((t, g) => t + rate(g), 0) / last.length) * 10) / 10 : null;
-  const word = avg == null ? '' : avg >= 8.5 ? 'Hot' : avg >= 6.5 ? 'Steady' : 'Cold';
-  const older = last.slice(2); const trend = last.length >= 4 ? (rate(last[0]) + rate(last[1])) / 2 - older.reduce((t, g) => t + rate(g), 0) / older.length : 0;
+  const avg = fr?.rating ?? null;
+  const word = avg == null ? '' : avg >= 12 ? 'On fire' : avg >= 9.5 ? 'Hot' : avg >= 5.5 ? 'Steady' : avg >= 3 ? 'Cold' : 'Ice cold';
+  const trend = fr?.M || 0;
+  const part = (label, v, hint) => `<div class="fpart"><span>${label}</span><div class="fbar"><i class="${v >= 0 ? 'pos' : 'neg'}" style="width:${Math.min(50, Math.abs(v) / 3 * 50)}%"></i></div><b class="${cls(v)}">${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}</b><em>${hint}</em></div>`;
   return `<h3>Performance</h3>
     <div class="grid3">
-      <div class="stat"><div class="k">Last ${last.length || 5} form</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${avg.toFixed(1)}</span><span class="small">${word}${trend > 1.2 ? ' ↗' : trend < -1.2 ? ' ↘' : ''}</span>` : '—'}</div></div>
+      <div class="stat"><div class="k">Form rating</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${avg.toFixed(1)}</span><span class="small">${word}${trend > 0.8 ? ' ↗' : trend < -0.8 ? ' ↘' : ''}</span>` : '—'}</div></div>
       <div class="stat"><div class="k">vs ${esc(groupName(a))}</div><div class="v">${a.perf.ema != null ? pctile + 'th' : '—'}</div></div>
       <div class="stat"><div class="k">Season avg</div><div class="v">${a.perf.season ? a.perf.season.gs.toFixed(1) : '—'}</div></div>
     </div>
     ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">oldest → latest</span></div>
       <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g).toFixed(1)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div>
       <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${last.map((g) => `<div class="driver"><span class="formdot xs ${tone(rate(g))}" style="margin-right:2px"></span><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div><div class="pct">${g.gs.toFixed(1)}</div></div>`).join('')}</div>
-      <p class="tiny faint" style="margin:22px 0 0">Each game is rated 0–15 against his own usual game: 7.5 is a normal night, 15 is near-perfect and almost never reached. The number on the right is the game score.</p>
-    </div>` : '<div class="card small muted" style="margin-top:10px">Priced from season averages. Game-by-game form appears after their next game.</div>'}`;
+    </div>
+    ${fr ? `<div class="card" style="margin-top:10px"><div class="row between"><b>How the ${fr.rating.toFixed(1)} is worked out</b><span class="tiny muted">0–15</span></div>
+      ${part('Quality', fr.Q, 'recent games against his position')}${part('Momentum', fr.M, 'recent games against his own season')}${part('Steadiness', fr.C, 'how even those games were')}
+      <p class="tiny faint" style="margin:10px 0 0">Recent games count 5-4-3-2-1, newest heaviest. Quality is 55% of the rating, momentum 30%, steadiness 15%, and fewer games count for less. 7.5 is an average player in average form; below 5 is poor, above 10.5 is excellent, and 15 takes every part at its maximum at once: five identical, historically great games.</p></div>` : ''}` : '<div class="card small muted" style="margin-top:10px">Priced from season averages. Game-by-game form appears after their next game.</div>'}`;
 }
 
 function teamStats(a) {
@@ -3866,14 +3867,11 @@ function gameProps(g, league) {
       ${slipCard(true)}`
       : `<div class="card small muted" style="margin-top:12px">${g.status === 'pre' ? 'Player props for this game open two days before it starts.' : g.status === 'live' ? 'No live lines right now. They close for the final stretch of the game.' : 'This game is over.'}</div>`}`;
 }
-// Form on a 0–15 scale, one decimal. 7.5 is exactly average; each standard deviation is worth
-// 2.2, so 15 needs a showing 3.4 deviations above the norm (about once in 3,000) and 0 the same below.
-const form15 = (z) => Math.round(Math.max(0, Math.min(15, 7.5 + 2.2 * (Number.isFinite(z) ? z : 0))) * 10) / 10;
-const formTone = (v) => (v >= 8.5 ? 'hi' : v >= 6.5 ? 'mid' : 'lo');
+const formTone = (v) => (v >= 9.5 ? 'hi' : v >= 5.5 ? 'mid' : 'lo');
 // A player's current form in a circle, against players at his position. Green is hot, orange middling, red cold.
 function formDot(a, size = '') {
-  if (a.kind !== 'player' || a.perf?.ema == null) return '';
-  const v = form15(formZ(a));
+  const v = formRating(state, a)?.rating;
+  if (v == null) return '';
   return `<span class="formdot ${size} ${formTone(v)}" aria-label="Form ${v.toFixed(1)} out of 15">${v.toFixed(1)}</span>`;
 }
 // The best three players of the game so far, by game score.

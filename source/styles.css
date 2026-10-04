@@ -1156,3 +1156,12 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .driver .formdot.xs { width: 14px; height: 14px; }
 .form5 .formdot { width: 44px; height: 44px; font-size: 14px; }
 .stat .formdot { width: 34px; height: 34px; font-size: 12px; }
+
+/* v69: form rating breakdown */
+.fpart { display: grid; grid-template-columns: 84px 1fr 40px; align-items: center; gap: 4px 10px; margin-top: 12px; font-size: 13.5px; }
+.fpart b { text-align: right; font-variant-numeric: tabular-nums; }
+.fpart em { grid-column: 1 / -1; font-style: normal; font-size: 11.5px; color: var(--faint); margin-top: -2px; }
+.fbar { position: relative; height: 6px; border-radius: 3px; background: var(--card2); }
+.fbar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.fbar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.fbar i.pos { left: 50%; background: var(--up); } .fbar i.neg { right: 50%; background: var(--down); }
