@@ -3,8 +3,7 @@
 
 import { clamp, gauss, mean, std, median, decay, HOUR, DAY, tickerFrom } from './util.js';
 import {
-  LEAGUES, posGroup, posMultiplier, gameScore, lineText, milestone, injuryFactor, sentimentScore, newsEffects,
-} from './scoring.js';
+  LEAGUES, posGroup, posMultiplier, gameScore, lineText, milestone, injuryFactor, sentimentScore, newsEffects, perfRating, emptyLine } from './scoring.js';
 import { optionsValue, optionMid, CONTRACT } from './bs.js';
 
 export const START_CASH = 5;
@@ -303,47 +302,30 @@ export function setTeamPrior(state, league, t) {
   a.prior = { pct: (t.w + 0.5 * (t.t || 0)) / t.gp, dpg: t.diff / t.gp };
 }
 
-// ---------- player ratings (0–15) ----------
-// Every game a player plays gets a rating, from that game's stat line alone:
-//
-//   z = (game score − μ) / √(σ² + d²)
-//
-// μ and σ are the average and spread of players at his position, and d is how much a single
-// game swings for him, so the rating says how good that one game was by the standard of his
-// position. A player's form is then simply the average rating of his last five games
-// (weights 5,4,3,2,1, newest first).
-//
-// z becomes the rating on a curve where 10 is hard and every point above it harder:
-//   z ≤ 2:  5 + 2.5·z          (0 at z = −2, 2.5 at −1, 5 for an average player, 7.5 at +1, 10 at +2)
-//   z > 2:  10 + 5·((z − 2) / (zTop − 2))^1.5     (10.9 at 2.5, 12.4 at 3, 13.6 at 3.3)
-// zTop = 3.6: a game that far above the position's norm is the ceiling, and reads 15.
-const Z_TOP = 3.6;
-export function ratingFromZ(z) {
-  if (!Number.isFinite(z)) return 5;
-  const r = z <= 2 ? 5 + 2.5 * z : 10 + 5 * Math.min(1, (z - 2) / (Z_TOP - 2)) ** 1.5;
-  return Math.round(clamp(r, 0, 15) * 10) / 10;
-}
+// ---------- player ratings ----------
+// Every game gets a rating from its stat line (perfRating in scoring.js). A player's form is
+// the average rating of his last five games, weights 5,4,3,2,1 with the newest first.
 const FORM_W = [5, 4, 3, 2, 1];
+export function gameRating(state, a, g) {
+  if (g?.line) return perfRating(a.league, { ...emptyLine(a.league), ...g.line });
+  // Games saved before stat lines were kept: place the game score against the position instead.
+  const grp = posGroup(a.league, a.pos);
+  const st = state.stats[a.league]?.[grp];
+  if (!st?.sd || !Number.isFinite(g?.gs)) return null;
+  const d = a.perf?.gn ?? gameNoise(state, a.league, grp);
+  const z = (g.gs - st.mu) / Math.sqrt(st.sd * st.sd + d * d);
+  return Math.round(clamp(3 + 2.5 * z, -2, 15) * 10) / 10;
+}
 export function formRating(state, a) {
   if (a.kind !== 'player' || !a.perf) return null;
-  const st = state.stats[a.league]?.[posGroup(a.league, a.pos)];
-  if (!st?.sd) return null;
-  const rs = (a.perf.last || []).slice(0, 5).filter((g) => Number.isFinite(g.gs)).map((g) => gameRating(state, a, g.gs));
+  const rs = (a.perf.last || []).slice(0, 5).map((g) => gameRating(state, a, g)).filter((r) => r != null);
   const n = rs.length;
-  // No games on record yet: rate his season level as if it were one game.
-  if (!n) return a.perf.ema == null ? null : { rating: gameRating(state, a, a.perf.ema), n: 0, trend: 0, games: [] };
+  // No games on record yet: rate his season averages as if they were one game.
+  if (!n) { const r = a.perf.avg ? gameRating(state, a, { line: a.perf.avg }) : null; return r == null ? null : { rating: r, n: 0, trend: 0, games: [] }; }
   const wsum = FORM_W.slice(0, n).reduce((t, w) => t + w, 0);
   const rating = Math.round((rs.reduce((t, r, i) => t + r * FORM_W[i], 0) / wsum) * 10) / 10;
   const trend = n >= 4 ? (rs[0] + rs[1]) / 2 - rs.slice(2).reduce((t, r) => t + r, 0) / (n - 2) : 0;
   return { rating, n, trend, games: rs };
-}
-// One game's rating.
-export function gameRating(state, a, gs) {
-  const grp = posGroup(a.league, a.pos);
-  const st = state.stats[a.league]?.[grp];
-  if (!st?.sd) return 5;
-  const d = a.perf?.gn ?? gameNoise(state, a.league, grp);
-  return ratingFromZ((gs - st.mu) / Math.sqrt(st.sd * st.sd + d * d));
 }
 
 export function playerZ(state, a) {

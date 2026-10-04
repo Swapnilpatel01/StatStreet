@@ -53,6 +53,42 @@ export function gameScore(league, l) {
   return bat + pit;
 }
 
+// ---------- Performance rating for one game ----------
+// A rating for a single game from its stat line, on the scale the Real app uses: about 1 for a
+// quiet game, 4–6 for a good one, 9+ for a monster, a little below zero for an empty one.
+// Fitted to ratings Real showed for known stat lines (see test/rating.test.mjs). The NBA and
+// NFL-defender curves had no examples to fit and reuse the NFL shape.
+//
+//   fantasy points (fp):
+//     NFL   pass yds/25 + 4·pass TD − 2·INT + (rush + rec yds)/10 + 6·TD + 1·catch − 2·fumble + 3·FG + XP
+//     NBA   pts + 1.2·reb + 1.5·ast + 3·stl + 3·blk − TO
+//     MLB hitter   H + 2·HR + R + RBI + BB − 0.25·outs
+//     MLB pitcher  2·IP + 2·K − 3·ER − 0.6·(H + BB)
+//   rating:
+//     NFL          0.0512 · fp^1.4            (9 fp → 1.1, 18 → 3.0, 23 → 4.2, 41 → 9.3)
+//     NBA          0.0308 · fp^1.4            (25 fp → 2.8, 40 → 5.4, 60 → 9.5)
+//     MLB hitter   0.55 · fp up to 7 fp, then 0.22 a point   (−1 → −0.6, 5 → 2.8, 11 → 4.7)
+//     MLB pitcher  0.8 + 0.235 · fp           (14 fp → 4.1, 33 → 8.6)
+const pow14 = (k, fp) => (fp > 0 ? k * fp ** 1.4 : fp * 0.1);
+const mlbIp = (ip) => Math.floor(ip) + ((ip % 1) * 10) / 3; // 6.2 innings is 6⅔
+export function perfRating(league, l) {
+  let r;
+  if (league === 'nba') {
+    r = pow14(0.0308, l.pts + 1.2 * l.reb + 1.5 * l.ast + 3 * l.stl + 3 * l.blk - l.to);
+  } else if (league === 'nfl') {
+    const off = l.passYds / 25 + 4 * l.passTD - 2 * l.int + (l.rushYds + l.recYds) / 10 + 6 * (l.rushTD + l.recTD) + l.rec - 2 * l.fumLost + 3 * l.fg + l.xp;
+    const def = l.tkl + 2 * l.sacks + 3 * l.defInt + l.pd + 6 * l.defTD;
+    r = Math.max(pow14(0.0512, off), def > 0 ? pow14(0.0512, 2 * def) : -9);
+  } else {
+    const batted = l.ab > 0 || l.bb > 0;
+    const bfp = l.h + 2 * l.hr + l.r + l.rbi + l.bb - 0.25 * Math.max(0, l.ab - l.h);
+    const bat = bfp <= 7 ? 0.55 * bfp : 3.85 + 0.22 * (bfp - 7);
+    const pit = l.ip > 0 ? 0.8 + 0.235 * (2 * mlbIp(l.ip) + 2 * l.pk - 3 * l.er - 0.6 * (l.ph + l.pbb)) : null;
+    r = pit != null && batted ? Math.max(pit, bat) : pit != null ? pit : bat;
+  }
+  return Math.round(Math.max(-2, Math.min(15, r)) * 10) / 10;
+}
+
 export function emptyLine(league) {
   if (league === 'nba') return { min: 0, pts: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 };
   if (league === 'nfl') return { passYds: 0, passTD: 0, int: 0, cmp: 0, att: 0, rushYds: 0, rushTD: 0, car: 0, rec: 0, recYds: 0, recTD: 0, fumLost: 0, tkl: 0, sacks: 0, defInt: 0, pd: 0, defTD: 0, fg: 0, xp: 0 };

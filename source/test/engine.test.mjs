@@ -311,24 +311,16 @@ t('chart gaps from time away are filled with market wiggle; real points and jump
   assert.equal(E.fillGaps(st, t0 + 22 * H), 0, 'filling twice changes nothing');
 });
 
-t('ratings: every game rated 0-15 (5 average, 10 hard, 15 a ceiling); form is the average of the last five', () => {
-  assert.equal(E.ratingFromZ(0), 5); assert.equal(E.ratingFromZ(-1), 2.5); assert.equal(E.ratingFromZ(-2), 0); assert.equal(E.ratingFromZ(-9), 0);
-  assert.equal(E.ratingFromZ(1), 7.5); assert.equal(E.ratingFromZ(2), 10); assert.ok(E.ratingFromZ(2.5) < 11); assert.ok(E.ratingFromZ(3) < 12.6); assert.equal(E.ratingFromZ(50), 15);
-  for (let z = -3; z < 6; z += 0.25) assert.ok(E.ratingFromZ(z + 0.25) >= E.ratingFromZ(z), 'never goes down as z rises');
+t('form is the average of the last five game ratings, newest heaviest', () => {
   const st = E.newState(100); st.stats = { nba: { ALL: { mu: 20, sd: 6 } } };
-  const mk = (games, season) => ({ kind: 'player', league: 'nba', pos: 'G', perf: { ema: season, gn: 8, season: { gs: season, gp: 30 }, last: games.map((gs) => ({ gs })) } });
-  // one game: 10 points of game score per z here (sqrt(6^2 + 8^2))
-  const p = mk([], 20);
-  assert.equal(E.gameRating(st, p, 20), 5); assert.equal(E.gameRating(st, p, 30), 7.5); assert.equal(E.gameRating(st, p, 40), 10); assert.equal(E.gameRating(st, p, 0), 0);
-  assert.ok(E.gameRating(st, p, 45) < 11 && E.gameRating(st, p, 50) < 12.6 && E.gameRating(st, p, 60) === 15);
-  // form is the weighted average of the last five game ratings, newest heaviest
-  const f = E.formRating(st, mk([40, 20, 20, 20, 20], 20));
-  assert.equal(f.rating, Math.round(((10 * 5 + 5 * 10) / 15) * 10) / 10);
-  assert.ok(E.formRating(st, mk([20, 20, 20, 20, 40], 20)).rating < f.rating, 'a recent big game counts for more than an old one');
-  assert.ok(E.formRating(st, mk([10, 12, 8, 11, 10], 13)).rating < 3, 'poor games, poor form');
-  const star = E.formRating(st, mk([33, 31, 35, 30, 32], 32));
-  assert.ok(star.rating > 7.5 && star.rating < 10, `a star's usual games stay under 10: ${star.rating}`);
-  assert.equal(E.formRating(st, mk([], 30)).rating, 7.5, 'no games yet: his season level rated as one game');
+  const L = (pts) => ({ pts, reb: 5, ast: 5, stl: 1, blk: 0, to: 2 });
+  const mk = (games) => ({ kind: 'player', league: 'nba', pos: 'G', perf: { ema: 20, gn: 8, last: games.map((pts) => ({ gs: pts, line: L(pts) })) } });
+  const one = (pts) => E.gameRating(st, mk([]), { line: L(pts) });
+  const f = E.formRating(st, mk([45, 15, 15, 15, 15]));
+  assert.equal(f.rating, Math.round(((one(45) * 5 + one(15) * 10) / 15) * 10) / 10);
+  assert.ok(E.formRating(st, mk([15, 15, 15, 15, 45])).rating < f.rating, 'a recent big game counts for more than an old one');
+  assert.ok(one(45) > one(25) && one(25) > one(8));
+  assert.ok(E.gameRating(st, mk([]), { gs: 30 }) != null, 'old saved games without a stat line still get a rating');
   assert.equal(E.formRating(st, { kind: 'team' }), null);
 });
 

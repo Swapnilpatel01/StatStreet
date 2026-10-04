@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 71;
+const APP_VERSION = 72;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1828,15 +1828,15 @@ function updateDetailHeader() {
 function playerStats(a) {
   const pctile = Math.round(100 * normCdf(formZ(a)));
   const fr = formRating(state, a);
-  const rate = (g) => gameRating(state, a, g.gs);
+  const rate = (g) => gameRating(state, a, g) ?? 0;
   const tone = formTone;
   const last = a.perf.last.slice(0, 5);
   const avg = fr?.rating ?? null;
-  const word = avg == null ? '' : avg >= 10 ? 'On fire' : avg >= 7.5 ? 'Hot' : avg >= 4 ? 'Steady' : avg >= 2 ? 'Cold' : 'Ice cold';
+  const word = avg == null ? '' : avg >= 8 ? 'On fire' : avg >= 5 ? 'Hot' : avg >= 2 ? 'Steady' : avg >= 0.8 ? 'Cold' : 'Ice cold';
   const trend = fr?.trend || 0;
   return `<h3>Performance</h3>
     <div class="grid3">
-      <div class="stat"><div class="k">Avg rating${last.length ? ` · last ${last.length}` : ''}</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${avg.toFixed(1)}</span><span class="small">${word}${trend > 1 ? ' ↗' : trend < -1 ? ' ↘' : ''}</span>` : '—'}</div></div>
+      <div class="stat"><div class="k">Avg rating${last.length ? ` · last ${last.length}` : ''}</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${avg.toFixed(1)}</span><span class="small">${word}${trend > 1.5 ? ' ↗' : trend < -1.5 ? ' ↘' : ''}</span>` : '—'}</div></div>
       <div class="stat"><div class="k">vs ${esc(groupName(a))}</div><div class="v">${a.perf.ema != null ? pctile + 'th' : '—'}</div></div>
       <div class="stat"><div class="k">Season avg</div><div class="v">${a.perf.season ? a.perf.season.gs.toFixed(1) : '—'}</div></div>
     </div>
@@ -3863,22 +3863,22 @@ function gameProps(g, league) {
       ${slipCard(true)}`
       : `<div class="card small muted" style="margin-top:12px">${g.status === 'pre' ? 'Player props for this game open two days before it starts.' : g.status === 'live' ? 'No live lines right now. They close for the final stretch of the game.' : 'This game is over.'}</div>`}`;
 }
-const formTone = (v) => (v >= 7.5 ? 'hi' : v >= 4 ? 'mid' : 'lo');
+const formTone = (v) => (v >= 5 ? 'hi' : v >= 2 ? 'mid' : 'lo');
 // A player's current form in a circle, against players at his position. Green is hot, orange middling, red cold.
 function formDot(a, size = '') {
   const v = formRating(state, a)?.rating;
   if (v == null) return '';
-  return `<span class="formdot ${size} ${formTone(v)}" aria-label="Form ${v.toFixed(1)} out of 15">${v.toFixed(1)}</span>`;
+  return `<span class="formdot ${size} ${formTone(v)}" aria-label="Average game rating ${v.toFixed(1)}">${v.toFixed(1)}</span>`;
 }
 // The best three players of the game so far, by game score.
 function topPerformers(g, league) {
   if (g.status === 'pre') return '';
   const box = playsCache.get(g.id)?.box?.players;
-  const rows = (box ? box.map((p) => ({ a: state.assets[`${league}:p:${p.id}`], gs: gameScore(league, p.line), text: lineText(league, p.line) }))
-    : gamePlayers(state, league, g.id).map((x) => ({ a: x.a, gs: x.gs ?? x.a.live?.ema ?? 0, text: x.text }))).filter((x) => x.a && x.text).sort((x, y) => y.gs - x.gs).slice(0, 3);
+  const rows = (box ? box.map((p) => ({ a: state.assets[`${league}:p:${p.id}`], gs: gameScore(league, p.line), text: lineText(league, p.line), line: p.line }))
+    : gamePlayers(state, league, g.id).map((x) => ({ a: x.a, gs: x.gs ?? x.a.live?.ema ?? 0, text: x.text, line: x.a.live?.e === g.id ? x.a.live.line : x.a.perf?.last?.find((y) => y.e === g.id)?.line }))).filter((x) => x.a && x.text).sort((x, y) => y.gs - x.gs).slice(0, 3);
   if (!rows.length) return '';
   const now = Date.now();
-  return `<h3>Top performers</h3><div class="hscroll tops">${rows.map(({ a, text, gs }, i) => `<button class="top" data-open="${a.id}"><span class="rk">${i + 1}</span><span class="tr">${rtgChip(gameRating(state, a, gs))}</span>${avatar(a)}<div class="name ellipsis">${esc(a.name)}</div><div class="tiny muted">${esc(text)}</div><div class="small ${cls(change(a, now))}">${money(a.price)} ${fmtPct(change(a, now))}</div></button>`).join('')}</div>`;
+  return `<h3>Top performers</h3><div class="hscroll tops">${rows.map(({ a, text, line }, i) => `<button class="top" data-open="${a.id}"><span class="rk">${i + 1}</span><span class="tr">${line ? rtgChip(gameRating(state, a, { line })) : ''}</span>${avatar(a)}<div class="name ellipsis">${esc(a.name)}</div><div class="tiny muted">${esc(text)}</div><div class="small ${cls(change(a, now))}">${money(a.price)} ${fmtPct(change(a, now))}</div></button>`).join('')}</div>`;
 }
 // 2: a proper stat grid for one team, starters first.
 const BOX_COLS = {
@@ -3897,7 +3897,7 @@ function boxTable(league, rows) {
     const xs = rows.filter((x) => has(x.p.line)).sort((x, y) => (y.st - x.st) || (gameScore(league, y.p.line) - gameScore(league, x.p.line)));
     if (!xs.length) return '';
     return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th></th><th>RTG</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
-      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, gameScore(league, p.line)))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="${cls(change(a, Date.now()))}">${money(a.price)}</td></tr>`).join('')}</table></div>`;
+      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="${cls(change(a, Date.now()))}">${money(a.price)}</td></tr>`).join('')}</table></div>`;
   }).join('');
 }
 function teamTab(g, league, t) {
