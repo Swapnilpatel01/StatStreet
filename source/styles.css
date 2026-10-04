@@ -1148,3 +1148,11 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .form5 > div { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .form5 .formdot { width: 40px; height: 40px; font-size: 14px; }
 .stat .formdot { width: 30px; height: 30px; font-size: 12px; }
+
+/* v68: form is 0-15 with a decimal */
+.formdot { width: 36px; height: 36px; font-size: 12px; letter-spacing: -.02em; }
+.formdot.sm { width: 30px; height: 30px; font-size: 10.5px; }
+.formdot.xs { width: 25px; height: 25px; font-size: 9px; }
+.driver .formdot.xs { width: 14px; height: 14px; }
+.form5 .formdot { width: 44px; height: 44px; font-size: 14px; }
+.stat .formdot { width: 34px; height: 34px; font-size: 12px; }
