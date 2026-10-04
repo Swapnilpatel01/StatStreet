@@ -55,9 +55,10 @@ export function gameScore(league, l) {
 
 // ---------- Performance rating for one game ----------
 // A rating for a single game from its stat line, on the scale the Real app uses: about 1 for a
-// quiet game, 4–6 for a good one, 9+ for a monster, a little below zero for an empty one.
-// Fitted to ratings Real showed for known stat lines (see test/rating.test.mjs). The NBA and
-// NFL-defender curves had no examples to fit and reuse the NFL shape.
+// quiet game, 4–6 for a good one, 8+ for a monster, a little below zero for an empty one.
+// Real builds its rating play by play (how close the game was, when the play came, how much
+// it mattered), which a box score can't see, so this is a fit to ratings Real showed for known
+// stat lines (test/rating.test.mjs), not their formula. Expect to be within about a point.
 //
 //   fantasy points (fp):
 //     NFL   pass yds/25 + 4·pass TD − 2·INT + (rush + rec yds)/10 + 6·TD + 1·catch − 2·fumble + 3·FG + XP
@@ -65,20 +66,24 @@ export function gameScore(league, l) {
 //     MLB hitter   H + 2·HR + R + RBI + BB − 0.25·outs
 //     MLB pitcher  2·IP + 2·K − 3·ER − 0.6·(H + BB)
 //   rating:
-//     NFL          0.0512 · fp^1.4            (9 fp → 1.1, 18 → 3.0, 23 → 4.2, 41 → 9.3)
-//     NBA          0.0308 · fp^1.4            (25 fp → 2.8, 40 → 5.4, 60 → 9.5)
-//     MLB hitter   0.55 · fp up to 7 fp, then 0.22 a point   (−1 → −0.6, 5 → 2.8, 11 → 4.7)
-//     MLB pitcher  0.8 + 0.235 · fp           (14 fp → 4.1, 33 → 8.6)
-const pow14 = (k, fp) => (fp > 0 ? k * fp ** 1.4 : fp * 0.1);
+//     NFL backs, receivers, kickers   0.068 · fp^1.3      (9 fp → 1.2, 18 → 3.0, 26 → 4.8, 42 → 8.8)
+//     NFL quarterbacks                0.185 · fp          (8 fp → 1.5, 18 → 3.3, 36 → 6.7)
+//     NFL defenders                   1.4·sack + 3.5·INT + 0.2·tackle + 0.5·pass defended + 5·TD
+//     NBA                             0.1 · fp − 0.9      (48 fp → 3.9, 56 → 4.7, 78 → 6.9)
+//     MLB hitter                      0.55 · fp up to 7 fp, then 0.22 a point   (−1 → −0.6, 5 → 2.8)
+//     MLB pitcher                     0.8 + 0.235 · fp    (14 fp → 4.1, 33 → 8.6)
 const mlbIp = (ip) => Math.floor(ip) + ((ip % 1) * 10) / 3; // 6.2 innings is 6⅔
 export function perfRating(league, l) {
   let r;
   if (league === 'nba') {
-    r = pow14(0.0308, l.pts + 1.2 * l.reb + 1.5 * l.ast + 3 * l.stl + 3 * l.blk - l.to);
+    const fp = l.pts + 1.2 * l.reb + 1.5 * l.ast + 3 * l.stl + 3 * l.blk - l.to;
+    r = Math.max(0.02 * fp, 0.1 * fp - 0.9);
   } else if (league === 'nfl') {
-    const off = l.passYds / 25 + 4 * l.passTD - 2 * l.int + (l.rushYds + l.recYds) / 10 + 6 * (l.rushTD + l.recTD) + l.rec - 2 * l.fumLost + 3 * l.fg + l.xp;
-    const def = l.tkl + 2 * l.sacks + 3 * l.defInt + l.pd + 6 * l.defTD;
-    r = Math.max(pow14(0.0512, off), def > 0 ? pow14(0.0512, 2 * def) : -9);
+    const fp = l.passYds / 25 + 4 * l.passTD - 2 * l.int + (l.rushYds + l.recYds) / 10 + 6 * (l.rushTD + l.recTD) + l.rec - 2 * l.fumLost + 3 * l.fg + l.xp;
+    const off = l.att >= 10 ? 0.185 * fp : fp > 0 ? 0.068 * fp ** 1.3 : 0.1 * fp;
+    const defended = l.tkl > 0 || l.sacks > 0 || l.defInt > 0 || l.pd > 0 || l.defTD > 0;
+    const def = 1.4 * l.sacks + 3.5 * l.defInt + 0.2 * l.tkl + 0.5 * l.pd + 5 * l.defTD;
+    r = defended ? Math.max(off, def) : off;
   } else {
     const batted = l.ab > 0 || l.bb > 0;
     const bfp = l.h + 2 * l.hr + l.r + l.rbi + l.bb - 0.25 * Math.max(0, l.ab - l.h);
