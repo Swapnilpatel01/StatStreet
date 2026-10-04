@@ -698,7 +698,8 @@ export function rewindTeamRecords(state, league, games) {
 export function applyLiveGame(state, league, game, { now = Date.now() } = {}) {
   const L = LEAGUES[league];
   const frac = clamp(game.period / (game.regPeriods || 4), 0.05, 1);
-  state.liveGames[game.id] = { league, name: game.name, detail: game.detail, teams: game.teams, t: now };
+  const done = clamp(((game.period || 1) - 0.5) / (game.regPeriods || 4), 0.05, 1); // how much of the game is played (for live prop lines)
+  state.liveGames[game.id] = { league, name: game.name, detail: game.detail, teams: game.teams, t: now, frac: done };
   for (const p of game.players || []) {
     const a = ensurePlayer(state, league, p);
     const gs = gameScore(league, p.line);
@@ -707,7 +708,7 @@ export function applyLiveGame(state, league, game, { now = Date.now() } = {}) {
     // An unknown player's live price starts from the same backup level his final will use.
     const base = a.perf.ema ?? newcomerLevel(state, league, grp, null);
     const alpha = groupAlpha(state, league, grp) * (game.preseason ? 1 / 3 : 1);
-    a.live = { e: game.id, ema: capStep(state, league, grp, base, base + alpha * frac * (projected - base), frac), text: lineText(league, p.line), t: now };
+    a.live = { e: game.id, ema: capStep(state, league, grp, base, base + alpha * frac * (projected - base), frac), text: lineText(league, p.line), line: p.line, t: now };
     setPrice(state, a, now);
   }
   const [t1, t2] = game.teams;

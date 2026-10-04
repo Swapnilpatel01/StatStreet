@@ -153,6 +153,26 @@ t('contests: cap enforced, bots draft legal lineups, real box scores score it, p
   if (c.place === 1) assert.ok(c.payout === c.fee * 3);
 });
 
+t('live props: line is what he has plus his average over the rest, moves, closes late', () => {
+  const st = build(1000);
+  const g = (period, pts) => ({ ...box('lg1', now, [row('10', pts)]), period, regPeriods: 4, detail: 'Q' + period, state: 'in' });
+  E.applyLiveGame(st, 'nba', g(2, 20), { now });
+  const leg = K.propBoard(st, now, ['nba']).find((p) => p.assetId === 'nba:p:10');
+  assert.ok(leg && leg.live && leg.cur === 20, JSON.stringify(leg));
+  assert.equal(leg.line, Math.floor(20 + st.assets['nba:p:10'].perf.avg.pts * (1 - 1.5 / 4)) + 0.5);
+  E.applyLiveGame(st, 'nba', g(3, 31), { now: now + 1000 });
+  assert.throws(() => K.placeBet(st, [{ ...leg, side: 'over' }], 10, now + 2000), /moved/);
+  const fresh = K.propBoard(st, now + 2000, ['nba']).find((p) => p.assetId === 'nba:p:10');
+  assert.ok(fresh.line > leg.line);
+  const bet = K.placeBet(st, [{ ...fresh, side: 'under' }], 10, now + 2000);
+  assert.ok(bet.legs[0].live);
+  E.applyLiveGame(st, 'nba', g(4, 33), { now: now + 3000 });
+  assert.ok(!K.propBoard(st, now + 3000, ['nba']).some((p) => p.live), 'closed in the last period');
+  assert.ok(!K.propBoard(st, now + 3000 + 10 * 60e3, ['nba']).length, 'stale scores: no lines');
+  E.applyFinalGame(st, 'nba', box('lg1', now, [row('10', 34)]), { now: now + 4000 });
+  assert.equal(bet.status, 'won');
+});
+
 t('props: lines from averages, over/under settles from the box score, parlays need level 4', () => {
   const st = build(1000);
   const star = st.assets['nba:p:10'];

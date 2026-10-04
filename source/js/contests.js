@@ -183,22 +183,57 @@ export function propLine(a) {
   return Math.floor(m) + 0.5; // half-point lines: no ties
 }
 
-// Today's and tomorrow's props: the most valuable players in upcoming games.
-export function propBoard(state, now = Date.now(), leagues = Object.keys(LEAGUES)) {
+// A line for a game in progress: what he has so far plus his average over what's left.
+export function liveLine(a, g) {
+  const st = propStat(a);
+  const base = propLine(a);
+  if (!st || base == null || !a.live?.line || a.live.e == null) return null;
+  if (st.short === 'K') return null; // a starter who has left the game would be a free "under"
+  const frac = g.frac ?? 1;
+  if (frac >= LIVE_CLOSE) return null;
+  const cur = st.of(a.live.line);
+  return { line: Math.floor(cur + st.of(a.perf.avg) * (1 - frac)) + 0.5, cur };
+}
+const LIVE_CLOSE = 0.8;      // live lines close for the final stretch
+export const PROP_WINDOW = 48 * HOUR;
+
+// Props for games in progress and games in the next two days: the most valuable players in each.
+export function propBoard(state, now = Date.now(), leagues = Object.keys(LEAGUES), { perGame = 6 } = {}) {
+  const byTeam = new Map();
+  for (const a of Object.values(state.assets)) {
+    if (a.kind !== 'player' || !leagues.includes(a.league) || (a.injury && a.injury.factor < 0.9)) continue;
+    const k = `${a.league}:${a.teamId}`;
+    if (!byTeam.has(k)) byTeam.set(k, []);
+    byTeam.get(k).push(a);
+  }
   const out = [];
+  const add = (lg, g, rows) => out.push(...rows.sort((x, y) => y.price - x.price).slice(0, perGame));
+  for (const [id, g] of Object.entries(state.liveGames || {})) {
+    if (!leagues.includes(g.league) || now - g.t > 5 * 60e3) continue; // stale scores: no live lines
+    const rows = [];
+    for (const t of g.teams) for (const a of byTeam.get(`${g.league}:${t.id}`) || []) {
+      if (a.live?.e !== id) continue;
+      const ll = liveLine(a, g);
+      if (!ll) continue;
+      const st = propStat(a);
+      rows.push({ key: `${id}:${a.id}`, gameId: id, game: g.name, league: g.league, date: g.t, live: true, cur: ll.cur, assetId: a.id, label: st.label, short: st.short, line: ll.line, price: a.price });
+    }
+    add(g.league, g, rows);
+  }
   for (const lg of leagues) {
     for (const g of state.schedule?.[lg] || []) {
-      if (g.date <= now || g.date > now + 36 * HOUR) continue;
-      const teams = new Set(g.teams.map((t) => t.id));
-      for (const a of Object.values(state.assets)) {
-        if (a.kind !== 'player' || a.league !== lg || !teams.has(a.teamId) || (a.injury && a.injury.factor < 0.9)) continue;
+      if (g.date <= now || g.date > now + PROP_WINDOW || state.liveGames?.[g.id]) continue;
+      const rows = [];
+      for (const t of g.teams) for (const a of byTeam.get(`${lg}:${t.id}`) || []) {
         const line = propLine(a);
         if (line == null) continue;
-        out.push({ key: `${g.id}:${a.id}`, gameId: g.id, game: g.name, league: lg, date: g.date, assetId: a.id, label: propStat(a).label, short: propStat(a).short, line, price: a.price });
+        const st = propStat(a);
+        rows.push({ key: `${g.id}:${a.id}`, gameId: g.id, game: g.name, league: lg, date: g.date, assetId: a.id, label: st.label, short: st.short, line, price: a.price });
       }
+      add(lg, g, rows);
     }
   }
-  return out.sort((x, y) => y.price - x.price).slice(0, 40);
+  return out;
 }
 
 export function placeBet(state, legs, stake, now = Date.now()) {
@@ -206,7 +241,19 @@ export function placeBet(state, legs, stake, now = Date.now()) {
   if (!legs.length) throw new Error('Add a pick to your slip');
   if (legs.length > MAX_LEGS(state)) throw new Error(MAX_LEGS(state) === 1 ? 'Parlays unlock at level 4' : 'Up to 3 picks per parlay');
   if (new Set(legs.map((l) => l.assetId)).size !== legs.length) throw new Error('One pick per player');
-  if (legs.some((l) => l.date <= now)) throw new Error('A game on your slip has started — remove it');
+  if (legs.some((l) => !l.live && l.date <= now)) throw new Error('A game on your slip has started — remove it');
+  // Live lines move with the game: a bet is only taken at the line showing right now.
+  if (legs.some((l) => l.live)) {
+    const board = propBoard(state, now, [...new Set(legs.map((l) => l.league))], { perGame: 99 });
+    let moved = false;
+    for (const l of legs) {
+      if (!l.live) continue;
+      const cur = board.find((p) => p.key === l.key && p.live);
+      if (!cur) throw new Error('A live line on your slip has closed — remove it');
+      if (cur.line !== l.line) { l.line = cur.line; l.cur = cur.cur; moved = true; }
+    }
+    if (moved) throw new Error('A live line moved — check your slip and place again');
+  }
   const min = minOrder(state);
   if (!(stake >= min)) throw new Error(`Minimum stake is $${min.toFixed(2)}`);
   if (stake > state.cash) throw new Error(`You have $${state.cash.toFixed(2)} cash`);
@@ -216,7 +263,7 @@ export function placeBet(state, legs, stake, now = Date.now()) {
   state.props ||= [];
   const bet = {
     id: `b${now.toString(36)}${Math.floor(Math.random() * 1e4)}`, t: now, stake, status: 'open',
-    legs: legs.map((l) => ({ gameId: l.gameId, assetId: l.assetId, side: l.side, line: l.line, label: l.label, short: l.short, date: l.date, result: null, actual: null })),
+    legs: legs.map((l) => ({ gameId: l.gameId, assetId: l.assetId, side: l.side, line: l.line, ...(l.live ? { live: true } : {}), label: l.label, short: l.short, date: l.date, result: null, actual: null })),
   };
   state.props.unshift(bet);
   addXP(state, 5, now);

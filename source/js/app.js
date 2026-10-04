@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 55;
+const APP_VERSION = 56;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -996,21 +996,29 @@ function renderDraft(keepList = false) {
 }
 
 // --- Props ---
+// One over/under line. Live lines also show what the player has so far.
+function propRow(p, sub) {
+  const a = state.assets[p.assetId]; const sel = ui.slip?.legs.find((l) => l.assetId === p.assetId);
+  return `<div class="prop-row">
+        <button class="grow row" data-open="${p.assetId}" style="gap:10px;text-align:left;min-width:0">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub ellipsis">${p.live ? `<b>Has ${p.cur}</b> · ` : ''}${esc(sub)}</div></div></button>
+        <button class="ou ${sel?.side === 'over' ? 'on' : ''}" data-prop="${p.key}|over"><small>Over</small>${p.line}</button>
+        <button class="ou ${sel?.side === 'under' ? 'on' : ''}" data-prop="${p.key}|under"><small>Under</small>${p.line}</button></div>`;
+}
 function gamesProps() {
   const now = Date.now();
   const board = propBoard(state, now, enabledLeagues());
   ui.slip ||= { legs: [], stake: '' };
   const slip = ui.slip;
-  slip.legs = slip.legs.filter((l) => l.date > now);
+  slip.legs = slip.legs.filter((l) => (l.live ? !!state.liveGames[l.gameId] : l.date > now));
   const max = MAX_LEGS(state);
   const bets = (state.props || []).slice(0, 25);
   const open = bets.filter((b) => b.status === 'open');
   const done = bets.filter((b) => b.status !== 'open').slice(0, 10);
   const byGame = {};
-  for (const p of board) (byGame[p.gameId] ||= { name: p.game, date: p.date, league: p.league, list: [] }).list.push(p);
+  for (const p of board) (byGame[p.gameId] ||= { name: p.game, date: p.date, league: p.league, live: !!p.live, list: [] }).list.push(p);
   const stake = Number(slip.stake) || 0;
   return `
-    <p class="small muted" style="margin:12px 0 10px">Over or under on tonight's real stat lines. A hit pays ${PROP_ODDS}× your stake${max > 1 ? `; parlays of up to ${max} picks multiply (2 picks ${(PROP_ODDS ** 2).toFixed(2)}×, 3 picks ${(PROP_ODDS ** 3).toFixed(2)}×)` : '; parlays unlock at level 4'}.</p>
+    <p class="small muted" style="margin:12px 0 10px">Over or under on real stat lines, for games in progress and the next two days. A hit pays ${PROP_ODDS}× your stake${max > 1 ? `; parlays of up to ${max} picks multiply (2 picks ${(PROP_ODDS ** 2).toFixed(2)}×, 3 picks ${(PROP_ODDS ** 3).toFixed(2)}×)` : '; parlays unlock at level 4'}.</p>
     ${slip.legs.length ? `<div class="card slip">
       <div class="row between"><b>Bet slip</b><span class="tiny muted">${slip.legs.length} pick${slip.legs.length > 1 ? 's' : ''} · ${(PROP_ODDS ** slip.legs.length).toFixed(2)}×</span></div>
       ${slip.legs.map((l, i) => `<div class="slip-leg"><div class="grow"><b>${esc(state.assets[l.assetId]?.name || '')}</b> <span class="muted">${l.side === 'over' ? 'Over' : 'Under'} ${l.line} ${esc(l.short)}</span></div><button class="x-btn" data-rmleg="${i}">✕</button></div>`).join('')}
@@ -1021,14 +1029,15 @@ function gamesProps() {
       <button class="btn buy" data-act="placebet">Place bet</button>
     </div>` : ''}
     ${open.length ? `<h2>Open bets</h2><div class="list">${open.map(betRow).join('')}</div>` : ''}
-    <h2>Tonight's props</h2>
-    ${Object.values(byGame).length ? Object.values(byGame).sort((x, y) => x.date - y.date).map((g) => `<div class="card props-game">
-      <div class="row between">${lgTag(g.league)}<span class="tiny muted">${esc(g.name)} · ${fmtDateTime(g.date)}</span></div>
-      ${g.list.map((p) => { const a = state.assets[p.assetId]; const sel = slip.legs.find((l) => l.assetId === p.assetId); return `<div class="prop-row">
-        <button class="grow row" data-open="${p.assetId}" style="gap:10px;text-align:left;min-width:0">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${esc(p.label)}</div></div></button>
-        <button class="ou ${sel?.side === 'over' ? 'on' : ''}" data-prop="${p.key}|over"><small>Over</small>${p.line}</button>
-        <button class="ou ${sel?.side === 'under' ? 'on' : ''}" data-prop="${p.key}|under"><small>Under</small>${p.line}</button></div>`; }).join('')}
-    </div>`).join('') : '<div class="card empty">No props right now — they open about a day before games.</div>'}
+    ${(() => {
+      const games = Object.values(byGame);
+      const card = (g) => `<div class="card props-game">
+      <div class="row between">${lgTag(g.league)}${g.live ? ' <span class="tag live">LIVE</span>' : ''}<span class="tiny muted" style="margin-left:auto">${esc(g.name)}${g.live ? '' : ` · ${fmtDateTime(g.date)}`}</span></div>
+      ${g.list.map((p) => propRow(p, p.label)).join('')}</div>`;
+      const live = games.filter((g) => g.live); const next = games.filter((g) => !g.live).sort((x, y) => x.date - y.date);
+      return `${live.length ? `<h2>Live props</h2><p class="tiny faint" style="margin:-4px 2px 8px">Lines move with the game and close for the final stretch.</p>${live.map(card).join('')}` : ''}
+        <h2>Next two days</h2>${next.length ? next.map(card).join('') : '<div class="card empty">No upcoming props right now. They open two days before each game.</div>'}`;
+    })()}
     ${done.length ? `<h2>Settled</h2><div class="list">${done.map(betRow).join('')}</div>` : ''}`;
 }
 
@@ -2289,7 +2298,7 @@ document.addEventListener('click', async (e) => {
   if (d.prop) {
     const cut = d.prop.lastIndexOf('|');
     const key = d.prop.slice(0, cut); const side = d.prop.slice(cut + 1);
-    const p = propBoard(state, Date.now(), enabledLeagues()).find((x) => x.key === key);
+    const p = propBoard(state, Date.now(), enabledLeagues(), { perGame: 14 }).find((x) => x.key === key);
     if (!p) { toast('That line is closed'); return; }
     const slip = (ui.slip ||= { legs: [], stake: '' });
     const i = slip.legs.findIndex((l) => l.assetId === p.assetId);
@@ -2540,7 +2549,7 @@ document.addEventListener('click', async (e) => {
         ui.slip = { legs: [], stake: '' };
         toast(`Bet placed: ${money(b.stake)} to win ${money(potentialPayout(b.stake, b.legs.length))}`);
         const y = view().scrollTop; renderGames(); view().scrollTop = y;
-      } catch (err) { slip.err = err.message; const e2 = $('#slerr'); if (e2) e2.textContent = err.message; }
+      } catch (err) { slip.err = err.message; const y = view().scrollTop; renderGames(); view().scrollTop = y; }
       break;
     }
     case 'packdone':
@@ -3710,19 +3719,16 @@ function lineups(league, json) {
 }
 function gameProps(g, league) {
   const now = Date.now();
-  const board = g.status === 'pre' ? propBoard(state, now, [league]).filter((p) => p.gameId === g.id) : [];
+  const board = g.status !== 'final' ? propBoard(state, now, [league], { perGame: 14 }).filter((p) => p.gameId === g.id) : [];
   const slip = (ui.slip ||= { legs: [], stake: '' });
   const mine = (state.props || []).filter((b) => b.legs.some((l) => l.gameId === g.id));
   const groups = new Map();
   for (const p of board) { if (!groups.has(p.label)) groups.set(p.label, []); groups.get(p.label).push(p); }
   return `${mine.length ? `<h3>Your bets on this game</h3><div class="list">${mine.map(betRow).join('')}</div>` : ''}
-    ${board.length ? `${[...groups.entries()].map(([label, list]) => `<h3>${esc(label)}</h3><div class="card props-game">${list.map((p) => { const a = state.assets[p.assetId]; const sel = slip.legs.find((l) => l.assetId === p.assetId); return `<div class="prop-row">
-        <button class="grow row" data-open="${p.assetId}" style="gap:10px;text-align:left;min-width:0">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${esc(a.teamAbbr || '')} · ${esc(a.pos || '')}</div></div></button>
-        <button class="ou ${sel?.side === 'over' ? 'on' : ''}" data-prop="${p.key}|over"><small>Over</small>${p.line}</button>
-        <button class="ou ${sel?.side === 'under' ? 'on' : ''}" data-prop="${p.key}|under"><small>Under</small>${p.line}</button></div>`; }).join('')}</div>`).join('')}
-      <p class="tiny faint" style="margin:8px 2px">A hit pays ${PROP_ODDS}x your stake. Lines come from each player's season average.</p>
+    ${board.length ? `${[...groups.entries()].map(([label, list]) => `<h3>${esc(label)}</h3><div class="card props-game">${list.map((p) => propRow(p, `${state.assets[p.assetId].teamAbbr || ''} · ${state.assets[p.assetId].pos || ''}`)).join('')}</div>`).join('')}
+      <p class="tiny faint" style="margin:8px 2px">A hit pays ${PROP_ODDS}x your stake. ${g.status === 'live' ? 'Live lines move with the game.' : "Lines come from each player's season average."}</p>
       ${slip.legs.length ? `<button class="btn buy" data-gtab="props" style="width:100%;margin-top:6px">Bet slip · ${slip.legs.length} pick${slip.legs.length > 1 ? 's' : ''} ›</button>` : ''}`
-      : `<div class="card small muted" style="margin-top:12px">${g.status === 'pre' ? 'Player props for this game open the day before it starts.' : 'Betting closed when the game started.'}</div>`}`;
+      : `<div class="card small muted" style="margin-top:12px">${g.status === 'pre' ? 'Player props for this game open two days before it starts.' : g.status === 'live' ? 'No live lines right now. They close for the final stretch of the game.' : 'This game is over.'}</div>`}`;
 }
 function teamTab(g, league, t) {
   const now = Date.now();

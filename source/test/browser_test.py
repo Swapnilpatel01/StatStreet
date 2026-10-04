@@ -504,6 +504,10 @@ with sync_playwright() as p:
         assert page.locator('#game .zone circle').count() == 4
         page.screenshot(path=f'{OUT}/62-atbat.png')
         page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
+    page.click('#tabbar [data-tab=games]'); page.wait_for_timeout(300); page.click('[data-gtab=props]'); page.wait_for_timeout(400)
+    pt = page.text_content('#view'); assert 'Next two days' in pt
+    print('props rows:', page.locator('#view .prop-row').count(), 'live section:', 'Live props' in pt)
+    page.screenshot(path=f'{OUT}/76-props.png', full_page=True)
     print('v43 features ok')
     print('v37 features ok')
     # Portfolio chart: holding on the graph shows the balance at that point
