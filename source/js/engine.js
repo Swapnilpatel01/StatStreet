@@ -314,17 +314,16 @@ export function setTeamPrior(state, league, t) {
 //
 //   z = (0.55·Q + 0.30·M + 0.15·C) · n / (n + 1)     fewer games count for less
 //
-// z becomes the rating on a curve that is straight through the middle and flattens at the top:
-//   z ≤ 1:  7.5 + 3·z                 (0 at z = −2.5, 4.5 at z = −1, 7.5 average, 10.5 at z = +1)
-//   z > 1:  10.5 + 4.5·(1 − e^−(z−1)/1.3) / k      (13.3 at +2, 14.6 at +3)
-// k scales the curve so that 15.0 lands exactly on the highest z the formula can produce:
-// every part at its cap at once (Q = +6, M = +3, C = +1 over five games), i.e. five identical,
-// historically great games. Nothing short of that reads 15.
+// z becomes the rating on a curve where 10 is hard and every point above it harder:
+//   z ≤ 2:  5 + 2.5·z          (0 at z = −2, 2.5 at −1, 5 for an average player, 7.5 at +1, 10 at +2)
+//   z > 2:  10 + 5·((z − 2) / (zTop − 2))^1.5     (10.9 at 2.5, 12.4 at 3, 13.6 at 3.3)
+// zTop is the highest z the formula can produce: every part at its cap at once (Q = +6, M = +3,
+// C = +1 over five games), i.e. five identical, historically great games. Only that reads 15.
 const Q_CAP = 6;
 const Z_TOP = (0.55 * Q_CAP + 0.30 * 3 + 0.15 * 1) * 5 / 6;
 export function ratingFromZ(z) {
-  if (!Number.isFinite(z)) return 7.5;
-  const r = z <= 1 ? 7.5 + 3 * z : 10.5 + 4.5 * Math.min(1, (1 - Math.exp(-(z - 1) / 1.3)) / (1 - Math.exp(-(Z_TOP - 1) / 1.3)));
+  if (!Number.isFinite(z)) return 5;
+  const r = z <= 2 ? 5 + 2.5 * z : 10 + 5 * Math.min(1, (z - 2) / (Z_TOP - 2)) ** 1.5;
   return Math.round(clamp(r, 0, 15) * 10) / 10;
 }
 const FORM_W = [5, 4, 3, 2, 1];
@@ -353,7 +352,7 @@ export function formRating(state, a) {
 export function gameRating(state, a, gs) {
   const grp = posGroup(a.league, a.pos);
   const st = state.stats[a.league]?.[grp];
-  if (!st?.sd) return 7.5;
+  if (!st?.sd) return 5;
   const d = a.perf?.gn ?? gameNoise(state, a.league, grp);
   return ratingFromZ((gs - st.mu) / Math.sqrt(st.sd * st.sd + d * d));
 }

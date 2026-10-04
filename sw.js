@@ -1,7 +1,7 @@
 // Service worker: caches the app shell so StatStreet opens instantly and works
 // offline (with the last prices it saw). Live data always goes to the network.
 
-const VERSION = 'statstreet-v69';
+const VERSION = 'statstreet-v70';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

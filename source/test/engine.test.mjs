@@ -311,18 +311,20 @@ t('chart gaps from time away are filled with market wiggle; real points and jump
   assert.equal(E.fillGaps(st, t0 + 22 * H), 0, 'filling twice changes nothing');
 });
 
-t('form rating: 0-15, average is 7.5, poor players fall below 5, 15 is a ceiling', () => {
-  assert.equal(E.ratingFromZ(0), 7.5); assert.equal(E.ratingFromZ(-1), 4.5); assert.equal(E.ratingFromZ(-2.5), 0); assert.equal(E.ratingFromZ(-9), 0);
-  assert.equal(E.ratingFromZ(1), 10.5); assert.ok(E.ratingFromZ(2) > 12.5 && E.ratingFromZ(2) < 13.6); assert.ok(E.ratingFromZ(3) < 14.8); assert.equal(E.ratingFromZ(50), 15);
+t('form rating: 0-15, average is 5, 10 is hard, 15 is a ceiling', () => {
+  assert.equal(E.ratingFromZ(0), 5); assert.equal(E.ratingFromZ(-1), 2.5); assert.equal(E.ratingFromZ(-2), 0); assert.equal(E.ratingFromZ(-9), 0);
+  assert.equal(E.ratingFromZ(1), 7.5); assert.equal(E.ratingFromZ(2), 10); assert.ok(E.ratingFromZ(2.5) < 11); assert.ok(E.ratingFromZ(3) < 12.6); assert.equal(E.ratingFromZ(50), 15);
   for (let z = -3; z < 6; z += 0.25) assert.ok(E.ratingFromZ(z + 0.25) >= E.ratingFromZ(z), 'never goes down as z rises');
   const st = E.newState(100); st.stats = { nba: { ALL: { mu: 20, sd: 6 } } };
   const mk = (games, season) => ({ kind: 'player', league: 'nba', pos: 'G', perf: { ema: season, gn: 7, season: { gs: season, gp: 30 }, last: games.map((gs) => ({ gs })) } });
   const avg = E.formRating(st, mk([20, 20, 20, 20, 20], 20));
-  assert.ok(avg.rating >= 7.5 && avg.rating <= 8.2, `steady average player: ${avg.rating}`);
+  assert.ok(avg.rating >= 5 && avg.rating <= 5.6, `steady average player: ${avg.rating}`);
   const poor = E.formRating(st, mk([9, 12, 8, 11, 10], 13));
-  assert.ok(poor.rating < 5, `poor player in poor form: ${poor.rating}`);
+  assert.ok(poor.rating < 3.5, `poor player in poor form: ${poor.rating}`);
   const hot = E.formRating(st, mk([38, 36, 40, 35, 37], 30));
-  assert.ok(hot.rating > 11.5 && hot.rating < 15, `star on a tear: ${hot.rating}`);
+  assert.ok(hot.rating > 9 && hot.rating < 12.5, `a star on a tear gets past 10, not far: ${hot.rating}`);
+  const star = E.formRating(st, mk([33, 31, 35, 30, 32], 32));
+  assert.ok(star.rating > 7.5 && star.rating < 10, `a star in his usual form stays under 10: ${star.rating}`);
   const slump = E.formRating(st, mk([18, 20, 17, 19, 18], 30));
   assert.ok(slump.rating < avg.rating && slump.M < -1, 'a star playing like an average player rates below an average player in form');
   assert.ok(E.formRating(st, mk([40], 20)).rating < E.formRating(st, mk([40, 40, 40, 40, 40], 20)).rating, 'one big game counts for less than five');
