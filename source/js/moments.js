@@ -237,6 +237,7 @@ function shortPlay0(league, text, p) {
     const gain = Number.isFinite(Number(p.statYardage)) && p.statYardage !== null && p.statYardage !== undefined ? Number(p.statYardage) : (() => { const m = t.match(/for (-?\d+) yards?/i); return m ? Number(m[1]) : /for no gain/i.test(t) ? 0 : null; })();
     const y = gain == null ? '' : `${gain}-yd `;
     const td = /touchdown/i.test(type) || /\bTOUCHDOWN\b/.test(t);
+    if (td && /extra point|two-point|two point|2-pt|\bPAT\b/i.test(t) && /\bTOUCHDOWN\b/.test(t)) return shortPlay0(league, t.slice(0, t.search(/\bTOUCHDOWN\b/) + 9), p);
     const fg = yds(/(\d+) yard field goal/i);
     if (/field goal/i.test(type + t)) return fg != null ? (/no good|missed|blocked/i.test(type + t) ? `Missed ${fg}-yd FG` : `${fg}-yd FG`) : 'Field goal';
     if (/extra point|PAT\b/i.test(type + t)) return /no good|missed|blocked|failed/i.test(type + t) ? 'Missed extra point' : 'Extra point';
@@ -370,10 +371,27 @@ export function parsePlays(league, json, limit = 60) {
     const sit = situation(league, p);
     const who = (p.participants || []).find((x) => /batter|scorer|shooter|passer|rusher|receiver/i.test(x.type || '')) || (p.participants || [])[0];
     const dd = league === 'nfl' ? String(p.start?.shortDownDistanceText || p.start?.downDistanceText || '').replace(/\s+at\s+.*$/i, '') : '';
-    out.push({ id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), head: shortPlay(league, text, p), big: bigPlay(league, text, p, ctx), sit: dd ? `${sit.text} · ${dd}` : sit.text,
-      pids: [...new Set((p.participants || []).map((x) => (x.athlete?.id != null ? String(x.athlete.id) : null)).filter(Boolean))].slice(0, 3),
-      away: num(p.awayScore), home: num(p.homeScore), scoring: !!p.scoringPlay, value: num(p.scoreValue) || 0,
-      pid: who?.athlete?.id != null ? String(who.athlete.id) : null, team: p._team || p.team?.abbreviation || null, t: Date.parse(p.wallclock || p.modified || '') || null });
+    const pids = [...new Set((p.participants || []).map((x) => (x.athlete?.id != null ? String(x.athlete.id) : null)).filter(Boolean))].slice(0, 3);
+    const base = { sit: dd ? `${sit.text} · ${dd}` : sit.text, team: p._team || p.team?.abbreviation || null, t: Date.parse(p.wallclock || p.modified || '') || null };
+    const pid = who?.athlete?.id != null ? String(who.athlete.id) : null;
+    // Football reports a touchdown and the try after it as one play. They are two plays:
+    // the touchdown (6) by the scorer, then the kick or two-point try by whoever attempted it.
+    const tdAt = league === 'nfl' && !/NULLIFIED|REVERSED/i.test(text) ? text.search(/\bTOUCHDOWN\b/) : -1;
+    const after = tdAt >= 0 ? text.slice(tdAt + 9).replace(/^[\s.,]+/, '') : '';
+    if (after && /extra point|two-point|two point|2-pt|conversion|\bPAT\b/i.test(after)) {
+      const tdText = text.slice(0, tdAt + 9); const tryText = after.replace(/\.$/, '');
+      const tryHead = shortPlay(league, tryText, {});
+      const tryPts = /^(Missed|Failed)/.test(tryHead) ? 0 : /2-pt/.test(tryHead) ? 2 : 1;
+      const awayScored = ctx.a1 > ctx.a0;
+      const mid = { a0: ctx.a0, h0: ctx.h0, a1: ctx.a1 - (awayScored ? tryPts : 0), h1: ctx.h1 - (awayScored ? 0 : tryPts) };
+      out.push({ ...base, id: String(p.id || `${i}`), text: tdText, head: shortPlay(league, tdText, p), big: bigPlay(league, tdText, p, { ...ctx, ...mid }),
+        pids, pid, away: a1 != null ? mid.a1 : null, home: h1 != null ? mid.h1 : null, scoring: true, value: 6 });
+      out.push({ ...base, id: `${p.id || i}x`, text: tryText, head: tryHead, big: bigPlay(league, tryText, {}, { ...ctx, a0: mid.a1, h0: mid.h1 }),
+        pids: [], pid: null, away: num(p.awayScore), home: num(p.homeScore), scoring: tryPts > 0, value: tryPts, sit: sit.text });
+      continue;
+    }
+    out.push({ ...base, id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), head: shortPlay(league, text, p), big: bigPlay(league, text, p, ctx),
+      pids, pid, away: num(p.awayScore), home: num(p.homeScore), scoring: !!p.scoringPlay, value: num(p.scoreValue) || 0 });
   }
   return out.slice(-limit).reverse();
 }

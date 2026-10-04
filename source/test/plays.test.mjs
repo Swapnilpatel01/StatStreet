@@ -50,4 +50,23 @@ big('mlb', 'Devers hit a grand slam to right.', 'Grand slam');
 big('mlb', 'Diaz singled to left, Arozarena scored.', 'Walk-off single', {}, { a0: 3, h0: 3, a1: 3, h1: 4, period: 9, bottom: true });
 big('mlb', 'Soto homered to right (390 feet).', 'Go-ahead home run', {}, { a0: 2, h0: 2, a1: 3, h1: 2, period: 8, bottom: false });
 big('mlb', 'Volpe grounded out to shortstop.', null);
+// a touchdown and the kick after it arrive as one play and come out as two
+import { parsePlays } from '../js/moments.js';
+{
+  const td = 'J.Taylor up the middle for 2 yards, TOUCHDOWN. S.Shrader extra point is GOOD, Center-L.Rhodes, Holder-R.Sanchez.';
+  eq('nfl', td, '2-yd TD run');
+  const json = { drives: { previous: [{ team: { abbreviation: 'IND' }, plays: [
+    { id: '1', text: 'J.Taylor left tackle for 4 yards.', awayScore: 0, homeScore: 6, period: { number: 2 }, clock: { displayValue: '9:10' }, start: { down: 1, distance: 10 } },
+    { id: '2', text: td, awayScore: 7, homeScore: 6, scoringPlay: true, scoreValue: 7, type: { text: 'Rushing Touchdown' }, period: { number: 2 }, clock: { displayValue: '8:02' }, start: { down: 2, distance: 2 },
+      participants: [{ athlete: { id: '77' }, type: 'rusher' }] },
+    { id: '3', text: 'D.Jones pass to J.Downs for 5 yards, TOUCHDOWN. D.Jones pass to M.Pittman is incomplete. TWO-POINT CONVERSION ATTEMPT FAILS.', awayScore: 13, homeScore: 6, scoringPlay: true, period: { number: 3 }, clock: { displayValue: '4:00' } },
+  ] }] } };
+  const plays = parsePlays('nfl', json).reverse(); // oldest first
+  assert.deepEqual(plays.map((x) => x.head), ['4-yd run', '2-yd TD run', 'Extra point', '5-yd TD catch', 'Failed 2-pt try']);
+  const [, tdPlay, pat, td2, try2] = plays;
+  assert.deepEqual([tdPlay.away, tdPlay.home, tdPlay.value, tdPlay.pid], [6, 6, 6, '77'], 'the touchdown shows 6-6 and belongs to the runner');
+  assert.deepEqual([pat.away, pat.home, pat.value, pat.pid], [7, 6, 1, null], 'the kick is its own play, not the runner\'s');
+  assert.ok(pat.text.startsWith('S.Shrader extra point') && tdPlay.text.endsWith('TOUCHDOWN'));
+  assert.deepEqual([td2.away, td2.value, try2.value, try2.scoring], [13, 6, 0, false]);
+}
 console.log('ok - play headlines');
