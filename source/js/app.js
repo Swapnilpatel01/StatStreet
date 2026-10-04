@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 76;
+const APP_VERSION = 77;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1826,27 +1826,16 @@ function updateDetailHeader() {
 }
 
 function playerStats(a) {
-  const pctile = Math.round(100 * normCdf(formZ(a)));
-  const fr = formRating(state, a, ratingSpan());
   const totals = Object.keys(SPAN_LABEL).map((k) => [k, formRating(state, a, k)]);
   const rate = (g) => gameRating(state, a, g) ?? 0;
   const tone = formTone;
   const last = a.perf.last.slice(0, 5);
-  const avg = fr?.avg ?? null;
-  const word = avg == null ? '' : avg >= 8 ? 'On fire' : avg >= 5 ? 'Hot' : avg >= 2 ? 'Steady' : avg >= 0.8 ? 'Cold' : 'Ice cold';
-  const trend = fr?.trend || 0;
   return `<h3>Performance</h3>
-    <div class="grid3">
-      <div class="stat"><div class="k">Rating · ${SPAN_LABEL[ratingSpan()].toLowerCase()}</div><div class="v row" style="gap:8px">${fr ? `<span class="formdot ${tone(avg)}">${fr.rating.toFixed(1)}</span><span class="small">${word}${trend > 1.5 ? ' ↗' : trend < -1.5 ? ' ↘' : ''}</span>` : '<span class="small muted">No games</span>'}</div></div>
-      <div class="stat"><div class="k">vs ${esc(groupName(a))}</div><div class="v">${a.perf.ema != null ? pctile + 'th' : '—'}</div></div>
-      <div class="stat"><div class="k">Season avg</div><div class="v">${a.perf.season ? a.perf.season.gs.toFixed(1) : '—'}</div></div>
-    </div>
-    <div class="card rspan" style="margin-top:10px"><div class="row between"><b>Rating by period</b><span class="tiny muted">tap one to show it everywhere</span></div>
-      <div class="seg3">${totals.map(([k, f]) => `<button class="${ratingSpan() === k ? 'on' : ''}" data-rspan="${k}"><span>${SPAN_LABEL[k]}</span><b>${f ? f.rating.toFixed(1) : '—'}</b><em>${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</em></button>`).join('')}</div></div>
+    <div class="grid3">${totals.map(([k, f]) => `<div class="stat rstat"><div class="k">${SPAN_LABEL[k]}</div><div class="v">${f ? `<span class="formdot ${tone(f.rating)}">${f.rating.toFixed(1)}</span>` : '—'}</div><div class="tiny faint">${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</div></div>`).join('')}</div>
     ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">game ratings · oldest → latest</span></div>
       <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g).toFixed(1)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div>
-      <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${last.map((g) => `<div class="driver"><span class="formdot xs ${tone(rate(g))}" style="margin-right:2px"></span><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div><div class="pct">${g.gs.toFixed(1)}</div></div>`).join('')}</div>
-    </div>` : '<div class="card small muted" style="margin-top:10px">Priced from season averages. Game-by-game form appears after their next game.</div>'}`;
+      <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${last.map((g) => `<div class="driver"><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div>${rtgChip(rate(g))}</div>`).join('')}</div>
+    </div>` : '<div class="card small muted" style="margin-top:10px">Game ratings appear here after his next game.</div>'}`;
 }
 
 function teamStats(a) {
@@ -2336,7 +2325,6 @@ document.addEventListener('click', async (e) => {
   if (d.page) { if (ui.article) closeArticle(); openPage(d.page); return; }
   if (d.cmp != null && ui.page?.type === 'compare') { ui.page.b = d.cmp || null; ui.page.q = ''; renderPage(); $('#page').scrollTop = 0; if (!d.cmp) setTimeout(() => $('#pageq')?.focus(), 50); return; }
   if (d.cmprange && ui.page) { ui.page.range = d.cmprange; renderPage(); return; }
-  if (d.rspan) { state.settings.ratingSpan = d.rspan; dirty = true; save(); buzz(); softRefresh(); return; }
   if (d.gview) { setGview(d.gview); return; }
   if (d.dtab) { ui.dtab = d.dtab; const inner = $('#dinner'); if (inner) { inner.dataset.dtab = d.dtab; inner.querySelectorAll('.dtabs button').forEach((b) => b.classList.toggle('on', b.dataset.dtab === d.dtab)); } return; }
   if (d.wfolder != null && ui.detail) { (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: d.wfolder }; dirty = true; save(); renderDetail(); return; }
@@ -3870,11 +3858,10 @@ function gameProps(g, league) {
 const formTone = (v) => (v >= 5 ? 'hi' : v >= 2 ? 'mid' : 'lo');
 // A player's current form in a circle, against players at his position. Green is hot, orange middling, red cold.
 const SPAN_LABEL = { '7d': '7 days', '30d': '30 days', season: 'Season' };
-const ratingSpan = () => (SPAN_LABEL[state.settings.ratingSpan] ? state.settings.ratingSpan : '7d');
 function formDot(a, size = '') {
-  const f = formRating(state, a, ratingSpan());
+  // His average game rating over the last 7 days; failing that the last 30, then the season.
+  const f = formRating(state, a, '7d') || formRating(state, a, '30d') || formRating(state, a, 'season');
   if (!f) return '';
-  // His average game rating over the chosen period, 0–15.
   return `<span class="formdot ${size} ${formTone(f.avg)}" aria-label="Average rating ${f.rating.toFixed(1)} over ${f.n} game${f.n > 1 ? 's' : ''}">${f.rating.toFixed(1)}</span>`;
 }
 // The best three players of the game so far, by game score.

@@ -1182,3 +1182,7 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .seg3 span { font-size: 11.5px; color: var(--muted); font-weight: 600; }
 .seg3 b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .seg3 em { font-style: normal; font-size: 10.5px; color: var(--faint); }
+
+/* v77 */
+.rstat { text-align: center; } .rstat .v { display: flex; justify-content: center; margin: 4px 0 2px; }
+.rstat .formdot { width: 44px; height: 44px; font-size: 14px; }
