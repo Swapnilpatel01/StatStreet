@@ -282,6 +282,72 @@ function shortPlay0(league, text, p) {
   for (const [re, label] of rules) if (re.test(t)) return label;
   return type || cap(t.slice(0, 40));
 }
+// Big plays get a headline of their own. ctx: scores before and after the play (away, home),
+// the period, seconds left in it, and for baseball whether it is the bottom of the inning.
+// Returns null for an ordinary play.
+export function bigPlay(league, text, p = {}, ctx = {}) {
+  const t = String(text || ''); const base = shortPlay(league, text, p);
+  const { a0, h0, a1, h1 } = ctx;
+  const known = [a0, h0, a1, h1].every((x) => Number.isFinite(x));
+  const scored = known && (a1 !== a0 || h1 !== h0);
+  const before = known ? Math.sign(a0 - h0) : 0; const after = known ? Math.sign(a1 - h1) : 0;
+  const scorer = known ? (a1 > a0 ? 1 : h1 > h0 ? -1 : 0) : 0; // +1 away scored, −1 home scored
+  const goAhead = scored && after === scorer && before !== scorer; // took the lead
+  const tying = scored && after === 0 && before !== 0;
+  const late = ctx.period >= (league === 'mlb' ? 8 : 4) && (league === 'mlb' || (ctx.secs ?? 9999) <= 120);
+  const num = (re) => { const x = base.match(re); return x ? Number(x[1]) : null; };
+  if (league === 'nfl') {
+    const y = num(/^(\d+)-yd/); const td = /TD/.test(base);
+    if (/safety/i.test(t) && /SAFETY/.test(t)) return 'Safety';
+    if (/blocked/i.test(t) && /punt|field goal/i.test(t)) return /field goal/i.test(t) ? 'Blocked field goal' : 'Blocked punt';
+    if (base === 'Pick six') return 'Pick six';
+    if (td && /kickoff|punt/i.test(base + t) && /return|kicks|punts/i.test(t)) return 'Return to the house';
+    if (td && y >= 50) return `${y}-yd house call`;
+    if (td && late && (goAhead || tying)) return `${goAhead ? 'Go-ahead' : 'Game-tying'} ${base.replace(/^(\d+-yd )?TD /, (m0, a) => `${a || ''}TD `)}`;
+    if (/FG$/.test(base) && !/^Missed/.test(base)) {
+      const n = num(/^(\d+)-yd/);
+      if (late && goAhead) return `Go-ahead ${n}-yd FG`;
+      if (late && tying) return `Game-tying ${n}-yd FG`;
+      if (n >= 50) return `${n}-yd bomb of a kick`;
+      return null;
+    }
+    if (/^Missed/.test(base) && late && known && Math.abs(a0 - h0) <= 3) return `${base}, no good late`;
+    if (/catch$/.test(base) && !td && y >= 40) return `${y}-yd bomb`;
+    if (/run$/.test(base) && !td && y >= 30) return `${y}-yd breakaway`;
+    if (/sack$/.test(base) && Number(p.start?.down) >= 3) return `${base} on ${p.start.down === 4 ? '4th' : '3rd'} down`;
+    if (Number(p.start?.down) === 4 && /(catch|run)$/.test(base) && y != null && Number(p.start?.distance) > 0 && y >= Number(p.start.distance)) return `4th-down conversion, ${base}`;
+    if (base === 'Interception' || base === 'Fumble') return base === 'Fumble' && !/RECOVERED|recovered by/.test(t) ? null : `Turnover: ${base.toLowerCase()}`;
+    return null;
+  }
+  if (league === 'nba') {
+    if (!/\bmakes\b/i.test(t)) return null;
+    const ft = num(/^(\d+)-ft/); const three = /three$/.test(base);
+    const kind = base.replace(/^\d+-ft /, '').toLowerCase();
+    if (ctx.secs === 0 && ctx.period >= 4 && (goAhead || tying)) return goAhead ? 'Buzzer-beater for the win' : 'Buzzer-beater to tie it';
+    if (late && goAhead) return `Go-ahead ${kind}`;
+    if (late && tying) return `Game-tying ${kind}`;
+    if (ctx.secs === 0 && three) return `Buzzer-beating ${kind}`;
+    if (three && ft >= 35) return `Logo three from ${ft} ft`;
+    if (three && ft >= 30) return `${ft}-ft bomb`;
+    if (/alley oop/.test(kind)) return 'Alley-oop slam';
+    return null;
+  }
+  const walkoff = league === 'mlb' && ctx.bottom && ctx.period >= 9 && scored && scorer === -1 && after === -1 && before !== -1;
+  if (/triple play/i.test(t)) return 'Triple play';
+  if (base === 'Grand slam') return walkoff ? 'Walk-off grand slam' : 'Grand slam';
+  if (walkoff) return `Walk-off ${base.replace(/^\d+-ft /, '').toLowerCase()}`;
+  if (/home run$/.test(base)) {
+    const ft = num(/^(\d+)-ft/);
+    if (late && goAhead) return 'Go-ahead home run';
+    if (late && tying) return 'Game-tying home run';
+    if (ft >= 440) return `${ft}-ft moonshot`;
+    return null;
+  }
+  if (late && goAhead && scored) return `Go-ahead ${base.toLowerCase()}`;
+  if (late && tying && scored) return `Game-tying ${base.toLowerCase()}`;
+  return null;
+}
+const playSecs = (p) => { const c = String(p.clock?.displayValue || ''); const x = c.match(/^(\d+):(\d{2})/); return x ? Number(x[1]) * 60 + Number(x[2]) : /^\d+(\.\d+)?$/.test(c) ? Math.floor(Number(c)) : null; };
 export function parsePlays(league, json, limit = 60) {
   let raw = [];
   if (league === 'nfl') {
@@ -291,8 +357,12 @@ export function parsePlays(league, json, limit = 60) {
     if (!raw.length) raw = json?.scoringPlays || [];
   } else raw = json?.plays || [];
   const out = [];
+  let a0 = 0; let h0 = 0; // the score before each play
   for (let i = 0; i < raw.length; i++) {
     const p = raw[i];
+    const a1 = num(p.awayScore); const h1 = num(p.homeScore);
+    const ctx = { a0, h0, a1: a1 ?? a0, h1: h1 ?? h0, period: Number(p.period?.number) || 0, secs: playSecs(p), bottom: /bot/i.test(`${p.period?.type || ''} ${p.period?.displayValue || ''}`) };
+    if (a1 != null) a0 = a1; if (h1 != null) h0 = h1;
     const text = clean(p.text || p.shortText || p.alternativeText);
     if (!text || NOISE_PLAY.test(text)) continue;
     // Baseball lists every pitch; keep the result of each at-bat and anything that scores.
@@ -300,7 +370,7 @@ export function parsePlays(league, json, limit = 60) {
     const sit = situation(league, p);
     const who = (p.participants || []).find((x) => /batter|scorer|shooter|passer|rusher|receiver/i.test(x.type || '')) || (p.participants || [])[0];
     const dd = league === 'nfl' ? String(p.start?.shortDownDistanceText || p.start?.downDistanceText || '').replace(/\s+at\s+.*$/i, '') : '';
-    out.push({ id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), head: shortPlay(league, text, p), sit: dd ? `${sit.text} · ${dd}` : sit.text,
+    out.push({ id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), head: shortPlay(league, text, p), big: bigPlay(league, text, p, ctx), sit: dd ? `${sit.text} · ${dd}` : sit.text,
       pids: [...new Set((p.participants || []).map((x) => (x.athlete?.id != null ? String(x.athlete.id) : null)).filter(Boolean))].slice(0, 3),
       away: num(p.awayScore), home: num(p.homeScore), scoring: !!p.scoringPlay, value: num(p.scoreValue) || 0,
       pid: who?.athlete?.id != null ? String(who.athlete.id) : null, team: p._team || p.team?.abbreviation || null, t: Date.parse(p.wallclock || p.modified || '') || null });

@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 83;
+const APP_VERSION = 84;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3755,10 +3755,10 @@ function playsSection(g, league) {
     <h3>Play by play ${g.status === 'live' ? '<span class="tag live" style="margin-left:6px">LIVE</span>' : ''}</h3>
     <div class="list pbp">${show.map((p) => {
       const who = involved(p); const a = who[0];
-      return `<${a ? `button data-open="${a.id}"` : 'div'} class="pb ${p.scoring ? 'sc' : ''}">
+      return `<${a ? `button data-open="${a.id}"` : 'div'} class="pb ${p.scoring ? 'sc' : ''} ${p.big ? 'big' : ''}">
         ${a ? avatar(a) : `<div class="avatar-fallback pb-dot">${p.scoring ? '★' : esc(p.team || '•')}</div>`}
         <div class="grow" style="min-width:0"><div class="pb-sit ellipsis">${p.away != null && p.home != null ? `<b>${esc(away.abbr)} ${p.away}-${p.home} ${esc(home.abbr)}</b> · ` : ''}${esc(p.sit)}${p.t ? ` · ${timeAgo(p.t)}` : ''}</div>
-          <div class="pb-text">${esc(p.head || p.text)}</div>
+          <div class="pb-text">${p.big ? '<span class="bigtag">BIG PLAY</span>' : ''}${esc(p.big || p.head || p.text)}</div>
           ${a ? `<div class="pb-who"><span>${esc(shortName(a))}</span>${state.holdings[a.id] ? ' <span class="tag own">Owned</span>' : ''}</div>` : ''}
           ${who[1] ? `<div class="pb-who2">${esc(shortName(who[1]))}</div>` : ''}</div>
         ${p.scoring ? `<div class="pb-pts">+${p.value || ''}</div>` : ''}</${a ? 'button' : 'div'}>`; }).join('')}</div>
