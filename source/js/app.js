@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 80;
+const APP_VERSION = 81;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1755,7 +1755,12 @@ function drawDetailChart() {
   const animate = !!ui.chartAnim; ui.chartAnim = false;
   // Game days along the bottom of the chart (skipped on the 1-day view).
   // Every game in view gets a dot on the line (on the 1-day view too: today's game).
-  const marks = (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: e.pct, text: e.text }));
+  // The move shown for a game is what the price did across the whole game (from before the
+  // start to just after the final), not only the last step when the result was booked: a game
+  // followed live has already moved the price by the time it ends.
+  const gh = ((LEAGUES[a.league]?.gameHours || 3) + 0.75) * HOUR;
+  const gameMove = (e) => { const p0 = priceAt(a, e.t - gh); const p1 = priceAt(a, Math.min(now, e.t + 10 * 60e3)); const m = p0 > 0 && p1 > 0 ? p1 / p0 - 1 : 0; return Math.abs(m) >= 0.0005 ? m : e.pct || 0; };
+  const marks = (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: gameMove(e), text: e.text }));
   lineChart(el, a.hist.concat([now, a.price]), now - RANGES[ui.range], {
     animate, marks,
     onScrub: (pt) => {
