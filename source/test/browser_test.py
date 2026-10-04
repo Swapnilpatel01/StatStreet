@@ -83,7 +83,7 @@ with sync_playwright() as p:
         print('box rows:', page.locator('#game .gsec[data-gsec=home] .box tr[data-open]').count()); assert page.locator('#game .gsec[data-gsec=home] .box tr[data-open]').count() >= 1
         page.screenshot(path=f'{OUT}/79-box.png')
         page.click('#game [data-gview=summary]'); page.wait_for_timeout(200); assert page.locator('#game .tops .top').count() >= 1; page.screenshot(path=f'{OUT}/80-top.png')
-        assert not __import__('re').search(r'\d\.\d{4,}', page.text_content('#game')), 'no long decimals'
+        m_ = __import__('re').search(r'.{40}\d\.\d{4,}.{10}', page.inner_text('#game')); assert not m_, m_.group(0)
         page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     page.click('.daystrip .dayb >> nth=2'); page.wait_for_timeout(900); page.screenshot(path=f'{OUT}/72-scores-yday.png')
     sw = """(dx) => { const el = document.querySelector('#view .pkline'); const mk = (x) => new Touch({ identifier: 1, target: el, clientX: x, clientY: 300 });

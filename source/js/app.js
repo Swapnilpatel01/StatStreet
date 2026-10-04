@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 70;
+const APP_VERSION = 71;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1833,14 +1833,14 @@ function playerStats(a) {
   const last = a.perf.last.slice(0, 5);
   const avg = fr?.rating ?? null;
   const word = avg == null ? '' : avg >= 10 ? 'On fire' : avg >= 7.5 ? 'Hot' : avg >= 4 ? 'Steady' : avg >= 2 ? 'Cold' : 'Ice cold';
-  const trend = fr?.M || 0;
+  const trend = fr?.trend || 0;
   return `<h3>Performance</h3>
     <div class="grid3">
-      <div class="stat"><div class="k">Form rating</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${avg.toFixed(1)}</span><span class="small">${word}${trend > 0.8 ? ' ↗' : trend < -0.8 ? ' ↘' : ''}</span>` : '—'}</div></div>
+      <div class="stat"><div class="k">Avg rating${last.length ? ` · last ${last.length}` : ''}</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${avg.toFixed(1)}</span><span class="small">${word}${trend > 1 ? ' ↗' : trend < -1 ? ' ↘' : ''}</span>` : '—'}</div></div>
       <div class="stat"><div class="k">vs ${esc(groupName(a))}</div><div class="v">${a.perf.ema != null ? pctile + 'th' : '—'}</div></div>
       <div class="stat"><div class="k">Season avg</div><div class="v">${a.perf.season ? a.perf.season.gs.toFixed(1) : '—'}</div></div>
     </div>
-    ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">oldest → latest</span></div>
+    ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">game ratings · oldest → latest</span></div>
       <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g).toFixed(1)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div>
       <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${last.map((g) => `<div class="driver"><span class="formdot xs ${tone(rate(g))}" style="margin-right:2px"></span><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div><div class="pct">${g.gs.toFixed(1)}</div></div>`).join('')}</div>
     </div>` : '<div class="card small muted" style="margin-top:10px">Priced from season averages. Game-by-game form appears after their next game.</div>'}`;
@@ -3878,7 +3878,7 @@ function topPerformers(g, league) {
     : gamePlayers(state, league, g.id).map((x) => ({ a: x.a, gs: x.gs ?? x.a.live?.ema ?? 0, text: x.text }))).filter((x) => x.a && x.text).sort((x, y) => y.gs - x.gs).slice(0, 3);
   if (!rows.length) return '';
   const now = Date.now();
-  return `<h3>Top performers</h3><div class="hscroll tops">${rows.map(({ a, text }, i) => `<button class="top" data-open="${a.id}"><span class="rk">${i + 1}</span>${avatar(a)}<div class="name ellipsis">${esc(a.name)}</div><div class="tiny muted">${esc(text)}</div><div class="small ${cls(change(a, now))}">${money(a.price)} ${fmtPct(change(a, now))}</div></button>`).join('')}</div>`;
+  return `<h3>Top performers</h3><div class="hscroll tops">${rows.map(({ a, text, gs }, i) => `<button class="top" data-open="${a.id}"><span class="rk">${i + 1}</span><span class="tr">${rtgChip(gameRating(state, a, gs))}</span>${avatar(a)}<div class="name ellipsis">${esc(a.name)}</div><div class="tiny muted">${esc(text)}</div><div class="small ${cls(change(a, now))}">${money(a.price)} ${fmtPct(change(a, now))}</div></button>`).join('')}</div>`;
 }
 // 2: a proper stat grid for one team, starters first.
 const BOX_COLS = {
@@ -3890,13 +3890,14 @@ const BOX_COLS = {
   mlb: [['Batting', (l) => l.ab > 0 || l.bb > 0, [['AB', 'ab'], ['H', 'h'], ['R', 'r'], ['RBI', 'rbi'], ['HR', 'hr'], ['BB', 'bb'], ['K', 'k']]],
     ['Pitching', (l) => l.ip > 0, [['IP', 'ip'], ['H', 'ph'], ['ER', 'er'], ['BB', 'pbb'], ['K', 'pk']]]],
 };
+const rtgChip = (v) => `<span class="rtgc ${formTone(v)}">${v.toFixed(1)}</span>`;
 function boxTable(league, rows) {
   const val = (l, k) => { const v = typeof k === 'function' ? k(l) : l[k]; return typeof v === 'number' ? Math.round(v * 10) / 10 : (v ?? ''); };
   return (BOX_COLS[league] || []).map(([title, has, cols]) => {
-    const xs = rows.filter((x) => has(x.p.line)).sort((x, y) => (y.st - x.st) || (val(y.p.line, cols[1][1]) - val(x.p.line, cols[1][1])) || 0);
+    const xs = rows.filter((x) => has(x.p.line)).sort((x, y) => (y.st - x.st) || (gameScore(league, y.p.line) - gameScore(league, x.p.line)));
     if (!xs.length) return '';
-    return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th></th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
-      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="${cls(change(a, Date.now()))}">${money(a.price)}</td></tr>`).join('')}</table></div>`;
+    return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th></th><th>RTG</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
+      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, gameScore(league, p.line)))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="${cls(change(a, Date.now()))}">${money(a.price)}</td></tr>`).join('')}</table></div>`;
   }).join('');
 }
 function teamTab(g, league, t) {

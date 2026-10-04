@@ -303,24 +303,21 @@ export function setTeamPrior(state, league, t) {
   a.prior = { pct: (t.w + 0.5 * (t.t || 0)) / t.gp, dpg: t.diff / t.gp };
 }
 
-// ---------- form rating (0–15) ----------
-// One number for how a player is playing right now.
+// ---------- player ratings (0–15) ----------
+// Every game a player plays gets a rating, from that game's stat line alone:
 //
-//   recent   R = weighted average game score of his last 5 games (weights 5,4,3,2,1, newest first)
-//   quality  Q = (R − μ) / σ            how good that is for his position (μ, σ: position group; capped at ±6)
-//   momentum M = (R − S) / (d / √n)     how far above his own season average S he is running,
-//                                        in units of his own game-to-game spread d (capped at ±3)
-//   steadiness C = 1 − spread of the last 5 / d   (capped at −1.5…+1; needs 3+ games)
+//   z = (game score − μ) / √(σ² + d²)
 //
-//   z = (0.55·Q + 0.30·M + 0.15·C) · n / (n + 1)     fewer games count for less
+// μ and σ are the average and spread of players at his position, and d is how much a single
+// game swings for him, so the rating says how good that one game was by the standard of his
+// position. A player's form is then simply the average rating of his last five games
+// (weights 5,4,3,2,1, newest first).
 //
 // z becomes the rating on a curve where 10 is hard and every point above it harder:
 //   z ≤ 2:  5 + 2.5·z          (0 at z = −2, 2.5 at −1, 5 for an average player, 7.5 at +1, 10 at +2)
 //   z > 2:  10 + 5·((z − 2) / (zTop − 2))^1.5     (10.9 at 2.5, 12.4 at 3, 13.6 at 3.3)
-// zTop is the highest z the formula can produce: every part at its cap at once (Q = +6, M = +3,
-// C = +1 over five games), i.e. five identical, historically great games. Only that reads 15.
-const Q_CAP = 6;
-const Z_TOP = (0.55 * Q_CAP + 0.30 * 3 + 0.15 * 1) * 5 / 6;
+// zTop = 3.6: a game that far above the position's norm is the ceiling, and reads 15.
+const Z_TOP = 3.6;
 export function ratingFromZ(z) {
   if (!Number.isFinite(z)) return 5;
   const r = z <= 2 ? 5 + 2.5 * z : 10 + 5 * Math.min(1, (z - 2) / (Z_TOP - 2)) ** 1.5;
@@ -329,26 +326,18 @@ export function ratingFromZ(z) {
 const FORM_W = [5, 4, 3, 2, 1];
 export function formRating(state, a) {
   if (a.kind !== 'player' || !a.perf) return null;
-  const grp = posGroup(a.league, a.pos);
-  const st = state.stats[a.league]?.[grp];
-  const games = (a.perf.last || []).slice(0, 5).map((g) => g.gs).filter((x) => Number.isFinite(x));
-  const n = games.length;
-  if (!st?.sd || (!n && a.perf.ema == null)) return null;
-  const d = a.perf.gn ?? gameNoise(state, a.league, grp);
+  const st = state.stats[a.league]?.[posGroup(a.league, a.pos)];
+  if (!st?.sd) return null;
+  const rs = (a.perf.last || []).slice(0, 5).filter((g) => Number.isFinite(g.gs)).map((g) => gameRating(state, a, g.gs));
+  const n = rs.length;
+  // No games on record yet: rate his season level as if it were one game.
+  if (!n) return a.perf.ema == null ? null : { rating: gameRating(state, a, a.perf.ema), n: 0, trend: 0, games: [] };
   const wsum = FORM_W.slice(0, n).reduce((t, w) => t + w, 0);
-  const R = n ? games.reduce((t, g, i) => t + g * FORM_W[i], 0) / wsum : a.perf.ema;
-  const S = a.perf.season?.gp ? a.perf.season.gs : a.perf.ema ?? R;
-  const nEff = n ? wsum * wsum / FORM_W.slice(0, n).reduce((t, w) => t + w * w, 0) : 1;
-  const Q = clamp((R - st.mu) / st.sd, -Q_CAP, Q_CAP);
-  const M = n ? clamp((R - S) / (d / Math.sqrt(nEff)), -3, 3) : 0;
-  const mean = n ? games.reduce((t, g) => t + g, 0) / n : 0;
-  const C = n >= 3 ? clamp(1 - Math.sqrt(games.reduce((t, g) => t + (g - mean) ** 2, 0) / (n - 1)) / d, -1.5, 1) : 0;
-  const conf = n ? n / (n + 1) : 0.5;
-  const z = (0.55 * Q + 0.30 * M + 0.15 * C) * conf;
-  return { rating: ratingFromZ(z), z, Q, M, C, n, recent: R, season: S };
+  const rating = Math.round((rs.reduce((t, r, i) => t + r * FORM_W[i], 0) / wsum) * 10) / 10;
+  const trend = n >= 4 ? (rs[0] + rs[1]) / 2 - rs.slice(2).reduce((t, r) => t + r, 0) / (n - 2) : 0;
+  return { rating, n, trend, games: rs };
 }
-// One game on the same scale: his game score against the position, allowing for how much
-// any single game swings.
+// One game's rating.
 export function gameRating(state, a, gs) {
   const grp = posGroup(a.league, a.pos);
   const st = state.stats[a.league]?.[grp];

@@ -1165,3 +1165,12 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .fbar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
 .fbar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
 .fbar i.pos { left: 50%; background: var(--up); } .fbar i.neg { right: 50%; background: var(--down); }
+
+/* v71: per-game ratings */
+.rtgc { display: inline-block; min-width: 34px; padding: 2px 5px; border-radius: 6px; font-size: 12px; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+.rtgc.hi { color: var(--up); background: var(--up-bg); }
+.rtgc.mid { color: #ffa726; background: color-mix(in srgb, #ffa726 14%, transparent); }
+.rtgc.lo { color: var(--down); background: var(--down-bg); }
+.box td.rtg { padding: 6px 4px; }
+.box td:nth-child(3) { color: var(--muted); font-weight: 400; } .box td:nth-child(4) { color: var(--text); font-weight: 700; }
+.top .tr { position: absolute; right: 8px; top: 8px; }
