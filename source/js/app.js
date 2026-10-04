@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 60;
+const APP_VERSION = 61;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3782,19 +3782,28 @@ function setGview(k, dir = 0) {
   document.querySelectorAll('#game .gtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === k));
   if (k !== 'summary' && ui.game) loadPlays(ui.game.league, ui.game.id);
 }
-// Swipe left or right anywhere on the game screen to move between its tabs.
+// On the Scores page, swipe left or right anywhere to move to the next or previous day.
+function shiftScoreDay(step) {
+  const btns = [...document.querySelectorAll('.daystrip .dayb')]; const i = btns.findIndex((x) => x.classList.contains('on')) + step;
+  if (i < 0 || i >= btns.length) return false;
+  ui.scoreDay = +btns[i].dataset.sday; buzz();
+  renderGames(); view().scrollTop = Math.min(view().scrollTop, $('.daystrip')?.offsetTop ?? 0);
+  $('.dayb.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  const g = $('.sgames') || $('#view .card.empty'); if (g) g.classList.add(step > 0 ? 'from-r' : 'from-l');
+  return true;
+}
 (() => {
-  const el = $('#game'); let sx = 0; let sy = 0; let t0 = 0; let ok = false;
-  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; ok = e.touches.length === 1 && !e.target.closest('input, textarea, .hscroll'); sx = t.clientX; sy = t.clientY; t0 = performance.now(); }, { passive: true });
-  el.addEventListener('touchend', (e) => {
-    if (!ok || !ui.game || ui.detail && el.style.zIndex !== '34') return;
-    const t = e.changedTouches[0]; const dx = t.clientX - sx; const dy = t.clientY - sy;
-    if (Math.abs(dx) < 60 || Math.abs(dx) < 2 * Math.abs(dy) || performance.now() - t0 > 700) return;
-    const tabs = [...el.querySelectorAll('.gtabs button')].map((b) => b.dataset.gview);
-    const i = tabs.indexOf(ui.gview || 'summary') + (dx < 0 ? 1 : -1);
-    if (i < 0 || i >= tabs.length) return;
-    ui.lastSwipe = Date.now(); buzz(); setGview(tabs[i], dx < 0 ? 1 : -1);
-  }, { passive: true });
+  const el = view(); let sx = 0; let sy = 0; let lx = 0; let ly = 0; let ok = false;
+  const here = () => ui.tab === 'games' && ui.gtab === 'pickem' && !overlayOpen();
+  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; ok = e.touches.length === 1 && here() && !e.target.closest('input, textarea, .hscroll, .chips'); sx = lx = t.clientX; sy = ly = t.clientY; }, { passive: true });
+  el.addEventListener('touchmove', (e) => { const t = e.touches[0]; lx = t.clientX; ly = t.clientY; }, { passive: true });
+  const end = () => {
+    if (!ok || !here()) return; ok = false;
+    const dx = lx - sx; const dy = ly - sy;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < 1.3 * Math.abs(dy)) return;
+    if (shiftScoreDay(dx < 0 ? 1 : -1)) ui.swallowUntil = Date.now() + 350; // the lift after a swipe is not a tap
+  };
+  el.addEventListener('touchend', end, { passive: true }); el.addEventListener('touchcancel', end, { passive: true });
 })();
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {
