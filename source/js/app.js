@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 59;
+const APP_VERSION = 60;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -2264,7 +2264,7 @@ document.addEventListener('click', async (e) => {
   if (d.page) { if (ui.article) closeArticle(); openPage(d.page); return; }
   if (d.cmp != null && ui.page?.type === 'compare') { ui.page.b = d.cmp || null; ui.page.q = ''; renderPage(); $('#page').scrollTop = 0; if (!d.cmp) setTimeout(() => $('#pageq')?.focus(), 50); return; }
   if (d.cmprange && ui.page) { ui.page.range = d.cmprange; renderPage(); return; }
-  if (d.gview) { ui.gview = d.gview; document.querySelectorAll('#game .gsec').forEach((x) => { x.hidden = x.dataset.gsec !== d.gview; }); document.querySelectorAll('#game .gtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === d.gview)); if (d.gview !== 'summary' && ui.game) loadPlays(ui.game.league, ui.game.id); return; }
+  if (d.gview) { setGview(d.gview); return; }
   if (d.dtab) { ui.dtab = d.dtab; const inner = $('#dinner'); if (inner) { inner.dataset.dtab = d.dtab; inner.querySelectorAll('.dtabs button').forEach((b) => b.classList.toggle('on', b.dataset.dtab === d.dtab)); } return; }
   if (d.wfolder != null && ui.detail) { (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: d.wfolder }; dirty = true; save(); renderDetail(); return; }
   if (d.chal) { try { answerChallenge(state, d.chal === 'yes'); dirty = true; save(); buzz(); toast('Locked in. Good luck!'); renderHome(); } catch (err) { toast(err.message); } return; }
@@ -3775,6 +3775,27 @@ function teamTab(g, league, t) {
     ${g.status === 'pre' ? '<p class="tiny faint" style="margin:8px 2px">Confirmed starters and live stat lines appear here once the game begins.</p>' : ''}`;
 }
 
+// Switch the game screen's tab. dir (-1 / 1) slides the new tab in from that side.
+function setGview(k, dir = 0) {
+  ui.gview = k;
+  document.querySelectorAll('#game .gsec').forEach((x) => { x.hidden = x.dataset.gsec !== k; x.classList.remove('from-l', 'from-r'); if (!x.hidden && dir) { void x.offsetWidth; x.classList.add(dir > 0 ? 'from-r' : 'from-l'); } });
+  document.querySelectorAll('#game .gtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === k));
+  if (k !== 'summary' && ui.game) loadPlays(ui.game.league, ui.game.id);
+}
+// Swipe left or right anywhere on the game screen to move between its tabs.
+(() => {
+  const el = $('#game'); let sx = 0; let sy = 0; let t0 = 0; let ok = false;
+  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; ok = e.touches.length === 1 && !e.target.closest('input, textarea, .hscroll'); sx = t.clientX; sy = t.clientY; t0 = performance.now(); }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    if (!ok || !ui.game || ui.detail && el.style.zIndex !== '34') return;
+    const t = e.changedTouches[0]; const dx = t.clientX - sx; const dy = t.clientY - sy;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < 2 * Math.abs(dy) || performance.now() - t0 > 700) return;
+    const tabs = [...el.querySelectorAll('.gtabs button')].map((b) => b.dataset.gview);
+    const i = tabs.indexOf(ui.gview || 'summary') + (dx < 0 ? 1 : -1);
+    if (i < 0 || i >= tabs.length) return;
+    ui.lastSwipe = Date.now(); buzz(); setGview(tabs[i], dx < 0 ? 1 : -1);
+  }, { passive: true });
+})();
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {
   if (el.dataset.armed) return true;

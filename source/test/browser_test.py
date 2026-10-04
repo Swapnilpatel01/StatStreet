@@ -107,6 +107,15 @@ with sync_playwright() as p:
         page.click('#game [data-act=placebet]'); page.wait_for_timeout(300); print('in-game bet:', toast(page)); assert toast(page).startswith('Bet placed')
         assert not page.evaluate("document.querySelector('#game').hidden") and 'Your bets on this game' in page.text_content('#game')
     page.click('#game [data-gview=away]'); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/74-game-team-pre.png')
+    page.evaluate("""(dx) => { const el = document.querySelector('#game .sheet-inner'); const mk = (x) => new Touch({ identifier: 1, target: el, clientX: x, clientY: 300 });
+        el.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [mk(200)], changedTouches: [mk(200)] }));
+        el.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [mk(200 + dx)] })); }""", 120); page.wait_for_timeout(300)
+    assert page.locator('#game .gsec[data-gsec=props]').is_visible(), 'swipe right goes to the previous tab'
+    page.evaluate("""(dx) => { const el = document.querySelector('#game .sheet-inner'); const mk = (x) => new Touch({ identifier: 1, target: el, clientX: x, clientY: 300 });
+        el.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [mk(200)], changedTouches: [mk(200)] }));
+        el.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [mk(200 + dx)] })); }""", -120); page.wait_for_timeout(300)
+    assert page.locator('#game .gsec[data-gsec=away]').is_visible(), 'swipe left goes to the next tab'
+    print('game tab swipe ok')
     page.click('#game [data-gview=summary]'); page.wait_for_timeout(200)
     page.click('#game .gsec[data-gsec=summary] .item[data-open] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
     assert page.locator('#sheet .rar').count() == 1 and page.locator('#sheet .cardsec').count() == 1

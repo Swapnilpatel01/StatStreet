@@ -1038,3 +1038,10 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 #game .gsec[data-gsec=props]:not([hidden]) { flex: 1; display: flex; flex-direction: column; }
 #game .gsec[data-gsec=props] > .sliptab, #game .gsec[data-gsec=props] > .slip.dock { margin-top: auto; }
 .slip.dock > .row.between > .tiny { margin-left: auto; }
+
+/* v60: swipe between game tabs */
+.gsec.from-r { animation: gsecR .22s cubic-bezier(.2,.8,.2,1); }
+.gsec.from-l { animation: gsecL .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes gsecR { from { transform: translateX(40px); opacity: 0; } }
+@keyframes gsecL { from { transform: translateX(-40px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .gsec.from-r, .gsec.from-l { animation: none; } }
