@@ -149,7 +149,7 @@ export function dailyChallenge(state, now = Date.now()) {
   const ch = state.challenge;
   const today = dayKey(now);
   // An unanswered question made by an older version may be about someone who isn't playing: ask again.
-  if (ch.cur && !ch.cur.pick && ch.cur.v !== 2) ch.cur = null;
+  if (ch.cur && !ch.cur.result && ch.cur.v !== 3) ch.cur = null; // answered or not: it gets asked again, about someone who will play
   if (ch.cur && (ch.cur.day === today || (ch.cur.pick && !ch.cur.result && now - ch.cur.date < 2 * DAY))) return ch;
   if (ch.cur?.pick && !ch.cur.result) { ch.cur.result = 'void'; } // game never came in
   // Candidates: players with a game today that hasn't started, preferring ones you own, then stars.
@@ -176,7 +176,7 @@ export function dailyChallenge(state, now = Date.now()) {
   const top = cands.slice(0, 6);
   const pick = top[Math.abs(hash(today)) % top.length];
   ch.cur = { day: today, id: pick.a.id, name: pick.a.name, ticker: pick.a.ticker, gid: pick.g.id, game: pick.g.name, date: pick.g.date,
-    line: Math.round(pick.a.perf.ema * 10) / 10, pick: null, result: null, v: 2 };
+    line: Math.round(pick.a.perf.ema * 10) / 10, pick: null, result: null, v: 3 };
   return ch;
 }
 function hash(s) { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return h; }
