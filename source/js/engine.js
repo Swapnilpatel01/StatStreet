@@ -304,8 +304,7 @@ export function setTeamPrior(state, league, t) {
 
 // ---------- player ratings ----------
 // Every game gets a rating from its stat line (perfRating in scoring.js). A player's form is
-// the average rating of his last five games, weights 5,4,3,2,1 with the newest first.
-const FORM_W = [5, 4, 3, 2, 1];
+// the sum of his ratings over his last five games, the way Real totals ratings over a period.
 export function gameRating(state, a, g) {
   if (g?.line) return perfRating(a.league, { ...emptyLine(a.league), ...g.line });
   // Games saved before stat lines were kept: place the game score against the position instead.
@@ -320,12 +319,11 @@ export function formRating(state, a) {
   if (a.kind !== 'player' || !a.perf) return null;
   const rs = (a.perf.last || []).slice(0, 5).map((g) => gameRating(state, a, g)).filter((r) => r != null);
   const n = rs.length;
-  // No games on record yet: rate his season averages as if they were one game.
-  if (!n) { const r = a.perf.avg ? gameRating(state, a, { line: a.perf.avg }) : null; return r == null ? null : { rating: r, n: 0, trend: 0, games: [] }; }
-  const wsum = FORM_W.slice(0, n).reduce((t, w) => t + w, 0);
-  const rating = Math.round((rs.reduce((t, r, i) => t + r * FORM_W[i], 0) / wsum) * 10) / 10;
+  if (!n) return null; // nothing to add up yet
+  const rating = Math.round(rs.reduce((t, r) => t + r, 0) * 10) / 10;
+  const avg = Math.round((rating / n) * 10) / 10;
   const trend = n >= 4 ? (rs[0] + rs[1]) / 2 - rs.slice(2).reduce((t, r) => t + r, 0) / (n - 2) : 0;
-  return { rating, n, trend, games: rs };
+  return { rating, avg, n, trend, games: rs };
 }
 
 export function playerZ(state, a) {

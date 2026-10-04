@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 73;
+const APP_VERSION = 74;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1831,12 +1831,12 @@ function playerStats(a) {
   const rate = (g) => gameRating(state, a, g) ?? 0;
   const tone = formTone;
   const last = a.perf.last.slice(0, 5);
-  const avg = fr?.rating ?? null;
+  const avg = fr?.avg ?? null;
   const word = avg == null ? '' : avg >= 8 ? 'On fire' : avg >= 5 ? 'Hot' : avg >= 2 ? 'Steady' : avg >= 0.8 ? 'Cold' : 'Ice cold';
   const trend = fr?.trend || 0;
   return `<h3>Performance</h3>
     <div class="grid3">
-      <div class="stat"><div class="k">Avg rating${last.length ? ` · last ${last.length}` : ''}</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${avg.toFixed(1)}</span><span class="small">${word}${trend > 1.5 ? ' ↗' : trend < -1.5 ? ' ↘' : ''}</span>` : '—'}</div></div>
+      <div class="stat"><div class="k">Rating total${last.length ? ` · last ${last.length}` : ''}</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${fr.rating.toFixed(1)}</span><span class="small">${word}${trend > 1.5 ? ' ↗' : trend < -1.5 ? ' ↘' : ''}</span>` : '—'}</div></div>
       <div class="stat"><div class="k">vs ${esc(groupName(a))}</div><div class="v">${a.perf.ema != null ? pctile + 'th' : '—'}</div></div>
       <div class="stat"><div class="k">Season avg</div><div class="v">${a.perf.season ? a.perf.season.gs.toFixed(1) : '—'}</div></div>
     </div>
@@ -3866,9 +3866,10 @@ function gameProps(g, league) {
 const formTone = (v) => (v >= 5 ? 'hi' : v >= 2 ? 'mid' : 'lo');
 // A player's current form in a circle, against players at his position. Green is hot, orange middling, red cold.
 function formDot(a, size = '') {
-  const v = formRating(state, a)?.rating;
-  if (v == null) return '';
-  return `<span class="formdot ${size} ${formTone(v)}" aria-label="Average game rating ${v.toFixed(1)}">${v.toFixed(1)}</span>`;
+  const f = formRating(state, a);
+  if (!f) return '';
+  // The number is his rating total over his last five games; the colour is his per-game level.
+  return `<span class="formdot ${size} ${formTone(f.avg)}" aria-label="Rating total ${f.rating.toFixed(1)} over ${f.n} game${f.n > 1 ? 's' : ''}">${f.rating >= 100 || f.rating <= -10 ? Math.round(f.rating) : f.rating.toFixed(1)}</span>`;
 }
 // The best three players of the game so far, by game score.
 function topPerformers(g, league) {

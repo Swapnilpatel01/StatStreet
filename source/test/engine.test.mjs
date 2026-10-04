@@ -311,17 +311,18 @@ t('chart gaps from time away are filled with market wiggle; real points and jump
   assert.equal(E.fillGaps(st, t0 + 22 * H), 0, 'filling twice changes nothing');
 });
 
-t('form is the average of the last five game ratings, newest heaviest', () => {
+t('form is the sum of the last five game ratings', () => {
   const st = E.newState(100); st.stats = { nba: { ALL: { mu: 20, sd: 6 } } };
   const L = (pts) => ({ pts, reb: 5, ast: 5, stl: 1, blk: 0, to: 2 });
   const mk = (games) => ({ kind: 'player', league: 'nba', pos: 'G', perf: { ema: 20, gn: 8, last: games.map((pts) => ({ gs: pts, line: L(pts) })) } });
   const one = (pts) => E.gameRating(st, mk([]), { line: L(pts) });
-  const f = E.formRating(st, mk([45, 15, 15, 15, 15]));
-  assert.equal(f.rating, Math.round(((one(45) * 5 + one(15) * 10) / 15) * 10) / 10);
-  assert.ok(E.formRating(st, mk([15, 15, 15, 15, 45])).rating < f.rating, 'a recent big game counts for more than an old one');
+  const f = E.formRating(st, mk([45, 15, 15, 15, 15, 99, 99]));
+  assert.equal(f.rating, Math.round((one(45) + 4 * one(15)) * 10) / 10, 'five games, older ones left out');
+  assert.equal(f.n, 5); assert.equal(f.avg, Math.round((f.rating / 5) * 10) / 10);
+  assert.equal(E.formRating(st, mk([30, 30])).rating, Math.round(2 * one(30) * 10) / 10, 'fewer games, smaller total');
   assert.ok(one(45) > one(25) && one(25) > one(8));
   assert.ok(E.gameRating(st, mk([]), { gs: 30 }) != null, 'old saved games without a stat line still get a rating');
-  assert.equal(E.formRating(st, { kind: 'team' }), null);
+  assert.equal(E.formRating(st, mk([])), null); assert.equal(E.formRating(st, { kind: 'team' }), null);
 });
 
 console.log(`\n${passed} tests passed`);

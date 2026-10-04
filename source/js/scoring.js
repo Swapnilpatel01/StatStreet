@@ -54,44 +54,31 @@ export function gameScore(league, l) {
 }
 
 // ---------- Performance rating for one game ----------
-// A rating for a single game from its stat line, on the scale the Real app uses: about 1 for a
-// quiet game, 4–6 for a good one, 8+ for a monster, a little below zero for an empty one.
-// Real builds its rating play by play (how close the game was, when the play came, how much
-// it mattered), which a box score can't see, so this is a fit to ratings Real showed for known
-// stat lines (test/rating.test.mjs), not their formula. Expect to be within about a point.
-//
-//   fantasy points (fp):
-//     NFL   pass yds/25 + 4·pass TD − 2·INT + (rush + rec yds)/10 + 6·TD + 1·catch − 2·fumble + 3·FG + XP
-//     NBA   pts + 1.2·reb + 1.5·ast + 3·stl + 3·blk − TO
-//     MLB hitter   H + 2·HR + R + RBI + BB − 0.25·outs
-//     MLB pitcher  2·IP + 2·K − 3·ER − 0.6·(H + BB)
-//   rating:
-//     NFL backs, receivers, kickers   0.068 · fp^1.3      (9 fp → 1.2, 18 → 3.0, 26 → 4.8, 42 → 8.8)
-//     NFL quarterbacks                0.185 · fp          (8 fp → 1.5, 18 → 3.3, 36 → 6.7)
-//     NFL defenders                   1.4·sack + 3.5·INT + 0.2·tackle + 0.5·pass defended + 5·TD
-//     NBA                             0.1 · fp − 0.9      (48 fp → 3.9, 56 → 4.7, 78 → 6.9)
-//     MLB hitter                      0.55 · fp up to 7 fp, then 0.22 a point   (−1 → −0.6, 5 → 2.8)
-//     MLB pitcher                     0.8 + 0.235 · fp    (14 fp → 4.1, 33 → 8.6)
+// A rating for a single game, built straight from what the player did: every stat adds or takes
+// away a fixed amount, and the rating is the total. The amounts were fitted to ratings the Real
+// app showed for known stat lines (test/rating.test.mjs). Real also weighs when and how each
+// play happened, which a box score can't see, so expect to land within about a point of theirs.
+export const RATING_WEIGHTS = {
+  nba: { pts: 0.13, reb: 0.03, ast: 0.15, stl: 0.3, blk: 0.3, to: -0.15 },
+  nfl: {
+    passYds: 0.013, passTD: 0.5, int: -0.4,
+    rushYds: 0.032, rushTD: 1, recYds: 0.032, recTD: 1, rec: 0.04, fumLost: -0.8,
+    sacks: 1.4, defInt: 3.5, tkl: 0.2, pd: 0.5, defTD: 5,
+    fg: 0.8, xp: 0.2,
+  },
+  // hitters: an out is an at-bat without a hit. A home run counts on top of the hit, run and RBI.
+  mlbBat: { h: 0.5, hr: 1, r: 0.6, rbi: 0.7, bb: 0.3, out: -0.125 },
+  mlbPit: { ip: 0.585, pk: 0.39, er: -0.85 },
+};
 const mlbIp = (ip) => Math.floor(ip) + ((ip % 1) * 10) / 3; // 6.2 innings is 6⅔
+const total = (w, l) => Object.entries(w).reduce((t, [k, v]) => t + v * (l[k] || 0), 0);
 export function perfRating(league, l) {
+  const W = RATING_WEIGHTS;
   let r;
-  if (league === 'nba') {
-    const fp = l.pts + 1.2 * l.reb + 1.5 * l.ast + 3 * l.stl + 3 * l.blk - l.to;
-    r = Math.max(0.02 * fp, 0.1 * fp - 0.9);
-  } else if (league === 'nfl') {
-    const fp = l.passYds / 25 + 4 * l.passTD - 2 * l.int + (l.rushYds + l.recYds) / 10 + 6 * (l.rushTD + l.recTD) + l.rec - 2 * l.fumLost + 3 * l.fg + l.xp;
-    const off = l.att >= 10 ? 0.185 * fp : fp > 0 ? 0.068 * fp ** 1.3 : 0.1 * fp;
-    const defended = l.tkl > 0 || l.sacks > 0 || l.defInt > 0 || l.pd > 0 || l.defTD > 0;
-    const def = 1.4 * l.sacks + 3.5 * l.defInt + 0.2 * l.tkl + 0.5 * l.pd + 5 * l.defTD;
-    r = defended ? Math.max(off, def) : off;
-  } else {
-    const batted = l.ab > 0 || l.bb > 0;
-    const bfp = l.h + 2 * l.hr + l.r + l.rbi + l.bb - 0.25 * Math.max(0, l.ab - l.h);
-    const bat = bfp <= 7 ? 0.55 * bfp : 3.85 + 0.22 * (bfp - 7);
-    const pit = l.ip > 0 ? 0.8 + 0.235 * (2 * mlbIp(l.ip) + 2 * l.pk - 3 * l.er - 0.6 * (l.ph + l.pbb)) : null;
-    r = pit != null && batted ? Math.max(pit, bat) : pit != null ? pit : bat;
-  }
-  return Math.round(Math.max(-2, Math.min(15, r)) * 10) / 10;
+  if (league === 'nba') r = total(W.nba, l);
+  else if (league === 'nfl') r = total(W.nfl, l);
+  else r = total(W.mlbBat, { ...l, out: Math.max(0, l.ab - l.h) }) + (l.ip > 0 ? total(W.mlbPit, { ...l, ip: mlbIp(l.ip) }) : 0);
+  return Math.round(Math.max(-3, Math.min(15, r)) * 10) / 10;
 }
 
 export function emptyLine(league) {
