@@ -182,7 +182,8 @@ t('props: lines from averages, over/under settles from the box score, parlays ne
   const leg = board.find((p) => p.assetId === 'nba:p:10');
   assert.ok(leg && leg.line === 30.5);
   const other = board.find((p) => p.assetId !== 'nba:p:10');
-  assert.throws(() => K.placeBet(st, [{ ...leg, side: 'over' }, { ...other, side: 'under' }], 10, now), /level 4/);
+  assert.equal(K.MAX_LEGS(st), 4);
+  assert.throws(() => K.placeBet(st, Array.from({ length: 5 }, (_, i) => ({ ...leg, assetId: 'x' + i, side: 'over' })), 10, now), /Up to 4/);
   const cash = st.cash;
   const bet = K.placeBet(st, [{ ...leg, side: 'over' }], 10, now);
   assert.equal(st.cash, cash - 10);
@@ -203,7 +204,7 @@ t('props: lines from averages, over/under settles from the box score, parlays ne
   assert.equal(st.cash, c0);
   // parlay at level 4
   X.addXP(st, X.LEVEL_XP(4), now);
-  assert.equal(K.MAX_LEGS(st), 3);
+  assert.equal(K.MAX_LEGS(st), 6);
   assert.equal(K.potentialPayout(10, 2), 36.1);
 });
 

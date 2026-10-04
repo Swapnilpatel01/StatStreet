@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 57;
+const APP_VERSION = 58;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1001,8 +1001,9 @@ function slipCard(dock = false) {
   const slip = ui.slip;
   if (!slip?.legs.length) return '';
   const n = slip.legs.length; const stake = Number(slip.stake) || 0;
+  if (dock && !ui.slipOpen) return `<button class="sliptab" data-act="slipopen"><span class="n">${n}</span><div class="grow"><b>Bet slip</b><div class="tiny ellipsis">${slip.legs.map((l) => `${esc(state.assets[l.assetId]?.ticker || '')} ${l.side === 'over' ? 'o' : 'u'}${l.line}`).join(' · ')}</div></div><span class="x">${(PROP_ODDS ** n).toFixed(2)}×</span><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>`;
   return `<div class="card slip ${dock ? 'dock' : ''}">
-      <div class="row between"><b>Bet slip</b><span class="tiny muted">${n} pick${n > 1 ? 's' : ''} · ${(PROP_ODDS ** n).toFixed(2)}×</span></div>
+      <div class="row between"><b>Bet slip</b><span class="tiny muted">${n} pick${n > 1 ? 's' : ''} · ${(PROP_ODDS ** n).toFixed(2)}×</span>${dock ? '<button class="x-btn" data-act="slipclose" aria-label="Minimise" style="margin-left:8px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>' : ''}</div>
       ${slip.legs.map((l, i) => `<div class="slip-leg"><div class="grow ellipsis"><b>${esc(state.assets[l.assetId]?.name || '')}</b> <span class="muted">${l.side === 'over' ? 'Over' : 'Under'} ${l.line} ${esc(l.short)}</span></div><button class="x-btn" data-rmleg="${i}">✕</button></div>`).join('')}
       <div class="row" style="margin-top:10px;gap:8px"><label class="price-field grow" style="margin:0"><span class="small muted">Stake $</span><input id="stake" inputmode="decimal" value="${esc(slip.stake)}" placeholder="0"></label>
         <button class="chip" data-stake="${minOrder(state)}">${money(minOrder(state))}</button><button class="chip" data-stake="10%">10%</button><button class="chip" data-stake="25%">25%</button></div>
@@ -1040,7 +1041,7 @@ function gamesProps() {
   for (const p of board) (byGame[p.gameId] ||= { id: p.gameId, name: p.game, date: p.date, league: p.league, live: !!p.live, list: [] }).list.push(p);
   const stake = Number(slip.stake) || 0;
   return `
-    <p class="small muted" style="margin:12px 0 10px">Over or under on real stat lines, for games in progress and the next two days. A hit pays ${PROP_ODDS}× your stake${max > 1 ? `; parlays of up to ${max} picks multiply (2 picks ${(PROP_ODDS ** 2).toFixed(2)}×, 3 picks ${(PROP_ODDS ** 3).toFixed(2)}×)` : '; parlays unlock at level 4'}.</p>
+    <p class="small muted" style="margin:12px 0 10px">Over or under on real stat lines, for games in progress and the next two days. A hit pays ${PROP_ODDS}× your stake. Put up to ${max} picks in one bet and the payout multiplies (2 picks ${(PROP_ODDS ** 2).toFixed(2)}×, 3 picks ${(PROP_ODDS ** 3).toFixed(2)}×), but every pick has to hit.${max < 6 ? ' Level 4 raises it to 6.' : ''}</p>
     ${slipCard()}
     ${open.length ? `<h2>Open bets</h2><div class="list">${open.map(betRow).join('')}</div>` : ''}
     ${(() => {
@@ -1409,7 +1410,7 @@ function findGame(league, id) {
 
 function openGame(league, id, { push = true, tab = 'summary' } = {}) {
   if (!findGame(league, id)) { toast('Game details are no longer available'); return; }
-  ui.game = { league, id }; ui.gview = tab;
+  ui.game = { league, id }; ui.gview = tab; ui.slipOpen = false;
   if (push) { try { history.pushState({ game: id, lg: league }, ''); } catch { /* */ } }
   const el = $('#game');
   el.style.zIndex = ui.detail ? '34' : ''; // above the player page when opened from it
@@ -2321,7 +2322,7 @@ document.addEventListener('click', async (e) => {
     const i = slip.legs.findIndex((l) => l.assetId === p.assetId);
     if (i >= 0 && slip.legs[i].side === side) slip.legs.splice(i, 1);
     else if (i >= 0) slip.legs[i] = { ...p, side };
-    else if (slip.legs.length >= MAX_LEGS(state)) { if (MAX_LEGS(state) === 1) slip.legs = [{ ...p, side }]; else { toast('Up to 3 picks per parlay'); return; } }
+    else if (slip.legs.length >= MAX_LEGS(state)) { toast(`Up to ${MAX_LEGS(state)} picks in one bet${MAX_LEGS(state) < 6 ? ' (6 at level 4)' : ''}`); return; }
     else slip.legs.push({ ...p, side });
     slip.err = ''; buzz();
     redrawSlip();
@@ -2558,12 +2559,14 @@ document.addEventListener('click', async (e) => {
       } catch (err) { dr.err = err.message; renderDraft(true); }
       break;
     }
+    case 'slipopen': ui.slipOpen = true; redrawSlip(); break;
+    case 'slipclose': ui.slipOpen = false; redrawSlip(); break;
     case 'placebet': {
       const slip = ui.slip;
       try {
         const b = placeBet(state, slip.legs, slip.stake);
         dirty = true; save(); buzz();
-        ui.slip = { legs: [], stake: '' };
+        ui.slip = { legs: [], stake: '' }; ui.slipOpen = false;
         toast(`Bet placed: ${money(b.stake)} to win ${money(potentialPayout(b.stake, b.legs.length))}`);
         redrawSlip();
       } catch (err) { slip.err = err.message; redrawSlip(); }

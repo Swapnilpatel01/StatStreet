@@ -158,7 +158,7 @@ export const ordinal = (n) => `${n}${['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n
 // ---------- props ----------
 
 export const PROP_ODDS = 1.9; // per leg; a correct pick nearly doubles your stake
-export const MAX_LEGS = (state) => (hasLevel(state, 4) ? 3 : 1);
+export const MAX_LEGS = (state) => (hasLevel(state, 4) ? 6 : 4); // picks in one bet
 
 export function propStat(a) {
   if (a.kind !== 'player') return null;
@@ -239,7 +239,7 @@ export function propBoard(state, now = Date.now(), leagues = Object.keys(LEAGUES
 export function placeBet(state, legs, stake, now = Date.now()) {
   stake = round2(Number(stake));
   if (!legs.length) throw new Error('Add a pick to your slip');
-  if (legs.length > MAX_LEGS(state)) throw new Error(MAX_LEGS(state) === 1 ? 'Parlays unlock at level 4' : 'Up to 3 picks per parlay');
+  if (legs.length > MAX_LEGS(state)) throw new Error(`Up to ${MAX_LEGS(state)} picks in one bet`);
   if (new Set(legs.map((l) => l.assetId)).size !== legs.length) throw new Error('One pick per player');
   if (legs.some((l) => !l.live && l.date <= now)) throw new Error('A game on your slip has started — remove it');
   // Live lines move with the game: a bet is only taken at the line showing right now.

@@ -16,7 +16,7 @@ export function levelOf(xp) {
 export const UNLOCKS = {
   2: 'Pro contests',
   3: 'Rare packs · Ice theme',
-  4: 'Prop parlays',
+  4: '6-pick prop parlays',
   5: 'Elite packs · Court theme',
   6: 'High Roller contests',
   7: 'Midnight theme',

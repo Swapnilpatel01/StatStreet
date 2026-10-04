@@ -94,8 +94,13 @@ with sync_playwright() as p:
     np_ = page.locator('#game [data-prop]').count(); print('game props:', np_)
     if np_:
         page.click('#game [data-prop] >> nth=0'); page.wait_for_timeout(300); assert page.locator('#game .ou.on').count() == 1
-        assert page.locator('#game .slip.dock').count() == 1
-        page.fill('#game #stake', '5'); page.wait_for_timeout(150); assert '9.50' in page.text_content('#game #slippay')
+        assert page.locator('#game .sliptab').count() == 1 and page.locator('#game .slip.dock').count() == 0
+        page.click('#game [data-prop] >> nth=2'); page.wait_for_timeout(300); assert page.locator('#game .ou.on').count() == 2, 'two picks in one bet'
+        page.screenshot(path=f'{OUT}/78-sliptab.png')
+        page.click('#game .sliptab'); page.wait_for_timeout(300); assert page.locator('#game .slip.dock .slip-leg').count() == 2
+        page.click('#game [data-act=slipclose]'); page.wait_for_timeout(200); assert page.locator('#game .sliptab').count() == 1
+        page.click('#game .sliptab'); page.wait_for_timeout(300)
+        page.fill('#game #stake', '5'); page.wait_for_timeout(150); assert '18.05' in page.text_content('#game #slippay')
         page.screenshot(path=f'{OUT}/77-game-slip.png')
         page.click('#game [data-act=placebet]'); page.wait_for_timeout(300); print('in-game bet:', toast(page)); assert toast(page).startswith('Bet placed')
         assert not page.evaluate("document.querySelector('#game').hidden") and 'Your bets on this game' in page.text_content('#game')

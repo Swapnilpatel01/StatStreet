@@ -1022,3 +1022,12 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .slip .price-field { flex: 1 1 100%; }
 .slip .price-field span { white-space: nowrap; }
 .slip .row:has(#stake) .chip { flex: 1; }
+
+/* v58: the bet slip as a small tab that opens */
+.sliptab { position: sticky; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 2; margin-top: 12px; width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 14px; border-radius: 16px; background: var(--accent); color: #04130c; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+.sliptab .n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: #04130c; color: var(--accent); font-weight: 900; font-size: 13px; display: grid; place-items: center; }
+.sliptab .grow { min-width: 0; line-height: 1.2; }
+.sliptab b { font-size: 15px; } .sliptab .tiny { opacity: .75; font-weight: 600; }
+.sliptab .x { font-weight: 900; font-variant-numeric: tabular-nums; }
+.sliptab svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.sliptab:active { transform: scale(.98); }
