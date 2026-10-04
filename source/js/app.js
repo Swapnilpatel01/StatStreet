@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 66;
+const APP_VERSION = 67;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1827,17 +1827,25 @@ function updateDetailHeader() {
 
 function playerStats(a) {
   const pctile = Math.round(100 * normCdf(formZ(a)));
-  const last = a.perf.last.slice(0, 8).reverse();
-  const max = Math.max(1, ...last.map((g) => Math.abs(g.gs)));
+  // Each of the last five games rated against his own usual game: 50 is a normal night for him.
+  const base = a.perf.season?.gs ?? a.perf.ema ?? 0;
+  const sd = a.perf.gn || Math.max(2, Math.abs(base) * 0.4);
+  const rate = (g) => Math.max(1, Math.min(99, Math.round(normCdf((g.gs - base) / sd) * 100)));
+  const tone = (v) => (v >= 66 ? 'hi' : v >= 34 ? 'mid' : 'lo');
+  const last = a.perf.last.slice(0, 5);
+  const avg = last.length ? Math.round(last.reduce((t, g) => t + rate(g), 0) / last.length) : null;
+  const word = avg == null ? '' : avg >= 66 ? 'Hot' : avg >= 34 ? 'Steady' : 'Cold';
+  const older = last.slice(2); const trend = last.length >= 4 ? (rate(last[0]) + rate(last[1])) / 2 - older.reduce((t, g) => t + rate(g), 0) / older.length : 0;
   return `<h3>Performance</h3>
     <div class="grid3">
-      <div class="stat"><div class="k">Form score</div><div class="v">${a.perf.ema != null ? a.perf.ema.toFixed(1) : '—'}</div></div>
+      <div class="stat"><div class="k">Last ${last.length || 5} form</div><div class="v row" style="gap:8px">${avg != null ? `<span class="formdot ${tone(avg)}">${avg}</span><span class="small">${word}${trend > 8 ? ' ↗' : trend < -8 ? ' ↘' : ''}</span>` : '—'}</div></div>
       <div class="stat"><div class="k">vs ${esc(groupName(a))}</div><div class="v">${a.perf.ema != null ? pctile + 'th' : '—'}</div></div>
       <div class="stat"><div class="k">Season avg</div><div class="v">${a.perf.season ? a.perf.season.gs.toFixed(1) : '—'}</div></div>
     </div>
-    ${last.length ? `<div class="card" style="margin-top:10px"><div class="small muted">Last ${last.length} games (game score)</div>
-      <div class="bars">${last.map((g) => `<div class="${g.gs < 0 ? 'neg' : ''}" style="height:${clamp(Math.abs(g.gs) / max, 0.05, 1) * 100}%" title="${esc(g.text)}"></div>`).join('')}</div>
-      <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${a.perf.last.slice(0, 4).map((g) => `<div class="driver"><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div><div class="pct">${g.gs.toFixed(1)}</div></div>`).join('')}</div>
+    ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">oldest → latest</span></div>
+      <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div>
+      <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${last.map((g) => `<div class="driver"><span class="formdot xs ${tone(rate(g))}" style="margin-right:2px"></span><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div><div class="pct">${g.gs.toFixed(1)}</div></div>`).join('')}</div>
+      <p class="tiny faint" style="margin:22px 0 0">Each game is rated 1–99 against his own usual game: 50 is a normal night. The number on the right is the game score.</p>
     </div>` : '<div class="card small muted" style="margin-top:10px">Priced from season averages. Game-by-game form appears after their next game.</div>'}`;
 }
 

@@ -192,7 +192,12 @@ with sync_playwright() as p:
     assert page.locator('#sheet .research').count() == 1 and page.locator('#sheet .rs-tiles > div').count() == 3
     page.evaluate("document.querySelector('#sheet').scrollTop = document.querySelector('.research').offsetTop - 120"); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/2b-research.png'); page.evaluate("document.querySelector('#sheet').scrollTop = 0"); page.wait_for_timeout(200)
-    box = page.locator('#dchart svg').bounding_box()
+    box = None
+    for _ in range(8):
+        box = page.locator('#dchart svg').bounding_box()
+        if box: break
+        page.wait_for_timeout(120)
+    if not box: print('dchart html:', page.evaluate("[document.querySelector('#dchart')?.innerHTML.slice(0,200), document.querySelector('#dchart')?.getBoundingClientRect().height]"))
     x, y = int(box['x'] + box['width'] / 2), int(box['y'] + box['height'] / 2)
     cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y, 'radiusX': 1, 'radiusY': 1}]})
     for i in range(1, 16):
@@ -511,6 +516,11 @@ with sync_playwright() as p:
     page.click('.dtabs [data-dtab=research]'); page.wait_for_timeout(200)
     ab = page.text_content('#dinner'); assert 'About' in ab and 'Duke' in ab and '6 seasons' in ab, ab[-600:]
     page.evaluate("document.querySelector('#sheet').scrollTop = 99999"); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/53-about.png')
+    print('form5 on page:', page.locator('#sheet .form5').count())
+    for tabk in page.evaluate("[...document.querySelectorAll('#sheet .dtabs [data-dtab]')].map(b => b.dataset.dtab)"):
+        page.click(f'#sheet .dtabs [data-dtab={tabk}]'); page.wait_for_timeout(150)
+        if page.locator('#sheet .form5').count() and page.locator('#sheet .form5').is_visible():
+            page.evaluate("document.querySelector('#sheet .form5').scrollIntoView({block:'center'})"); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/82-form5.png'); break
     page.click('.dtabs [data-dtab=overview]'); page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
     # --- v53: play-by-play on a live game
     page.click('#tabbar [data-tab=home]'); page.wait_for_timeout(300)
