@@ -37,7 +37,7 @@ import {
 import { squarify, heatColor } from './heatmap.js';
 import { portfolioCard, assetCard, shareCanvas, achievementsCard } from './sharecard.js';
 import { cardArt } from './cardart.js';
-import { parsePlays, parseAtBat } from './moments.js';
+import { parsePlays, parseAtBat, parseSituation } from './moments.js';
 import {
   closedTrades, journalStats, lineupToday, calendar, moverAlerts, dailyChallenge, answerChallenge, collections, SET_SIZE, SET_BONUS,
   achievements, searchAll, sinceLastOpen, markOpen, compareRows,
@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 81;
+const APP_VERSION = 82;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1526,6 +1526,7 @@ function renderGame(force = false) {
     <div class="row between"><button class="icon-btn" data-act="gameback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="row" style="gap:6px">${lgTag(league)} ${status}</div><div style="width:38px"></div></div>
     <div class="gc-head">${col(away)}<div class="gc-at">@</div>${col(home)}</div>
+    ${league === 'nfl' ? fieldBar(g, league) : ''}
     <div class="wp"><div class="tiny muted row between"><span>${esc(away.abbr)} ${Math.round(pAway * 100)}%</span><span>${wpHist.length ? 'Live win probability' : 'Win probability (from share prices)'}</span><span>${Math.round((1 - pAway) * 100)}% ${esc(home.abbr)}</span></div>
       <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div>${wpLine}</div>
     <div class="gpin"><div class="gpin-score"><b>${esc(away.abbr)}</b>${g.status !== 'pre' ? `<span class="s">${away.score ?? ''}</span><span class="faint">–</span><span class="s">${home.score ?? ''}</span>` : '<span class="faint">@</span>'}<b>${esc(home.abbr)}</b><span class="tiny muted">${g.status === 'live' ? esc(g.detail || 'Live') : g.status === 'final' ? 'Final' : whenText(g.date, true)}</span></div>
@@ -3668,7 +3669,7 @@ function loadPlays(league, id, { force = false } = {}) {
   if (c.loading || (!force && c.t && (g.status !== 'live' || Date.now() - c.t < 20e3))) return;
   playsCache.set(id, { ...c, loading: true });
   api.summary(league, id).then((j) => {
-    playsCache.set(id, { box: lineups(league, j), plays: parsePlays(league, j), atBat: league === 'mlb' ? parseAtBat(j) : null, t: Date.now(), loading: false });
+    playsCache.set(id, { box: lineups(league, j), plays: parsePlays(league, j), atBat: league === 'mlb' ? parseAtBat(j) : null, sit: league === 'nfl' ? parseSituation(j) : null, t: Date.now(), loading: false });
   }).catch(() => { playsCache.set(id, { ...c, loading: false, failed: !c.plays, t: Date.now() }); })
     .then(() => {
       // Show the new plays as soon as the screen is at rest (never swap content under a finger).
@@ -3679,6 +3680,28 @@ function loadPlays(league, id, { force = false } = {}) {
 // While a live game's screen is open, pull new plays every 20 seconds.
 setInterval(() => { if (ui.game && !document.hidden) loadPlays(ui.game.league, ui.game.id); }, 20e3);
 // The at-bat in progress: each pitch, and where it crossed the plate.
+// Football, live: where the ball is on the field, who has it, and the line to gain.
+// The away team's goal line is on the left, the home team's on the right.
+function fieldBar(g, league) {
+  const sit = g.status === 'live' ? playsCache.get(g.id)?.sit : null;
+  if (!sit) return '';
+  const away = g.teams.find((t) => !t.home) || g.teams[0]; const home = g.teams.find((t) => t !== away) || g.teams[1];
+  // Which half the ball is in. Abbreviations differ between feeds (WSH / WAS), so match loosely.
+  const sideOf = (abbr) => { for (const n of [9, 2, 1]) { const hit = [away, home].filter((t) => t.abbr && t.abbr.slice(0, n) === abbr.slice(0, n)); if (hit.length === 1) return hit[0]; } return null; };
+  const half = sit.side == null ? null : sideOf(sit.side);
+  const x = sit.side == null ? 50 : half === home ? 100 - sit.yard : sit.yard;
+  const off = sit.poss ? g.teams.find((t) => t.id === sit.poss) : null;
+  const dir = off ? (off === away ? 1 : -1) : 0; // the offence drives at the other team's goal line
+  const toGo = dir && sit.distance > 0 ? Math.max(0, Math.min(100, x + dir * sit.distance)) : null;
+  const pc = (v) => (4 + v * 0.92).toFixed(2); // the bar has a little end zone either side
+  const ta = off ? teamAsset(league, off.id) : null;
+  return `<div class="field ${sit.red ? 'red' : ''}">
+    <div class="fd-top"><span>${off ? `<b>${esc(off.abbr)}</b> ball` : 'Ball'} on the <b>${esc(sit.spot)}</b></span><b>${esc(sit.text)}</b></div>
+    <div class="fd-bar">${[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((y) => `<i style="left:${pc(y)}%"></i>`).join('')}
+      ${toGo != null ? `<span class="fd-go" style="left:${pc(Math.min(x, toGo))}%;width:${(Math.abs(toGo - x) * 0.92).toFixed(2)}%"></span><span class="fd-line" style="left:${pc(toGo)}%"></span>` : ''}
+      <span class="fd-ball" style="left:${pc(x)}%">${ta?.img && !STATIC ? `<img src="${esc(ta.img)}" alt="" onerror="this.outerHTML='${dir > 0 ? '▶' : dir < 0 ? '◀' : '●'}'">` : dir > 0 ? '▶' : dir < 0 ? '◀' : '●'}</span></div>
+    <div class="fd-lab"><span style="left:${pc(0)}%">${esc(away.abbr)}</span><span style="left:${pc(20)}%">20</span><span style="left:${pc(50)}%">50</span><span style="left:${pc(80)}%">20</span><span style="left:${pc(100)}%">${esc(home.abbr)}</span></div></div>`;
+}
 function atBatCard(ab, league) {
   const bat = ab.batter ? state.assets[`${league}:p:${ab.batter}`] : null; const pit = ab.pitcher ? state.assets[`${league}:p:${ab.pitcher}`] : null;
   const col = { ball: 'var(--up)', strike: 'var(--down)', inplay: '#4cc9ff' };

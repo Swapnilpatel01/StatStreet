@@ -547,6 +547,12 @@ with sync_playwright() as p:
         assert int(page.evaluate("getComputedStyle(document.querySelector('.gc-score')).fontWeight")) >= 900
         page.screenshot(path=f'{OUT}/60-game-pbp.png'); page.evaluate("document.querySelector('#game .pbp').scrollIntoView()"); page.wait_for_timeout(150); page.screenshot(path=f'{OUT}/61-pbp.png')
         page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
+    nf = page.locator('#view .live-strip [data-game^="nfl|"]').first
+    if nf.count():
+        nf.click(); page.wait_for_timeout(1500)
+        ft = page.inner_text('#game .field'); print('field:', ft.replace(chr(10), ' | ')[:120]); assert '3rd & 7' in ft and ' 18' in ft
+        assert page.locator('#game .fd-line').count() == 1
+        page.screenshot(path=f'{OUT}/84-field.png'); page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     # the MLB at-bat view
     ml = page.locator('#view .live-strip [data-game^="mlb|"]').first
     if ml.count():

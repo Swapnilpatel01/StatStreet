@@ -169,7 +169,9 @@ def summary(lg, eid):
         qb = r.choice(qbs); rc = r.choice(recv)
         sp.append({'text': f'{rc[1]} {r.randint(3, 65)} Yd pass from {qb[1]} (Kick)', 'type': {'text': 'Passing Touchdown'}, 'homeScore': 7 * (k + 1), 'awayScore': 7 * k,
                    'period': {'number': k + 1}, 'clock': {'displayValue': '2:00'}})
-    return {'boxscore': {'players': players}, 'scoringPlays': sp}
+    out = {'boxscore': {'players': players}, 'scoringPlays': sp}
+    if lg == 'nfl': out['situation'] = {'down': 3, 'distance': 7, 'possessionText': TEAMS[lg][2][1] + ' 18', 'shortDownDistanceText': '3rd & 7', 'possession': TEAMS[lg][3][0], 'isRedZone': True}
+    return out
 
 
 def news(lg):

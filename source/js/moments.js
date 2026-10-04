@@ -256,6 +256,25 @@ export function parsePlays(league, json, limit = 60) {
 // called strikes (so the plot is right whatever units the feed uses). zone is null until
 // there are enough called strikes to place it.
 const isPitch = (p) => !/play-result|result/i.test(p.type?.type || '') && (p.pitchVelocity != null || p.pitchType || p.pitchCoordinate || /^pitch\b/i.test(p.text || ''));
+// Where the ball is in a football game: down, distance, yard line and who has it.
+// The feed reports this in a few places depending on the endpoint, so each is tried.
+export function parseSituation(json) {
+  const drive = json?.drives?.current;
+  const lastPlay = drive?.plays?.[drive.plays.length - 1];
+  const s = json?.situation || json?.header?.competitions?.[0]?.situation || lastPlay?.end;
+  if (!s) return null;
+  const spot = String(s.possessionText || s.downDistanceText || '').match(/\b([A-Z]{2,4})\s+(\d{1,2})\b(?!.*\b[A-Z]{2,4}\s+\d)/);
+  const mid = /\b50\b/.test(String(s.possessionText || '')) && !spot;
+  if (!spot && !mid) return null;
+  const down = Number(s.down) || 0; const dist = Number(s.distance);
+  const dd = String(s.shortDownDistanceText || '').trim() || (down ? `${['', '1st', '2nd', '3rd', '4th'][down] || down} & ${dist > 0 ? dist : 'Goal'}` : '');
+  return {
+    down, distance: Number.isFinite(dist) ? dist : null, text: dd,
+    side: mid ? null : spot[1], yard: mid ? 50 : Number(spot[2]),
+    spot: mid ? '50' : `${spot[1]} ${spot[2]}`,
+    poss: String(s.possession ?? s.team?.id ?? drive?.team?.id ?? '') || null, red: !!s.isRedZone,
+  };
+}
 export function parseAtBat(json) {
   const plays = json?.plays || [];
   if (!plays.length) return null;

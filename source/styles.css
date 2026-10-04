@@ -1186,3 +1186,17 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 /* v77 */
 .rstat { text-align: center; } .rstat .v { display: flex; justify-content: center; margin: 4px 0 2px; }
 .rstat .formdot { width: 44px; height: 44px; font-size: 14px; }
+
+/* v82: football field position */
+.field { margin-top: 14px; background: var(--card); border-radius: var(--r); padding: 12px 14px 10px; }
+.fd-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; color: var(--muted); }
+.fd-top b { color: var(--text); } .fd-top > b { font-size: 16px; font-weight: 800; }
+.field.red .fd-top > b { color: var(--down); }
+.fd-bar { position: relative; height: 8px; border-radius: 4px; background: var(--card2); margin: 22px 0 6px; }
+.fd-bar i { position: absolute; top: -4px; bottom: -4px; width: 1.5px; background: var(--faint); opacity: .55; transform: translateX(-50%); }
+.fd-go { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; }
+.fd-line { position: absolute; top: -7px; bottom: -7px; width: 2.5px; background: #f5c542; border-radius: 2px; transform: translateX(-50%); }
+.fd-ball { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 26px; height: 26px; border-radius: 50%; background: var(--bg); border: 2px solid var(--accent); display: grid; place-items: center; font-size: 10px; color: var(--accent); overflow: hidden; }
+.fd-ball img { width: 20px; height: 20px; object-fit: contain; }
+.fd-lab { position: relative; height: 14px; font-size: 10.5px; font-weight: 700; color: var(--faint); }
+.fd-lab span { position: absolute; transform: translateX(-50%); }
