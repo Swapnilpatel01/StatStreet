@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 82;
+const APP_VERSION = 83;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3734,15 +3734,33 @@ function playsSection(g, league) {
   const [away, home] = [g.teams.find((t) => !t.home) || g.teams[0], g.teams.find((t) => t.home) || g.teams[1]];
   const show = ui.playsAll === g.id ? c.plays : c.plays.slice(0, 25);
   const now = Date.now();
+  // Who was involved: the players the feed tags, else names read out of the text ("D.Jones").
+  const roster = Object.values(state.assets).filter((a) => a.kind === 'player' && a.league === league && g.teams.some((t) => t.id === a.teamId));
+  const byName = (ini, lastName) => roster.find((a) => { const parts = a.name.replace(/\s+(Jr|Sr|II|III|IV)\.?$/i, '').split(/\s+/); return parts[parts.length - 1].toLowerCase() === lastName.toLowerCase() && a.name[0].toLowerCase() === ini.toLowerCase(); });
+  const involved = (p) => {
+    const out = [];
+    const add = (a) => { if (a && !out.includes(a)) out.push(a); };
+    add(p.pid ? state.assets[`${league}:p:${p.pid}`] : null);
+    for (const id of p.pids || []) add(state.assets[`${league}:p:${id}`]);
+    if (out.length < 2) for (const m of p.text.matchAll(/\b([A-Z])\.\s?([A-Z][A-Za-z'\-]+)/g)) add(byName(m[1], m[2]));
+    if (out.length < 2 && league !== 'nfl') for (const a of roster) if (p.text.includes(a.name)) add(a);
+    // The man the headline is about comes first: the receiver on a catch, the tackler on a sack.
+    const lead = /catch/.test(p.head) ? p.text.match(/\bto ([A-Z])\.\s?([A-Z][A-Za-z'\-]+)/) : /sack/i.test(p.head) ? p.text.match(/\(([A-Z])\.\s?([A-Z][A-Za-z'\-]+)/) : null;
+    const first = lead ? byName(lead[1], lead[2]) : null;
+    if (first) { out.splice(out.indexOf(first) >= 0 ? out.indexOf(first) : out.length, 1); out.unshift(first); }
+    return out.slice(0, 2);
+  };
+  const shortName = (a) => { const parts = a.name.split(/\s+/); return parts.length > 1 ? `${parts[0][0]}. ${parts.slice(1).join(' ')}` : a.name; };
   return `${g.status === 'live' && c.atBat ? atBatCard(c.atBat, league) : ''}
     <h3>Play by play ${g.status === 'live' ? '<span class="tag live" style="margin-left:6px">LIVE</span>' : ''}</h3>
     <div class="list pbp">${show.map((p) => {
-      const a = p.pid ? state.assets[`${league}:p:${p.pid}`] : null;
+      const who = involved(p); const a = who[0];
       return `<${a ? `button data-open="${a.id}"` : 'div'} class="pb ${p.scoring ? 'sc' : ''}">
-        ${a ? avatar(a) : `<div class="avatar-fallback pb-dot">${p.scoring ? '★' : '•'}</div>`}
-        <div class="grow"><div class="pb-sit">${p.away != null && p.home != null ? `<b>${esc(away.abbr)} ${p.away}-${p.home} ${esc(home.abbr)}</b> · ` : ''}${esc(p.sit)}${p.t ? ` · ${timeAgo(p.t)}` : ''}</div>
-          <div class="pb-text">${esc(p.text)}</div>
-          ${a ? `<div class="pb-who"><span>${esc(a.name)}</span>${state.holdings[a.id] ? ' <span class="tag own">Owned</span>' : ''}</div>` : ''}</div>
+        ${a ? avatar(a) : `<div class="avatar-fallback pb-dot">${p.scoring ? '★' : esc(p.team || '•')}</div>`}
+        <div class="grow" style="min-width:0"><div class="pb-sit ellipsis">${p.away != null && p.home != null ? `<b>${esc(away.abbr)} ${p.away}-${p.home} ${esc(home.abbr)}</b> · ` : ''}${esc(p.sit)}${p.t ? ` · ${timeAgo(p.t)}` : ''}</div>
+          <div class="pb-text">${esc(p.head || p.text)}</div>
+          ${a ? `<div class="pb-who"><span>${esc(shortName(a))}</span>${state.holdings[a.id] ? ' <span class="tag own">Owned</span>' : ''}</div>` : ''}
+          ${who[1] ? `<div class="pb-who2">${esc(shortName(who[1]))}</div>` : ''}</div>
         ${p.scoring ? `<div class="pb-pts">+${p.value || ''}</div>` : ''}</${a ? 'button' : 'div'}>`; }).join('')}</div>
     ${c.plays.length > 25 && ui.playsAll !== g.id ? `<button class="more" data-act="playsall">Show all ${c.plays.length} plays</button>` : ''}`;
 }

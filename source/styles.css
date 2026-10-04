@@ -1200,3 +1200,12 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .fd-ball img { width: 20px; height: 20px; object-fit: contain; }
 .fd-lab { position: relative; height: 14px; font-size: 10.5px; font-weight: 700; color: var(--faint); }
 .fd-lab span { position: absolute; transform: translateX(-50%); }
+
+/* v83: short play-by-play */
+.pbp .pb { align-items: center; padding: 12px 14px; }
+.pbp .avatar, .pbp .avatar-fallback { width: 48px; height: 48px; margin-top: 0; }
+.pb-text { font-size: 18px; font-weight: 800; line-height: 1.2; margin: 3px 0 2px; letter-spacing: -.01em; }
+.pb-who { font-size: 14px; color: var(--text); }
+.pb-who2 { font-size: 12.5px; color: var(--faint); margin-top: 1px; }
+.pb-dot { font-size: 11px; font-weight: 800; }
+.pb-pts { font-size: 17px; margin-top: 0; }

@@ -227,6 +227,61 @@ export { ordinal };
 // The plays of one game, newest first, for the game screen. Pitch-by-pitch and clock
 // bookkeeping lines are dropped; what's left is one row per thing that happened.
 const NOISE_PLAY = /^(pitch \d|ball \d|strike \d|foul\b|.*\bpitches to\b|end of|start of|.* enters the game|.* substitution|timeout|jump ball|instant replay|coach.?s challenge|two-minute warning|official timeout)/i;
+// A play boiled down to a few words: "7-yd catch", "29-yd FG", "25-ft three", "Home run".
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+export const shortPlay = (league, text, p = {}) => cap(shortPlay0(league, text, p));
+function shortPlay0(league, text, p) {
+  const t = String(text || ''); const type = String(p.type?.text || '');
+  const yds = (re) => { const m = t.match(re); return m ? Math.abs(Number(m[1])) : null; };
+  if (league === 'nfl') {
+    const gain = Number.isFinite(Number(p.statYardage)) && p.statYardage !== null && p.statYardage !== undefined ? Number(p.statYardage) : (() => { const m = t.match(/for (-?\d+) yards?/i); return m ? Number(m[1]) : /for no gain/i.test(t) ? 0 : null; })();
+    const y = gain == null ? '' : `${gain}-yd `;
+    const td = /touchdown/i.test(type) || /\bTOUCHDOWN\b/.test(t);
+    const fg = yds(/(\d+) yard field goal/i);
+    if (/field goal/i.test(type + t)) return fg != null ? (/no good|missed|blocked/i.test(type + t) ? `Missed ${fg}-yd FG` : `${fg}-yd FG`) : 'Field goal';
+    if (/extra point|PAT\b/i.test(type + t)) return /no good|missed|blocked|failed/i.test(type + t) ? 'Missed extra point' : 'Extra point';
+    if (/two-point|2-pt|two point/i.test(type + t)) return /fail|no good/i.test(type + t) ? 'Failed 2-pt try' : '2-pt conversion';
+    if (/intercept/i.test(type + t)) return td ? 'Pick six' : 'Interception';
+    if (/fumble/i.test(type) || /FUMBLES/.test(t)) return /recovered by|RECOVERED/i.test(t) ? 'Fumble' : 'Fumble';
+    if (/sack/i.test(type) || /\bsacked\b/i.test(t)) return `${gain == null ? '' : `${Math.abs(gain)}-yd `}sack`.replace(/^s/, 'S');
+    if (/punt/i.test(type) || /\bpunts\b/i.test(t)) { const n = yds(/punts (\d+) yards?/i); return n != null ? `${n}-yd punt` : 'Punt'; }
+    if (/kickoff/i.test(type) || /\bkicks\b/i.test(t)) return td ? 'Kickoff return TD' : 'Kickoff';
+    if (/penalty/i.test(type) || /^PENALTY/i.test(t)) return 'Penalty';
+    if (/incomplet/i.test(type + t)) return 'Incomplete pass';
+    if (/pass/i.test(type) || /\bpass\b/i.test(t)) return td ? `${y}TD catch` : `${y}catch`;
+    if (/rush/i.test(type) || /(left|right) (end|tackle|guard)|up the middle|scrambles|kneels/i.test(t)) return /kneels/i.test(t) ? 'Kneel' : td ? `${y}TD run` : `${y}run`;
+    if (/timeout/i.test(type + t)) return 'Timeout';
+    return type || cap(t.split(/[.(]/)[0].trim().slice(0, 40));
+  }
+  if (league === 'nba') {
+    const shot = t.match(/\b(makes|misses)\s+(?:(\d+)-foot\s+)?(.*?)(?:\s*\(|$)/i);
+    if (shot) {
+      const miss = /miss/i.test(shot[1]); const d = shot[3].toLowerCase();
+      if (/free throw/.test(d)) return miss ? 'Missed free throw' : 'Free throw';
+      const kind = /three point/.test(d) ? 'three' : (d.match(/(alley oop dunk|driving dunk|dunk|driving layup|layup|hook shot|floating jump shot|step back jump shot|pullup jump shot|fadeaway|tip shot|jump shot|jumper|bank shot)/) || [, 'shot'])[1].replace('jump shot', 'jumper');
+      return cap(`${miss ? 'missed ' : ''}${shot[2] ? `${shot[2]}-ft ` : ''}${kind}`);
+    }
+    if (/\bsteals?\b/i.test(t)) return 'Steal';
+    if (/\bblocks?\b/i.test(t)) return 'Block';
+    if (/offensive rebound/i.test(t)) return 'Offensive rebound';
+    if (/rebound/i.test(t)) return 'Rebound';
+    if (/turnover|bad pass|traveling|lost ball/i.test(t)) return 'Turnover';
+    if (/foul/i.test(t)) return /technical/i.test(t) ? 'Technical foul' : /flagrant/i.test(t) ? 'Flagrant foul' : 'Foul';
+    if (/timeout/i.test(t)) return 'Timeout';
+    if (/enters the game/i.test(t)) return 'Substitution';
+    if (/jump ball/i.test(t)) return 'Jump ball';
+    return type || cap(t.slice(0, 40));
+  }
+  // baseball
+  const ft = yds(/(\d{3}) feet/i);
+  const rules = [[/grand slam/i, 'Grand slam'], [/homer(ed|s)|home run/i, ft ? `${ft}-ft home run` : 'Home run'], [/tripled/i, 'Triple'], [/doubled|ground rule double/i, 'Double'], [/singled/i, 'Single'],
+    [/struck out|strikes out|called out on strikes/i, 'Strikeout'], [/intentionally walked/i, 'Intentional walk'], [/walked/i, 'Walk'], [/hit by pitch/i, 'Hit by pitch'],
+    [/sacrifice fly|sac fly/i, 'Sacrifice fly'], [/sacrifice bunt|sacrificed/i, 'Sacrifice bunt'], [/double play/i, 'Double play'], [/grounded out|grounded into/i, 'Groundout'], [/flied out|flew out/i, 'Flyout'],
+    [/lined out/i, 'Lineout'], [/popped out|fouled out/i, 'Pop out'], [/reached on .*error|error/i, 'Reached on error'], [/fielder's choice/i, "Fielder's choice"],
+    [/caught stealing/i, 'Caught stealing'], [/stole|steals/i, 'Stolen base'], [/wild pitch/i, 'Wild pitch'], [/passed ball/i, 'Passed ball'], [/balk/i, 'Balk'], [/pitching change|relieved/i, 'Pitching change']];
+  for (const [re, label] of rules) if (re.test(t)) return label;
+  return type || cap(t.slice(0, 40));
+}
 export function parsePlays(league, json, limit = 60) {
   let raw = [];
   if (league === 'nfl') {
@@ -244,7 +299,9 @@ export function parsePlays(league, json, limit = 60) {
     if (league === 'mlb' && p.type?.type && !/play-result|result/i.test(p.type.type) && !p.scoringPlay) continue;
     const sit = situation(league, p);
     const who = (p.participants || []).find((x) => /batter|scorer|shooter|passer|rusher|receiver/i.test(x.type || '')) || (p.participants || [])[0];
-    out.push({ id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), sit: league === 'nfl' && p.start?.downDistanceText ? `${sit.text} · ${p.start.downDistanceText}` : sit.text,
+    const dd = league === 'nfl' ? String(p.start?.shortDownDistanceText || p.start?.downDistanceText || '').replace(/\s+at\s+.*$/i, '') : '';
+    out.push({ id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), head: shortPlay(league, text, p), sit: dd ? `${sit.text} · ${dd}` : sit.text,
+      pids: [...new Set((p.participants || []).map((x) => (x.athlete?.id != null ? String(x.athlete.id) : null)).filter(Boolean))].slice(0, 3),
       away: num(p.awayScore), home: num(p.homeScore), scoring: !!p.scoringPlay, value: num(p.scoreValue) || 0,
       pid: who?.athlete?.id != null ? String(who.athlete.id) : null, team: p._team || p.team?.abbreviation || null, t: Date.parse(p.wallclock || p.modified || '') || null });
   }
