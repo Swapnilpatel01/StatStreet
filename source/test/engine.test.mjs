@@ -302,7 +302,12 @@ t('chart gaps from time away are filled with market wiggle; real points and jump
   let turns = 0; for (let i = 2; i < first.length; i++) if ((first[i] - first[i - 1]) * (first[i - 1] - first[i - 2]) < 0) turns++;
   assert.ok(turns >= 5, `changes direction: ${turns}`);
   assert.ok(first.every((p) => p > 8.8 && p < 11.6));
-  assert.ok(second.every((p) => p < 11.9), 'before a big result the price stays at the old level, then jumps');
+  const hold = []; const game = [];
+  for (let i = 0; i < h.length; i += 2) { if (h[i] > t0 + 9 * H + 60e3 && h[i] < t0 + 17 * H) hold.push(h[i + 1]); if (h[i] > t0 + 17 * H && h[i] < t0 + 20 * H) game.push(h[i + 1]); }
+  assert.ok(hold.every((p) => p < 11.9), 'before a big result the price stays at the old level');
+  assert.ok(game.length >= 8 && game.some((p) => p > 11) && game.every((p) => p > 8 && p < 17), 'the move happens over the game, choppily');
+  let gt = 0; for (let i = 2; i < game.length; i++) if ((game[i] - game[i - 1]) * (game[i - 1] - game[i - 2]) < 0) gt++;
+  assert.ok(gt >= 2, `the game move is not one straight line: ${gt}`);
   assert.equal(E.fillGaps(st, t0 + 22 * H), 0, 'filling twice changes nothing');
 });
 

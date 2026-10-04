@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 61;
+const APP_VERSION = 62;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3457,7 +3457,12 @@ function closeQuick() { ui.quick = null; const el = $('#qa'); el.hidden = true; 
 
 function marketPill() {
   const m = marketStatus(state);
-  return `<button class="mkt ${m.state}" data-tab="games" aria-label="Market status: ${esc(m.text)}"><span class="dot"></span>${m.state === 'live' ? 'Market live' : m.state === 'soon' ? 'Opens later' : 'Market quiet'} <span class="muted">· ${esc(m.text)}</span></button>`;
+  const label = m.state === 'live' ? 'Market live' : m.state === 'soon' ? 'Opens later' : 'Market quiet';
+  // A long message scrolls round and round so all of it can be read. The start point comes from
+  // the clock, so redrawing the page doesn't send it back to the beginning.
+  const long = m.text.length > 30; const dur = Math.max(8, Math.round(m.text.length * 0.28));
+  const txt = long ? `<span class="mq"><span class="mq-in" style="animation-duration:${dur}s;animation-delay:-${((Date.now() / 1000) % dur).toFixed(2)}s"><span>${esc(m.text)}</span><span aria-hidden="true">${esc(m.text)}</span></span></span>` : `<span class="muted">· ${esc(m.text)}</span>`;
+  return `<button class="mkt ${m.state}" data-tab="games" aria-label="Market status: ${esc(m.text)}"><span class="dot"></span>${label} ${long ? '<span class="muted">·</span>' : ''}${txt}</button>`;
 }
 // ---------- about ----------
 const bioLoading = new Set();
@@ -3866,7 +3871,8 @@ async function runSync({ manual = false, liveOnly = false } = {}) {
   runExtras(state, Date.now()); runExtras3(state, Date.now());
   runCareer(state, Date.now());
   state.lastTick = state.lastTick || Date.now();
-  if (!liveOnly && !failures) { tick(state, Date.now()); fillGaps(state, Date.now()); if (ui.detail && !ui.scrub) ui.chartAnim = false; }
+  // Even when one league's feed fails, the others' charts still get their points and gaps filled.
+  if (!liveOnly) { tick(state, Date.now()); fillGaps(state, Date.now()); if (ui.detail && !ui.scrub) ui.chartAnim = false; }
   dirty = true; await save();
   if (needsBoot) {
     if (!assetsList().length) { bootFailed(netStats.lastError || syncError || 'No data returned.'); return; }

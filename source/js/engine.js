@@ -858,7 +858,7 @@ export function tick(state, now = Date.now(), { record = true } = {}) {
 // between two points. This fills each long gap with the kind of wiggle the market has when
 // it is open. Every recorded point stays exactly where it was; a jump from a game result
 // stays a jump at the time it happened.
-const GAP_MIN = 40 * 60e3; const GAP_STEP = 12 * 60e3; const GAP_TAU = 90 * 60e3;
+const GAP_MIN = 40 * 60e3; const GAP_STEP = 12 * 60e3; const GAP_TAU = 90 * 60e3; const GAME_WIN = 3 * HOUR;
 export function fillGaps(state, now = Date.now(), rnd = gauss) {
   let filled = 0;
   for (const a of Object.values(state.assets)) {
@@ -874,16 +874,25 @@ export function fillGaps(state, now = Date.now(), rnd = gauss) {
       out ||= h.slice(0, i);
       const n = Math.max(3, Math.min(60, Math.round(gap / GAP_STEP)));
       const dtn = gap / (n + 1);
-      // A big step is a result landing: hold the old level (with noise) and jump at the end.
+      // A big step is a game result landing: the price holds its old level, then trades its way
+      // to the new one over the hours the game was on (choppy, like live trading), not in one
+      // straight line and not in one vertical step.
       const jump = Math.abs(p1 / p0 - 1) > 0.025;
+      const win = Math.min(gap * 0.6, GAME_WIN);
       const e = Math.exp(-dtn / GAP_TAU); const s = sigma * Math.sqrt(1 - e * e);
       const xs = []; let x = 0;
       for (let k = 0; k < n; k++) { x = x * e + s * rnd(); xs.push(x + sigma * 0.2 * rnd()); } // a slow drift plus tick-to-tick jitter
+      const wob = jump ? Array.from({ length: 7 }, () => clamp(rnd(), -1.5, 1.5)) : [];
       for (let k = 0; k < n; k++) {
         const f = (k + 1) / (n + 1);
         const pin = xs[n - 1] * f; // tie the noise back to zero at the far end
-        const base = jump ? p0 : p0 * Math.pow(p1 / p0, f);
-        out.push(Math.round(t0 + dtn * (k + 1)), Math.max(0.01, Math.round(base * Math.exp(xs[k] - pin) * 100) / 100));
+        const tk = dtn * (k + 1);
+        const g = jump ? Math.max(0, (tk - (gap - win)) / win) : f; // share of the move made so far
+        // In the game window the path lurches: most of a move comes in a few bursts.
+        const lurch = jump && g > 0 ? 0.35 * Math.sin(Math.PI * g) * (wob[k % wob.length]) : 0;
+        const base = p0 * Math.pow(p1 / p0, clamp(g + lurch, -0.15, 1.15));
+        const amp = jump && g > 0 ? 2 : 1;
+        out.push(Math.round(t0 + tk), Math.max(0.01, Math.round(base * Math.exp(amp * (xs[k] - pin)) * 100) / 100));
       }
       filled++;
     }
