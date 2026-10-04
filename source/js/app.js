@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 87;
+const APP_VERSION = 88;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3937,8 +3937,8 @@ function boxTable(league, rows) {
   return (BOX_COLS[league] || []).map(([title, has, cols]) => {
     const xs = rows.filter((x) => has(x.p.line)).sort((x, y) => (y.st - x.st) || (gameScore(league, y.p.line) - gameScore(league, x.p.line)));
     if (!xs.length) return '';
-    return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th></th><th>RTG</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th><th>Today</th></tr>
-      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="px">${money(a.price)}</td><td class="chg ${cls(change(a, Date.now()))}" data-c="${a.id}" data-plain="1">${fmtPct(change(a, Date.now()))}</td></tr>`).join('')}</table></div>`;
+    return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th></th><th>RTG</th><th>Today</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
+      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td><td class="chg ${cls(change(a, Date.now()))}" data-c="${a.id}" data-plain="1">${fmtPct(change(a, Date.now()))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="px">${money(a.price)}</td></tr>`).join('')}</table></div>`;
   }).join('');
 }
 function teamTab(g, league, t) {
