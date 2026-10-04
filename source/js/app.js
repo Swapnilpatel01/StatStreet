@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 79;
+const APP_VERSION = 80;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1754,7 +1754,8 @@ function drawDetailChart() {
   const now = Date.now();
   const animate = !!ui.chartAnim; ui.chartAnim = false;
   // Game days along the bottom of the chart (skipped on the 1-day view).
-  const marks = ui.range === '1D' ? [] : (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: e.pct, text: e.text }));
+  // Every game in view gets a dot on the line (on the 1-day view too: today's game).
+  const marks = (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: e.pct, text: e.text }));
   lineChart(el, a.hist.concat([now, a.price]), now - RANGES[ui.range], {
     animate, marks,
     onScrub: (pt) => {

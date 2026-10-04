@@ -60,7 +60,7 @@ export function lineChart(el, flat, from, { onScrub, height = 190, animate = fal
       <path class="area" d="${d}L${x(t1)},${h}L${x(t0)},${h}Z" fill="url(#${gid})"/>
       ${bars}
       <path class="ln" pathLength="1" d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-      ${inR.map((m) => { let b = pts[0]; for (const p of pts) if (Math.abs(p[0] - m.t) < Math.abs(b[0] - m.t)) b = p; return `<circle class="gdot" cx="${x(b[0]).toFixed(1)}" cy="${y(b[1]).toFixed(1)}" r="3" fill="var(--bg)" stroke="var(--${m.v >= 0 ? 'up' : 'down'})" stroke-width="1.8"/>`; }).join('')}
+      ${inR.map((m) => { let b = pts[0]; for (const p of pts) if (Math.abs(p[0] - m.t) < Math.abs(b[0] - m.t)) b = p; return `<circle class="gdot" cx="${x(b[0]).toFixed(1)}" cy="${y(b[1]).toFixed(1)}" r="5" fill="var(--${m.v >= 0 ? 'up' : 'down'})" stroke="var(--bg)" stroke-width="2.5"/>`; }).join('')}
       <circle cx="${x(last[0])}" cy="${y(last[1])}" r="3.5" fill="${color}"/>
       <g class="cursor" style="display:none">
         <line y1="0" y2="${h}" stroke="var(--muted)" stroke-width="1"/>
@@ -78,7 +78,7 @@ export function lineChart(el, flat, from, { onScrub, height = 190, animate = fal
     const cx = x(best[0]);
     cur.querySelector('line').setAttribute('x1', cx); cur.querySelector('line').setAttribute('x2', cx);
     cur.querySelector('circle').setAttribute('cx', cx); cur.querySelector('circle').setAttribute('cy', y(best[1]));
-    let mark = null; for (const m of inR) if (Math.abs(x(m.t) - cx) < 9 && (!mark || Math.abs(x(m.t) - cx) < Math.abs(x(mark.t) - cx))) mark = m;
+    let mark = null; for (const m of inR) if (Math.abs(x(m.t) - cx) < 16 && (!mark || Math.abs(x(m.t) - cx) < Math.abs(x(mark.t) - cx))) mark = m;
     onScrub?.({ t: best[0], p: best[1], first: ys[0], mark });
   };
   const end = () => { cur.style.display = 'none'; onScrub?.(null); };

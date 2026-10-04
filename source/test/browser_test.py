@@ -189,6 +189,9 @@ with sync_playwright() as p:
     page.fill('#q', 'Luka'); page.wait_for_timeout(200)
     page.click('#mlist .item >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
     page.screenshot(path=f'{OUT}/2-detail.png')
+    print('game dots on 1D:', page.locator('#dchart .gdot').count())
+    page.click('#sheet .ranges [data-range="1W"]'); page.wait_for_timeout(500); nd = page.locator('#dchart .gdot').count(); print('game dots on 1W:', nd); assert nd >= 1
+    page.screenshot(path=f'{OUT}/83-chart-dots.png'); page.click('#sheet .ranges [data-range="1D"]'); page.wait_for_timeout(400)
     assert page.locator('#sheet .research').count() == 1 and page.locator('#sheet .rs-tiles > div').count() == 3
     page.evaluate("document.querySelector('#sheet').scrollTop = document.querySelector('.research').offsetTop - 120"); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/2b-research.png'); page.evaluate("document.querySelector('#sheet').scrollTop = 0"); page.wait_for_timeout(200)
