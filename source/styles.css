@@ -1110,3 +1110,35 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .formdot.hi { color: var(--up); background: var(--up-bg); }
 .formdot.mid { color: #ffa726; background: color-mix(in srgb, #ffa726 14%, transparent); }
 .formdot.lo { color: var(--down); background: var(--down-bg); }
+
+/* v65 */
+.formdot.sm { width: 26px; height: 26px; font-size: 10.5px; border-width: 1.5px; }
+.formdot.xs { width: 20px; height: 20px; font-size: 9px; border-width: 1.5px; }
+.soon { color: #ffa726; font-weight: 800; }
+.chips.tight { gap: 6px; } .chips.tight .chip { padding-left: 12px; padding-right: 12px; }
+.gtabs.stick { gap: 6px; } .gtabs.stick .chip { font-size: 13.5px; padding: 7px 11px; }
+.chance { flex: none; font-size: 11.5px; font-weight: 800; color: var(--muted); background: var(--card); padding: 2px 7px; border-radius: 6px; }
+.tops { margin-top: 0; }
+.top { position: relative; width: 150px; background: var(--card); border-radius: var(--r); padding: 12px 10px 10px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
+.top .avatar, .top .avatar-fallback { width: 46px; height: 46px; }
+.top .name { max-width: 100%; font-weight: 700; font-size: 14px; }
+.top .tiny { min-height: 28px; line-height: 1.2; }
+.top .rk { position: absolute; left: 8px; top: 8px; width: 20px; height: 20px; border-radius: 50%; background: var(--card2); font-size: 11px; font-weight: 800; display: grid; place-items: center; color: var(--muted); }
+.top:first-child .rk { background: #f5c542; color: #1a1300; }
+.boxwrap { overflow-x: auto; background: var(--card); border-radius: var(--r); -webkit-overflow-scrolling: touch; }
+.box { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.box th { font-size: 10.5px; font-weight: 700; color: var(--faint); padding: 9px 8px 5px; text-align: right; }
+.box td { padding: 9px 8px; text-align: right; border-top: 1px solid var(--line); color: var(--muted); }
+.box td:first-child, .box th:first-child { position: sticky; left: 0; background: var(--card); text-align: left; padding-left: 12px; color: var(--text); max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.box td:first-child b { font-weight: 600; } .box tr.st td:first-child b { font-weight: 800; }
+.box td:nth-child(3) { color: var(--text); font-weight: 700; }
+.box td:last-child { font-weight: 700; padding-right: 12px; }
+.box td.up { color: var(--up); } .box td.down { color: var(--down); }
+.box tr[data-open] { cursor: pointer; }
+.gpin { --ph: calc(var(--safe-t) + 8px + 34px); position: sticky; top: calc(-1 * (var(--safe-t) + 8px)); z-index: 5; margin: calc(14px - var(--ph)) -16px 0; padding: 0 16px 8px; pointer-events: none; }
+.gpin > * { pointer-events: auto; }
+.gpin .dtabs.gtabs { margin-top: 0; }
+.gpin-score { height: var(--ph); display: flex; align-items: flex-end; justify-content: center; gap: 8px; padding-bottom: 8px; font-size: 15px; opacity: 0; pointer-events: none; transition: opacity .15s; }
+.gpin-score .s { font-weight: 900; font-size: 17px; font-variant-numeric: tabular-nums; }
+#game.pinned .gpin { background: var(--bg); box-shadow: 0 1px 0 var(--line); }
+#game.pinned .gpin-score { opacity: 1; }

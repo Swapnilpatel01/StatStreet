@@ -80,7 +80,9 @@ with sync_playwright() as p:
             assert page.locator(f'#game .gsec[data-gsec={k}]').is_visible()
             page.screenshot(path=f'{OUT}/71-game-{k}.png')
         print('team tab rows:', page.locator('#game .gsec[data-gsec=home] .item').count())
-        print('form circles:', page.locator('#game .gsec[data-gsec=home] .formdot').count()); assert page.locator('#game .gsec[data-gsec=home] .formdot').count() >= 1
+        print('box rows:', page.locator('#game .gsec[data-gsec=home] .box tr[data-open]').count()); assert page.locator('#game .gsec[data-gsec=home] .box tr[data-open]').count() >= 1
+        page.screenshot(path=f'{OUT}/79-box.png')
+        page.click('#game [data-gview=summary]'); page.wait_for_timeout(200); assert page.locator('#game .tops .top').count() >= 1; page.screenshot(path=f'{OUT}/80-top.png')
         assert not __import__('re').search(r'\d\.\d{4,}', page.text_content('#game')), 'no long decimals'
         page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     page.click('.daystrip .dayb >> nth=2'); page.wait_for_timeout(900); page.screenshot(path=f'{OUT}/72-scores-yday.png')
@@ -117,6 +119,7 @@ with sync_playwright() as p:
         page.click('#game [data-act=placebet]'); page.wait_for_timeout(300); print('in-game bet:', toast(page)); assert toast(page).startswith('Bet placed')
         assert not page.evaluate("document.querySelector('#game').hidden") and 'Your bets on this game' in page.text_content('#game')
     page.click('#game [data-gview=away]'); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/74-game-team-pre.png')
+    assert page.locator('#game .gsec[data-gsec=away] .formdot').count() >= 1
     page.click('#game [data-gview=summary]'); page.wait_for_timeout(200)
     page.click('#game .gsec[data-gsec=summary] .item[data-open] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
     assert page.locator('#sheet .rar').count() == 1 and page.locator('#sheet .cardsec').count() == 1
@@ -157,6 +160,9 @@ with sync_playwright() as p:
         page.click('[data-stake="1"]'); page.click('[data-act=placebet]'); page.wait_for_timeout(200)
         print('prop:', toast(page)); assert toast(page).startswith('Bet placed')
         page.screenshot(path=f'{OUT}/0h-props.png', full_page=True)
+        if page.locator('[data-page=bets]').count():
+            page.click('[data-page=bets]'); page.wait_for_selector('#page:not([hidden])'); page.wait_for_timeout(300)
+            assert 'Bet history' in page.text_content('#page'); page.screenshot(path=f'{OUT}/81-bets.png'); page.click('#page [data-act=pageback]'); page.wait_for_timeout(400)
     page.click('[data-gtab=locker]'); page.wait_for_timeout(200)
     page.screenshot(path=f'{OUT}/0i-locker.png', full_page=True)
     assert page.locator('.pack').count() == 4 and page.locator('.theme').count() == 5
