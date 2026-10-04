@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 88;
+const APP_VERSION = 89;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1453,7 +1453,7 @@ function renderLot(focusBid = false) {
 
 function findGame(league, id) {
   const live = state.liveGames[id];
-  if (live) return { status: 'live', league, id, name: live.name, detail: live.detail, teams: live.teams };
+  if (live) return { status: 'live', league, id, name: live.name, detail: live.detail, teams: live.teams, date: live.date || sbGames.get(id)?.ev.date };
   const r = (state.results || []).find((x) => x.id === id);
   if (r) return { status: 'final', league, id, name: r.name, date: r.date, teams: r.teams[0]?.lines ? r.teams : (sbGames.get(id)?.ev.teams || r.teams), preseason: r.preseason };
   const s = (state.schedule?.[league] || []).find((x) => x.id === id);
@@ -3932,13 +3932,22 @@ const BOX_COLS = {
     ['Pitching', (l) => l.ip > 0, [['IP', 'ip'], ['H', 'ph'], ['ER', 'er'], ['BB', 'pbb'], ['K', 'pk']]]],
 };
 const rtgChip = (v) => `<span class="rtgc ${formTone(v)}">${v.toFixed(1)}</span>`;
-function boxTable(league, rows) {
+// What a player's price has done over this one game: from just before it started to now
+// (or to just after it ended).
+function gameChange(a, g) {
+  const now = Date.now();
+  const start = g.date || now - 3 * HOUR;
+  const p0 = priceAt(a, start - 10 * 60e3);
+  const p1 = g.status === 'live' ? a.price : priceAt(a, Math.min(now, start + ((LEAGUES[a.league]?.gameHours || 3) + 1) * HOUR));
+  return p0 > 0 && p1 > 0 ? p1 / p0 - 1 : 0;
+}
+function boxTable(league, rows, g) {
   const val = (l, k) => { const v = typeof k === 'function' ? k(l) : l[k]; return typeof v === 'number' ? Math.round(v * 10) / 10 : (v ?? ''); };
   return (BOX_COLS[league] || []).map(([title, has, cols]) => {
     const xs = rows.filter((x) => has(x.p.line)).sort((x, y) => (y.st - x.st) || (gameScore(league, y.p.line) - gameScore(league, x.p.line)));
     if (!xs.length) return '';
-    return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th></th><th>RTG</th><th>Today</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
-      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td><td class="chg ${cls(change(a, Date.now()))}" data-c="${a.id}" data-plain="1">${fmtPct(change(a, Date.now()))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="px">${money(a.price)}</td></tr>`).join('')}</table></div>`;
+    return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th></th><th>RTG</th><th>Game</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
+      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td><td class="chg ${cls(gameChange(a, g))}">${fmtPct(gameChange(a, g))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="px">${money(a.price)}</td></tr>`).join('')}</table></div>`;
   }).join('');
 }
 function teamTab(g, league, t) {
@@ -3953,7 +3962,7 @@ function teamTab(g, league, t) {
   const inj = (a) => (a.injury && !/^active$/i.test(a.injury.status || '') ? ` <span class="tag inj">${esc(shortInj(a.injury.status))}</span>` : '');
   if (box.length) {
     const rows = box.map((p) => ({ p, a: state.assets[`${league}:p:${p.id}`], st: c.box.starters.has(p.id) })).filter((x) => x.a);
-    return `${head}${boxTable(league, rows)}${rows.some((x) => x.st) ? '<p class="tiny faint" style="margin:8px 2px">Starters are listed first, in bold. Tap a player to open him.</p>' : ''}
+    return `${head}${boxTable(league, rows, g)}${rows.some((x) => x.st) ? '<p class="tiny faint" style="margin:8px 2px">Starters are listed first, in bold. Tap a player to open him.</p>' : ''}
       ${!rows.length ? '<div class="card empty" style="margin-top:12px">No box score yet.</div>' : ''}`;
   }
   // Before the game: the team's players in your market, best first, with their season averages.

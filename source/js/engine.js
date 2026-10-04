@@ -755,7 +755,7 @@ export function applyLiveGame(state, league, game, { now = Date.now() } = {}) {
   const frac = clamp(game.period / (game.regPeriods || 4), 0.05, 1);
   const done = clamp(((game.period || 1) - 0.5) / (game.regPeriods || 4), 0.05, 1); // how much of the game is played (for live prop lines)
   const prev = state.liveGames[game.id];
-  state.liveGames[game.id] = { league, name: game.name, detail: game.detail, teams: game.teams, t: now, frac: done, wp: prev?.wp || [], wpT: prev?.wpT || 0 };
+  state.liveGames[game.id] = { league, name: game.name, detail: game.detail, teams: game.teams, t: now, frac: done, wp: prev?.wp || [], wpT: prev?.wpT || 0, date: game.date || prev?.date || now };
   // Live win chance for the away side, kept as a short history for the game screen's chart.
   { const lg = state.liveGames[game.id]; const p = liveWinProb(state, league, game, done);
     if (p != null && now - lg.wpT > 45e3) { lg.wp.push(Math.round(p * 1000) / 1000); lg.wpT = now; if (lg.wp.length > 240) lg.wp = lg.wp.filter((_, i) => i % 2 === 0); } }
