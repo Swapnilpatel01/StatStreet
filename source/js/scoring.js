@@ -207,7 +207,8 @@ export function parseScoreboard(league, json) {
       regPeriods: comp.format?.regulation?.periods || (league === 'mlb' ? 9 : 4),
       teams: (comp.competitors || []).map((c) => ({
         id: String(c.team?.id ?? c.id), abbr: c.team?.abbreviation, score: num(c.score),
-        winner: c.winner === true, home: c.homeAway === 'home', logo: c.team?.logo || '',
+        winner: c.winner === true, home: c.homeAway === 'home', logo: c.team?.logo || '', color: /^[0-9a-f]{6}$/i.test(c.team?.color || '') ? c.team.color : '',
+        lines: (c.linescores || []).map((l) => num(l.value ?? l.displayValue)),
       })),
     };
   });

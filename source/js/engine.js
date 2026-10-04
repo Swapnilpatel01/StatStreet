@@ -588,7 +588,7 @@ function recordResult(state, league, game) {
   const away = game.teams.find((t) => t !== home);
   state.results.unshift({
     id: game.id, league, date: game.date, preseason: !!game.preseason, name: `${away.abbr} @ ${home.abbr}`,
-    teams: [away, home].map((t) => ({ id: t.id, abbr: t.abbr, score: t.score, winner: !!t.winner || t.score > (t === home ? away : home).score })),
+    teams: [away, home].map((t) => ({ id: t.id, abbr: t.abbr, score: t.score, home: t === home, ...(t.lines?.length ? { lines: t.lines } : {}), winner: !!t.winner || t.score > (t === home ? away : home).score })),
   });
   state.results.sort((x, y) => y.date - x.date);
   if (state.results.length > 80) state.results.length = 80;
@@ -695,11 +695,26 @@ export function rewindTeamRecords(state, league, games) {
 }
 
 // In-progress game: players move on their pace, teams move on the scoreboard.
+// Win chance during a game: the score margin against what is still to play, starting from
+// the pre-game chance the share prices imply. Returns the away side's chance.
+const MARGIN_SD = { nba: 12, nfl: 13.5, mlb: 4 };
+export function liveWinProb(state, league, game, frac) {
+  const home = game.teams.find((t) => t.home) || game.teams[1]; const away = game.teams.find((t) => t !== home);
+  if (!home || !away) return null;
+  const pre = clamp(teamWinProb(state, league, home.id, away.id, true, !!game.preseason), 0.03, 0.97);
+  const z0 = Math.log(pre / (1 - pre)) / 1.702; const rem = Math.max(1 - frac, 0.03); const sd = MARGIN_SD[league] || 10;
+  const z = ((home.score || 0) - (away.score || 0) + z0 * sd * rem) / (sd * Math.sqrt(rem));
+  return 1 - 1 / (1 + Math.exp(-1.702 * z));
+}
 export function applyLiveGame(state, league, game, { now = Date.now() } = {}) {
   const L = LEAGUES[league];
   const frac = clamp(game.period / (game.regPeriods || 4), 0.05, 1);
   const done = clamp(((game.period || 1) - 0.5) / (game.regPeriods || 4), 0.05, 1); // how much of the game is played (for live prop lines)
-  state.liveGames[game.id] = { league, name: game.name, detail: game.detail, teams: game.teams, t: now, frac: done };
+  const prev = state.liveGames[game.id];
+  state.liveGames[game.id] = { league, name: game.name, detail: game.detail, teams: game.teams, t: now, frac: done, wp: prev?.wp || [], wpT: prev?.wpT || 0 };
+  // Live win chance for the away side, kept as a short history for the game screen's chart.
+  { const lg = state.liveGames[game.id]; const p = liveWinProb(state, league, game, done);
+    if (p != null && now - lg.wpT > 45e3) { lg.wp.push(Math.round(p * 1000) / 1000); lg.wpT = now; if (lg.wp.length > 240) lg.wp = lg.wp.filter((_, i) => i % 2 === 0); } }
   for (const p of game.players || []) {
     const a = ensurePlayer(state, league, p);
     const gs = gameScore(league, p.line);

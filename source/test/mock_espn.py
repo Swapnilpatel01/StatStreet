@@ -92,8 +92,8 @@ def event_for(lg, date, idx, state):
     return {'id': eid, 'date': dt.strftime('%Y-%m-%dT%H:%MZ'), 'shortName': f'{b[1]} @ {a[1]}', 'season': {'type': 1 if lg == 'nba' else 2},
             'status': {'period': 3 if state == 'in' else 4, 'type': st},
             'competitions': [{'format': {'regulation': {'periods': 9 if lg == 'mlb' else 4}}, 'competitors': [
-                {'homeAway': 'home', 'winner': state == 'post' and sa > sb, 'score': str(sa), 'team': {'id': a[0], 'abbreviation': a[1]}},
-                {'homeAway': 'away', 'winner': state == 'post' and sb > sa, 'score': str(sb), 'team': {'id': b[0], 'abbreviation': b[1]}}]}]}
+                {'homeAway': 'home', 'winner': state == 'post' and sa > sb, 'score': str(sa), 'linescores': ([] if state == 'pre' else [{'value': sa // 4}, {'value': sa // 4}, {'value': sa - 2 * (sa // 4)}]), 'team': {'id': a[0], 'abbreviation': a[1], 'color': '552583'}},
+                {'homeAway': 'away', 'winner': state == 'post' and sb > sa, 'score': str(sb), 'linescores': ([] if state == 'pre' else [{'value': sb // 4}, {'value': sb // 4}, {'value': sb - 2 * (sb // 4)}]), 'team': {'id': b[0], 'abbreviation': b[1], 'color': '007ac1'}}]}]}
 
 
 def scoreboard(lg, qs):

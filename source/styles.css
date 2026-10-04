@@ -1053,3 +1053,54 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .mkt:has(.mq) { display: flex; }
 @keyframes mq { to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) { .mkt .mq-in { animation: none; } }
+
+/* v63: UI pass */
+.item .spark { flex: none; opacity: .9; }
+.gmark { font-size: 12px; font-weight: 600; margin-top: 3px; }
+.gmark b { font-weight: 800; }
+.gwrap { min-height: 100%; display: flex; flex-direction: column; }
+.gwrap > .sliptab, .gwrap > .slip.dock { margin-top: auto; bottom: 0; }
+.gwrap > .slip.dock { max-height: 70vh; overflow-y: auto; }
+.gwrap > .pkline + .sliptab, .gwrap > .card + .sliptab { margin-top: auto; }
+.career-slim { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border-radius: 12px; background: var(--card); font-size: 13px; margin-top: 6px; }
+.career-slim .lv { flex: none; width: 24px; height: 24px; border-radius: 8px; background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #000)); color: #04130c; font-weight: 900; font-size: 12.5px; display: grid; place-items: center; }
+.career-slim .xpbar { margin: 0; }
+.career-slim .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tc); flex: none; }
+.career-slim b { color: var(--tc); }
+.gtabs.stick { --h: calc(var(--safe-t) + 12px); position: sticky; top: calc(-1 * var(--h)); z-index: 6; margin: calc(-1 * var(--h)) -16px 0; padding: calc(var(--h) + 8px) 16px 8px; background: var(--bg); }
+.view .topbar, .gwrap > .career, .gwrap > .career-slim, .gwrap > .season-strip { position: relative; z-index: 7; }
+.lgh { display: flex; align-items: center; gap: 8px; margin: 4px 0 -2px; }
+.chip.mine { margin-left: auto; }
+.chip.mine.on { color: var(--accent); border-color: var(--accent); }
+.sgame.tint { background: linear-gradient(90deg, color-mix(in srgb, var(--ca) 16%, var(--card)), var(--card) 38%); }
+.sgame.tint .sg-team:last-child { position: relative; }
+.sgame { position: relative; overflow: hidden; }
+.sgame.tint::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: linear-gradient(var(--ca) 50%, var(--ch) 50%); }
+.sgame.tint.live { box-shadow: none; }
+.skel i, .skel-lines i { display: block; border-radius: 8px; background: var(--card2); animation: artpulse 1.2s ease-in-out infinite; }
+.sgame.skel .sg-teams i { height: 26px; width: 70%; } .sgame.skel .sg-teams i + i { width: 55%; }
+.sgame.skel .sg-side i { height: 16px; width: 60px; }
+.skel-lines i { height: 13px; margin: 0 0 12px; } .skel-lines i:nth-child(2n) { width: 70%; } .skel-lines i:last-child { margin: 0; width: 45%; }
+.empty.es { padding: 30px 20px; display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 12px; }
+.empty.es svg { width: 44px; height: 44px; fill: none; stroke: var(--faint); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; margin-bottom: 4px; }
+.empty.es b { color: var(--text); font-size: 16px; } .empty.es div { font-size: 13.5px; max-width: 280px; }
+.l5 { display: flex; align-items: center; gap: 3px; margin-top: 4px; }
+.l5 i { font-style: normal; min-width: 20px; padding: 1px 3px; border-radius: 4px; font-size: 10px; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+.l5 i.o { background: var(--up-bg); color: var(--up); } .l5 i.u { background: var(--down-bg); color: var(--down); }
+.l5 span { font-size: 10px; color: var(--faint); margin-left: 3px; }
+.item.bet { align-items: stretch; }
+.leg { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.leg b { color: var(--text); }
+.legbar { position: relative; height: 5px; border-radius: 3px; background: var(--card2); margin-top: 5px; overflow: visible; }
+.legbar i { display: block; height: 100%; border-radius: 3px; background: var(--muted); transition: width .6s; }
+.legbar u { position: absolute; left: 80%; top: -3px; bottom: -3px; width: 2px; background: var(--text); border-radius: 1px; }
+.leg.hit .legbar i { background: var(--up); } .leg.miss .legbar i { background: var(--down); }
+.wpchart { display: block; width: 100%; height: 44px; margin-top: 8px; }
+.wpchart line { stroke: var(--line); stroke-width: .6; stroke-dasharray: 1.5 2; vector-effect: non-scaling-stroke; }
+.wpchart polyline { fill: none; stroke: var(--text); stroke-width: 1.8; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.linescore { overflow-x: auto; margin-top: 14px; background: var(--card); border-radius: var(--r); padding: 8px 12px; }
+.linescore table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.linescore th { color: var(--faint); font-weight: 600; font-size: 11px; padding: 2px 6px; }
+.linescore td { text-align: center; padding: 5px 6px; color: var(--muted); }
+.linescore td:first-child { text-align: left; font-weight: 800; color: var(--text); }
+.linescore td:last-child { color: var(--text); }

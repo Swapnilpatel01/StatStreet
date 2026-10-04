@@ -27,7 +27,7 @@ import {
 } from './career.js';
 import {
   CONTEST_TIERS, PAYOUT, LINEUP, availableContests, enterContest, standings, draftPool, salaryCap, salary, entryFee, ordinal,
-  propBoard, placeBet, MAX_LEGS, PROP_ODDS, potentialPayout,
+  propBoard, placeBet, MAX_LEGS, PROP_ODDS, potentialPayout, propStat,
 } from './contests.js';
 import {
   B_RARITY, B_PACKS, AUCTION_LENGTHS, fuseFee, fuseCost, packCost, popularity, bindMarket, SELLER_FEE, bType, bRarity, describe, describeShort, traitList, rIdx, slots, boosterState, equipped, boosterOn,
@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 62;
+const APP_VERSION = 63;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -128,7 +128,7 @@ function assetRow(a, { right = 'pill', range = '1D', note = '' } = {}) {
   return `<button class="item" data-open="${a.id}">
     ${avatar(a)}
     <div class="grow"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${note || subLine(a)}</div></div>
-    ${right === 'spark' ? sparkline(a.hist, from) : ''}
+    ${right === 'spark' ? sparkline(a.hist, from) : sparkline(a.hist, from, 46, 26)}
     <div class="price-col">
       <div class="price" data-p="${a.id}">${money(a.price)}</div>
       ${right === 'pill' ? `<span class="pill ${cls(ch)}" data-c="${a.id}" data-r="${range}">${fmtPct(ch)}</span>`
@@ -349,11 +349,21 @@ function drawNwChart() {
     },
   });
 }
+// Numbers count up or down to their new value instead of snapping.
+const rollLast = new Map();
+function roll(el, v, key) {
+  const from = rollLast.get(key); rollLast.set(key, v);
+  cancelAnimationFrame(el._raf);
+  if (from == null || from === v || document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = money(v); return; }
+  const t0 = performance.now();
+  const step = (t) => { const k = Math.min(1, (t - t0) / 420); el.textContent = money(from + (v - from) * (1 - (1 - k) ** 3)); if (k < 1) el._raf = requestAnimationFrame(step); };
+  el.textContent = money(from); el._raf = requestAnimationFrame(step);
+}
 function updateNwHeader(now = Date.now()) {
   const nwEl = $('[data-nw]');
   if (!nwEl || ui.nwScrub) return;
   const nw = netWorth(state, now); const ref = nwAt(now - RANGES[ui.homeRange]) ?? state.startCash; const ch = nw - ref;
-  nwEl.textContent = money(nw);
+  roll(nwEl, nw, 'nw');
   const c = $('[data-nwc]');
   c.className = `change-line ${cls(ch)}`;
   c.innerHTML = `${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} (${fmtPct(ref ? ch / ref : 0)}) <span class="muted">${rangeLabel(ui.homeRange)}</span>`;
@@ -826,12 +836,14 @@ function tierBadge(tier, size = 44) {
   return `<div class="tier-badge" style="--tc:${tier.color};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px">${tier.name[0]}</div>`;
 }
 
-function careerHeader() {
+function careerHeader(compact = false) {
   const p = xpProgress(state);
   const c = career(state);
   const s = state.season;
   const ret = seasonReturn(state);
   const tier = tierFor(ret);
+  // Off the Season tab the header is one slim line, so the page itself gets the room.
+  if (compact) return `<button class="career-slim" data-gtab="season" style="--tc:${tier.color}"><span class="lv">${p.level}</span><div class="xpbar grow"><i style="width:${Math.round(p.frac * 100)}%"></i></div>${s ? `<span class="dot"></span><b>${tier.name}</b><span class="${cls(ret)}">${pctTxt(ret)}</span>` : ''}</button>`;
   return `<div class="career card">
     <div class="lvl"><b>${p.level}</b><span>LEVEL</span></div>
     <div class="grow">
@@ -847,9 +859,10 @@ function renderGames() {
   const body = { season: gamesSeason, contests: gamesContests, props: gamesProps, pickem: gamesScores, locker: gamesLocker }[ui.gtab]();
   $('#view').innerHTML = `
     ${topbar('<h1>Games</h1>')}
-    ${careerHeader()}
-    <div class="chips gtabs" style="margin-top:12px">${GTABS.map(([k, n]) => `<button class="chip ${ui.gtab === k ? 'on' : ''}" data-gtab="${k}">${n}${k === 'season' && !dailyStatus(state).claimed ? ' <span class="livedot"></span>' : ''}</button>`).join('')}</div>
-    ${body}`;
+    <div class="gwrap">${careerHeader(ui.gtab !== 'season')}
+    <div class="chips gtabs stick">${GTABS.map(([k, n]) => `<button class="chip ${ui.gtab === k ? 'on' : ''}" data-gtab="${k}">${n}${k === 'season' && !dailyStatus(state).claimed ? ' <span class="livedot"></span>' : ''}</button>`).join('')}</div>
+    ${body}
+    ${['props', 'pickem'].includes(ui.gtab) ? slipCard(true) : ''}</div>`;
 }
 
 // --- Season ---
@@ -1017,11 +1030,26 @@ function redrawSlip() {
   if (ui.game) { const y = $('#game').scrollTop; renderGame(true); $('#game').scrollTop = y; } else { const y = view().scrollTop; renderGames(); view().scrollTop = y; }
 }
 const slipEl = (id) => (ui.game && $(`#game #${id}`)) || $(`#${id}`);
+// The last five games against a line: green went over, red stayed under.
+function l5(a, line) {
+  const ps = propStat(a); const last = (a.perf?.last || []).filter((g) => g.line).slice(0, 5).reverse();
+  if (!ps || last.length < 2) return '';
+  return `<div class="l5" aria-label="Last ${last.length} games">${last.map((g) => { const v = ps.of(g.line); return `<i class="${v > line ? 'o' : 'u'}">${Math.round(v)}</i>`; }).join('')}<span>last ${last.length}</span></div>`;
+}
+const ES_ICON = {
+  cal: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  slip: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  cards: '<rect x="4" y="6" width="11" height="15" rx="2"/><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3H18a2 2 0 0 1 2 2v11.5a1.5 1.5 0 0 1-1.5 1.5H15"/>',
+};
+function emptyState(icon, title, sub = '') {
+  return `<div class="card empty es"><svg viewBox="0 0 24 24">${ES_ICON[icon]}</svg><b>${title}</b>${sub ? `<div>${sub}</div>` : ''}</div>`;
+}
+const skelCards = (n) => `<div class="sgames">${'<div class="sgame skel"><div class="sg-teams"><i></i><i></i></div><div class="sg-side"><i></i></div></div>'.repeat(n)}</div>`;
 // One over/under line. Live lines also show what the player has so far.
 function propRow(p, sub) {
   const a = state.assets[p.assetId]; const sel = ui.slip?.legs.find((l) => l.assetId === p.assetId);
   return `<div class="prop-row">
-        <button class="grow row" data-open="${p.assetId}" style="gap:10px;text-align:left;min-width:0">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub ellipsis">${p.live ? `<b>Has ${p.cur}</b> · ` : ''}${esc(sub)}</div></div></button>
+        <button class="grow row" data-open="${p.assetId}" style="gap:10px;text-align:left;min-width:0">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub ellipsis">${p.live ? `<b>Has ${p.cur}</b> · ` : ''}${esc(sub)}</div>${l5(a, p.line)}</div></button>
         <button class="ou ${sel?.side === 'over' ? 'on' : ''}" data-prop="${p.key}|over"><small>Over</small>${p.line}</button>
         <button class="ou ${sel?.side === 'under' ? 'on' : ''}" data-prop="${p.key}|under"><small>Under</small>${p.line}</button></div>`;
 }
@@ -1042,7 +1070,6 @@ function gamesProps() {
   const stake = Number(slip.stake) || 0;
   return `
     <p class="small muted" style="margin:12px 0 10px">Over or under on real stat lines, for games in progress and the next two days. A hit pays ${PROP_ODDS}× your stake. Put up to ${max} picks in one bet and the payout multiplies (2 picks ${(PROP_ODDS ** 2).toFixed(2)}×, 3 picks ${(PROP_ODDS ** 3).toFixed(2)}×), but every pick has to hit.${max < 6 ? ' Level 4 raises it to 6.' : ''}</p>
-    ${slipCard()}
     ${open.length ? `<h2>Open bets</h2><div class="list">${open.map(betRow).join('')}</div>` : ''}
     ${(() => {
       const games = Object.values(byGame);
@@ -1052,7 +1079,7 @@ function gamesProps() {
       <button class="more" data-game="${g.league}|${g.id}|props">All props for this game ›</button></div>`;
       const live = games.filter((g) => g.live); const next = games.filter((g) => !g.live).sort((x, y) => x.date - y.date);
       return `${live.length ? `<h2>Popular live props</h2><p class="tiny faint" style="margin:-4px 2px 8px">Lines move with the game and close for the final stretch.</p>${live.map(card).join('')}` : ''}
-        <h2>Popular props <span class="faint small">next two days</span></h2>${next.length ? next.map(card).join('') : '<div class="card empty">No upcoming props right now. They open two days before each game.</div>'}`;
+        <h2>Popular props <span class="faint small">next two days</span></h2>${next.length ? next.map(card).join('') : emptyState('slip', 'No props right now', 'Lines open two days before each game.')}`;
     })()}
     ${done.length ? `<h2>Settled</h2><div class="list">${done.map(betRow).join('')}</div>` : ''}`;
 }
@@ -1060,9 +1087,20 @@ function gamesProps() {
 function betRow(b) {
   const name = (l) => state.assets[l.assetId]?.ticker || '?';
   const st = { open: ['', 'Open'], won: ['up', `Won ${money(b.payout)}`], lost: ['down', 'Lost'], void: ['', 'Void'] }[b.status];
-  return `<div class="item"><div class="grow"><div class="name">${b.legs.length > 1 ? `${b.legs.length}-pick parlay` : `${esc(name(b.legs[0]))} ${b.legs[0].side} ${b.legs[0].line}`}</div>
-    <div class="sub ellipsis">${b.legs.map((l) => `${esc(name(l))} ${l.side === 'over' ? 'o' : 'u'}${l.line} ${esc(l.short)}${l.actual != null ? ` (${l.actual})` : ''}${l.result === 'win' ? ' ✓' : l.result === 'loss' ? ' ✗' : ''}`).join(' · ')}</div></div>
-    <div class="price-col"><div class="price ${st[0]}">${st[1]}</div><div class="tiny muted">${money(b.stake)} stake</div></div></div>`;
+  // Each pick's progress toward its line: live from the game, or the final number.
+  const leg = (l) => {
+    const a = state.assets[l.assetId]; const ps = a && propStat(a);
+    const live = a?.live?.e === l.gameId && a.live.line && ps;
+    const cur = l.actual != null ? l.actual : live ? Math.round(ps.of(a.live.line) * 10) / 10 : null;
+    const over = l.side === 'over';
+    const good = cur == null ? null : l.result ? l.result === 'win' : over ? cur > l.line : null; // an under is only safe at the final whistle
+    const bad = cur != null && (l.result === 'loss' || (!over && cur > l.line));
+    return `<div class="leg ${l.result === 'win' || good ? 'hit' : bad ? 'miss' : ''}"><div class="row between"><span class="ellipsis"><b>${esc(name(l))}</b> ${over ? 'Over' : 'Under'} ${l.line} ${esc(l.short)}</span>
+      <span class="tiny">${live && !l.result ? '<span class="tag live">LIVE</span> ' : ''}${cur != null ? `<b>${cur}</b>` : l.result === 'void' ? 'void' : fmtDate(l.date, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}${l.result === 'win' ? ' ✓' : l.result === 'loss' ? ' ✗' : ''}</span></div>
+      ${cur != null ? `<div class="legbar"><i style="width:${Math.min(100, (cur / Math.max(l.line, 0.5)) * 100 / 1.25)}%"></i><u></u></div>` : ''}</div>`;
+  };
+  return `<div class="item bet"><div class="grow" style="min-width:0"><div class="row between"><div class="name">${b.legs.length > 1 ? `${b.legs.length}-pick parlay` : 'Single'} <span class="tiny muted">${money(b.stake)} stake${b.status === 'open' ? ` · pays ${money(potentialPayout(b.stake, b.legs.length))}` : ''}</span></div><div class="price ${st[0]}" style="font-size:14px">${st[1]}</div></div>
+    ${b.legs.map(leg).join('')}</div></div>`;
 }
 
 // --- Locker: shop, cards, themes, titles ---
@@ -1083,7 +1121,7 @@ function gamesLocker() {
     <p class="small muted" style="margin:-4px 0 10px">You collect a player's card by owning his shares. Card levels add +5% dividends each.</p>
     ${cards.length ? `<div class="card-grid">${cards.slice(0, ui.allCards ? 999 : 12).map(miniCard).join('')}</div>
       ${cards.length > 12 && !ui.allCards ? `<button class="more" data-act="allcards">See all ${cards.length}</button>` : ''}`
-      : '<div class="card empty">No cards yet. Buy a player or open a pack.</div>'}
+      : emptyState('cards', 'No cards yet', 'Buy a player or open a pack to start your collection.')}
 
     <h2>Themes</h2>
     <div class="themes">${THEMES.map((t) => { const own = c.owned.themes.includes(t.key); const on = c.theme === t.key; const locked = L < t.level; return `<button class="theme ${on ? 'on' : ''}" data-theme="${t.key}" style="--ta:${t.accent};--tb:${t.bg || '#0b0d10'}">
@@ -1400,7 +1438,7 @@ function findGame(league, id) {
   const live = state.liveGames[id];
   if (live) return { status: 'live', league, id, name: live.name, detail: live.detail, teams: live.teams };
   const r = (state.results || []).find((x) => x.id === id);
-  if (r) return { status: 'final', league, id, name: r.name, date: r.date, teams: r.teams, preseason: r.preseason };
+  if (r) return { status: 'final', league, id, name: r.name, date: r.date, teams: r.teams[0]?.lines ? r.teams : (sbGames.get(id)?.ev.teams || r.teams), preseason: r.preseason };
   const s = (state.schedule?.[league] || []).find((x) => x.id === id);
   if (s) return { status: 'pre', league, id, name: s.name, date: s.date, teams: s.teams, preseason: s.preseason };
   const ev = sbGames.get(id)?.ev; // opened from the Scores page: any day's game
@@ -1458,7 +1496,12 @@ function renderGame(force = false) {
       ${g.status !== 'pre' ? `<div class="gc-score ${t.winner && g.status === 'final' ? 'win' : ''}">${t.score ?? ''}</div>` : ''}
       ${ta ? `<div class="tiny ${cls(tc)}">${money(ta.price)} ${fmtPct(tc)}</div>` : ''}</button>`;
   };
-  const pAway = winProb(state, league, away.id, home.id, false, !!g.preseason);
+  const wpHist = g.status === 'live' ? state.liveGames[id]?.wp || [] : [];
+  const pAway = wpHist.length ? wpHist[wpHist.length - 1] : winProb(state, league, away.id, home.id, false, !!g.preseason);
+  const wpLine = wpHist.length > 2 ? `<svg class="wpchart" viewBox="0 0 100 30" preserveAspectRatio="none"><line x1="0" x2="100" y1="15" y2="15"/><polyline points="${wpHist.map((p, i) => `${((i / (wpHist.length - 1)) * 100).toFixed(1)},${(2 + (1 - p) * 26).toFixed(1)}`).join(' ')}"/></svg><div class="tiny faint row between"><span>${esc(away.abbr)} ↑</span><span>how the game has swung</span><span>↓ ${esc(home.abbr)}</span></div>` : '';
+  const ls = [away, home].every((t) => t.lines?.length) ? Math.max(away.lines.length, home.lines.length) : 0;
+  const lineScore = ls ? `<div class="linescore"><table><tr><th></th>${Array.from({ length: ls }, (_, i) => `<th>${league !== 'mlb' && i >= 4 ? (i === 4 ? 'OT' : `${i - 3}OT`) : i + 1}</th>`).join('')}<th>T</th></tr>
+    ${[away, home].map((t) => `<tr><td>${esc(t.abbr)}</td>${Array.from({ length: ls }, (_, i) => `<td>${t.lines[i] ?? ''}</td>`).join('')}<td><b>${t.score ?? ''}</b></td></tr>`).join('')}</table></div>` : '';
   const pk = state.picks[id];
   const up = upcomingPickGames(state, now, [league]).find((x) => x.id === id);
   el.hidden = false;
@@ -1466,8 +1509,8 @@ function renderGame(force = false) {
     <div class="row between"><button class="icon-btn" data-act="gameback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="row" style="gap:6px">${lgTag(league)} ${status}</div><div style="width:38px"></div></div>
     <div class="gc-head">${col(away)}<div class="gc-at">@</div>${col(home)}</div>
-    <div class="wp"><div class="tiny muted row between"><span>${esc(away.abbr)} ${Math.round(pAway * 100)}%</span><span>Win probability (from share prices)</span><span>${Math.round((1 - pAway) * 100)}% ${esc(home.abbr)}</span></div>
-      <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div></div>
+    <div class="wp"><div class="tiny muted row between"><span>${esc(away.abbr)} ${Math.round(pAway * 100)}%</span><span>${wpHist.length ? 'Live win probability' : 'Win probability (from share prices)'}</span><span>${Math.round((1 - pAway) * 100)}% ${esc(home.abbr)}</span></div>
+      <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div>${wpLine}</div>
     <div class="dtabs gtabs">${tabs.map(([k, t]) => `<button data-gview="${k}" class="${gview === k ? 'on' : ''}">${esc(t)}</button>`).join('')}</div>
     ${g.status !== 'pre' ? `<div class="gsec" data-gsec="plays" ${gview === 'plays' ? '' : 'hidden'}>${playsSection(g, league)}</div>` : ''}
     <div class="gsec" data-gsec="props" ${gview === 'props' ? '' : 'hidden'}>${gameProps(g, league)}</div>
@@ -1475,7 +1518,7 @@ function renderGame(force = false) {
     <div class="gsec" data-gsec="home" ${gview === 'home' ? '' : 'hidden'}>${teamTab(g, league, home)}</div>
     <div class="gsec" data-gsec="summary" ${gview === 'summary' ? '' : 'hidden'}>
     ${up ? `<h3>Your pick</h3>${pickGame(up)}` : pk ? `<div class="card small" style="margin-top:12px">Your pick: <b>${esc(pk.abbr)}</b> · ${pk.result ? { won: `won <b class="up">+${money(pk.paid || 0)}</b>`, lost: '<span class="down">missed</span>', push: 'push', void: 'voided' }[pk.result] : 'locked — game in progress'}</div>` : ''}
-    ${gameStake(g, league)}
+    ${lineScore}${gameStake(g, league)}
     <h3>${g.status === 'pre' ? 'Players to watch' : 'Player movers'}</h3>
     <div class="list">${players.map(({ a, text, live }) => {
       const h = state.holdings[a.id]; const c = change(a, now);
@@ -1690,7 +1733,7 @@ function drawDetailChart() {
   const now = Date.now();
   const animate = !!ui.chartAnim; ui.chartAnim = false;
   // Game days along the bottom of the chart (skipped on the 1-day view).
-  const marks = ui.range === '1D' ? [] : (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: e.pct }));
+  const marks = ui.range === '1D' ? [] : (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: e.pct, text: e.text }));
   lineChart(el, a.hist.concat([now, a.price]), now - RANGES[ui.range], {
     animate, marks,
     onScrub: (pt) => {
@@ -1699,7 +1742,7 @@ function drawDetailChart() {
       $('#dprice').textContent = money(pt.p);
       const c = pt.p / pt.first - 1;
       $('#dchg').className = `change-line ${cls(c)}`;
-      $('#dchg').innerHTML = `${fmtPct(c)} <span class="muted">${new Date(pt.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>`;
+      $('#dchg').innerHTML = `${fmtPct(c)} <span class="muted">${new Date(pt.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>${pt.mark?.text ? `<div class="gmark ${cls(pt.mark.v)}">● ${esc(pt.mark.text)} <b>${fmtPct(pt.mark.v)}</b></div>` : ''}`;
     },
   });
 }
@@ -1756,7 +1799,7 @@ function updateDetailHeader() {
   const ref = priceAt(a, Date.now() - RANGES[ui.range]);
   const p = $('#dprice'); const c = $('#dchg');
   if (!p) return;
-  p.textContent = money(a.price);
+  roll(p, a.price, `d:${a.id}`);
   c.className = `change-line ${cls(ch)}`;
   c.innerHTML = `${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(a.price - ref))} (${fmtPct(ch)}) <span class="muted">${rangeLabel(ui.range)}</span>`;
 }
@@ -2559,6 +2602,7 @@ document.addEventListener('click', async (e) => {
       } catch (err) { dr.err = err.message; renderDraft(true); }
       break;
     }
+    case 'scoremine': { ui.scoreMine = !ui.scoreMine; const y = view().scrollTop; renderGames(); view().scrollTop = y; break; }
     case 'slipopen': ui.slipOpen = true; redrawSlip(); break;
     case 'slipclose': ui.slipOpen = false; redrawSlip(); break;
     case 'placebet': {
@@ -3618,7 +3662,7 @@ function atBatCard(ab, league) {
 function playsSection(g, league) {
   if (g.status === 'pre') return '';
   const c = playsCache.get(g.id);
-  if (!c?.plays) return `<h3>Play by play</h3><div class="card small muted">${c?.failed ? 'Plays aren\'t available for this game.' : 'Loading plays…'}</div>`;
+  if (!c?.plays) return `<h3>Play by play</h3>${c?.failed ? '<div class="card small muted">Plays aren\'t available for this game.</div>' : '<div class="card skel-lines"><i></i><i></i><i></i><i></i><i></i></div>'}`;
   if (!c.plays.length) return '';
   const [away, home] = [g.teams.find((t) => !t.home) || g.teams[0], g.teams.find((t) => t.home) || g.teams[1]];
   const show = ui.playsAll === g.id ? c.plays : c.plays.slice(0, 25);
@@ -3698,40 +3742,58 @@ function scoreCard(ev, league, now) {
   const live = ev.state === 'in'; const fin = ev.state === 'post';
   const pk = state.picks[ev.id];
   const row = (t, o) => { const ta = teamAsset(league, t.id); const won = fin && (t.winner || (t.score ?? 0) > (o.score ?? 0));
-    return `<div class="sg-team ${fin && !won ? 'lost' : ''}">${ta ? avatar(ta) : `<div class="avatar-fallback">${esc(t.abbr || '')}</div>`}<div class="grow"><b>${esc(t.abbr || '')}</b>${ta?.rec?.gp ? `<span class="tiny muted">${recText(ta)}</span>` : ''}</div>
+    return `<div class="sg-team ${fin && !won ? 'lost' : ''}">${ta?.img || !t.logo ? (ta ? avatar(ta) : `<div class="avatar-fallback">${esc(t.abbr || '')}</div>`) : `<img class="avatar team" src="${esc(t.logo)}" loading="lazy" alt="">`}<div class="grow"><b>${esc(t.abbr || '')}</b>${ta?.rec?.gp ? `<span class="tiny muted">${recText(ta)}</span>` : ''}</div>
       ${live || fin ? `<span class="sg-score">${t.score ?? ''}</span>` : ''}</div>`; };
   const pAway = !fin ? winProb(state, league, away.id, home.id, false, !!ev.preseason) : null;
   const fav = pAway != null ? (pAway >= 0.5 ? [away.abbr, pAway] : [home.abbr, 1 - pAway]) : null;
   const mine = [away, home].some((t) => Object.keys(state.holdings).some((id) => { const a = state.assets[id]; return a && a.league === league && a.kind !== 'fund' && (a.kind === 'team' ? a.rid : a.teamId) === t.id; }));
-  return `<button class="sgame ${live ? 'live' : ''}" data-game="${league}|${ev.id}">
+  const tint = away.color && home.color ? ` style="--ca:#${away.color};--ch:#${home.color}"` : '';
+  return `<button class="sgame ${live ? 'live' : ''} ${tint ? 'tint' : ''}"${tint} data-game="${league}|${ev.id}">
     <div class="sg-teams">${row(away, home)}${row(home, away)}</div>
     <div class="sg-side">${live ? `<span class="tag live">LIVE</span><div class="small">${esc(ev.detail || '')}</div>` : fin ? '<div class="sg-time">Final</div>' : `<div class="sg-time">${new Date(ev.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>`}
       ${fav && !fin && teamAsset(league, away.id) ? `<div class="tiny muted">${esc(fav[0])} ${Math.round(fav[1] * 100)}%</div>` : ''}
       ${ev.preseason ? '<div class="tiny faint">Preseason</div>' : ''}
       <div class="sg-tags">${pk ? `<span class="pk ${pk.result === 'won' ? 'won' : pk.result === 'lost' ? 'lost' : ''}">Pick ${esc(pk.abbr)}</span>` : ''}${mine ? '<span class="tag own">Yours</span>' : ''}</div></div></button>`;
 }
-// The Scores page: every game for a league on any day, with Pick'em built in.
+// A game you have something riding on: shares, a pick or a bet.
+function isMineGame(league, ev) {
+  if (state.picks[ev.id] || (state.props || []).some((b) => b.status === 'open' && b.legs.some((l) => l.gameId === ev.id))) return true;
+  const ids = new Set(ev.teams.map((t) => t.id));
+  return Object.keys(state.holdings).some((id) => { const a = state.assets[id]; return a && a.league === league && a.kind !== 'fund' && ids.has(a.kind === 'team' ? a.rid : a.teamId); });
+}
+// The Scores page: every game on any day, for one league or all of them, with Pick'em built in.
 function gamesScores() {
   const now = Date.now();
   const lgs = enabledLeagues();
-  if (!lgs.includes(ui.scoreLeague)) ui.scoreLeague = lgs.find((l) => Object.values(state.liveGames).some((g) => g.league === l)) || lgs.find((l) => (state.schedule?.[l] || []).some((g) => dayStart(g.date) === dayStart(now))) || lgs[0];
-  const league = ui.scoreLeague;
+  if (ui.scoreLeague !== 'all' && !lgs.includes(ui.scoreLeague)) ui.scoreLeague = lgs.length > 1 ? 'all' : lgs[0];
+  const sel = ui.scoreLeague === 'all' ? lgs : [ui.scoreLeague];
   const today = dayStart(now);
   ui.scoreDay ??= today;
   const day = ui.scoreDay;
   const days = Array.from({ length: 12 }, (_, i) => new Date(today).setDate(new Date(today).getDate() + i - 3));
-  loadScores(league, day);
-  const c = sbCache.get(`${league}:${day}`);
-  const events = c?.events || knownGames(league, day);
-  const pickable = new Map(upcomingPickGames(state, now, [league]).map((g) => [g.id, g]));
+  const pickable = new Map(upcomingPickGames(state, now, sel).map((g) => [g.id, g]));
   const ps = state.pickStats;
   const nextPick = pickable.size ? dayStart(Math.min(...[...pickable.values()].map((g) => g.date))) : null;
-  const has = (d) => (sbCache.get(`${league}:${d}`)?.events || knownGames(league, d)).length > 0;
+  const eventsOf = (l, d) => sbCache.get(`${l}:${d}`)?.events || knownGames(l, d);
+  const has = (d) => sel.some((l) => eventsOf(l, d).length > 0);
+  let loading = false; let total = 0;
+  const blocks = sel.map((l) => {
+    loadScores(l, day);
+    const c = sbCache.get(`${l}:${day}`);
+    if (c?.loading && !c.events || (!c && !STATIC)) loading = true;
+    const events = eventsOf(l, day).filter((ev) => !ui.scoreMine || isMineGame(l, ev));
+    total += events.length;
+    if (!events.length) return '';
+    return `${sel.length > 1 ? `<h3 class="lgh">${lgTag(l)} <span class="faint">${events.length} game${events.length > 1 ? 's' : ''}</span></h3>` : ''}
+      ${events.map((ev) => (pickable.has(ev.id) && ev.state !== 'in' && ev.state !== 'post' ? pickGame(pickable.get(ev.id)) : scoreCard(ev, l, now))).join('')}`;
+  }).join('');
+  const dayTxt = new Date(day).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  const liveDot = (l) => (Object.values(state.liveGames).some((g) => (l === 'all' ? lgs.includes(g.league) : g.league === l)) ? ' <span class="livedot"></span>' : '');
   return `
-    <div class="chips" style="margin-top:12px">${lgs.map((l) => `<button class="chip ${league === l ? 'on' : ''}" data-sleague="${l}">${LEAGUES[l].name}${Object.values(state.liveGames).some((g) => g.league === l) ? ' <span class="livedot"></span>' : ''}</button>`).join('')}</div>
+    <div class="chips" style="margin-top:4px">${lgs.length > 1 ? `<button class="chip ${ui.scoreLeague === 'all' ? 'on' : ''}" data-sleague="all">All${liveDot('all')}</button>` : ''}${lgs.map((l) => `<button class="chip ${ui.scoreLeague === l ? 'on' : ''}" data-sleague="${l}">${LEAGUES[l].name}${liveDot(l)}</button>`).join('')}<button class="chip mine ${ui.scoreMine ? 'on' : ''}" data-act="scoremine">★ My games</button></div>
     <div class="hscroll daystrip">${days.map((d) => `<button class="dayb ${d === day ? 'on' : ''} ${d === today ? 'today' : ''}" data-sday="${d}"><span>${d === today ? 'Today' : new Date(d).toLocaleDateString([], { weekday: 'short' })}</span><b>${new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric' })}</b>${has(d) ? '<i></i>' : ''}</button>`).join('')}</div>
-    ${events.length ? `<div class="sgames">${events.map((ev) => (pickable.has(ev.id) && ev.state !== 'in' && ev.state !== 'post' ? pickGame(pickable.get(ev.id)) : scoreCard(ev, league, now))).join('')}</div>`
-      : `<div class="card empty" style="margin-top:12px">${c?.loading || (!c && !STATIC) ? 'Loading games…' : `No ${LEAGUES[league].name} games on ${new Date(day).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}.`}</div>`}
+    ${total ? `<div class="sgames">${blocks}</div>` : loading ? skelCards(3)
+      : emptyState('cal', ui.scoreMine ? 'None of your games' : 'No games', ui.scoreMine ? `Nothing you own, picked or bet on plays on ${dayTxt}.` : `Nothing ${sel.length === 1 ? `in the ${LEAGUES[sel[0]].name} ` : ''}on ${dayTxt}. Swipe to another day.`)}
     <div class="card pkline"><div class="grow"><b>Pick'em</b> <span class="muted">${ps.w}-${ps.l}${ps.streak ? ` · 🔥 ${ps.streak} in a row` : ''}</span><div class="tiny muted">Pick winners on today's and tomorrow's games for free. Underdogs pay more, and each win in a row adds 10%.</div></div>${nextPick != null && nextPick !== day ? `<button class="chip on" data-sday="${nextPick}">Pick ${nextPick === today ? 'today' : new Date(nextPick).toLocaleDateString([], { weekday: 'short' })} ›</button>` : `<b class="up">${money(ps.won || 0)}</b>`}</div>`;
 }
 
