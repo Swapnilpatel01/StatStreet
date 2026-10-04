@@ -97,6 +97,8 @@ with sync_playwright() as p:
         assert page.locator('#game .sliptab').count() == 1 and page.locator('#game .slip.dock').count() == 0
         page.click('#game [data-prop] >> nth=2'); page.wait_for_timeout(300); assert page.locator('#game .ou.on').count() == 2, 'two picks in one bet'
         page.screenshot(path=f'{OUT}/78-sliptab.png')
+        gap = page.evaluate("(() => { const g = document.querySelector('#game'); g.scrollTop = 0; const r = document.querySelector('#game .sliptab').getBoundingClientRect(); return [innerHeight - r.bottom, g.scrollHeight - g.clientHeight]; })()")
+        print('slip tab gap from bottom, scrollable:', gap); assert gap[0] <= 16
         page.click('#game .sliptab'); page.wait_for_timeout(300); assert page.locator('#game .slip.dock .slip-leg').count() == 2
         page.click('#game [data-act=slipclose]'); page.wait_for_timeout(200); assert page.locator('#game .sliptab').count() == 1
         page.click('#game .sliptab'); page.wait_for_timeout(300)

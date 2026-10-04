@@ -1031,3 +1031,10 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .sliptab .x { font-weight: 900; font-variant-numeric: tabular-nums; }
 .sliptab svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .sliptab:active { transform: scale(.98); }
+/* v59: the slip sits at the very bottom of the screen (sticky measures from inside the sheet's padding) */
+#game:has(.sliptab, .slip.dock) { padding-bottom: calc(var(--safe-b) + 12px); }
+.sliptab, .slip.dock { bottom: 0; }
+#game .sheet-inner { min-height: 100%; display: flex; flex-direction: column; }
+#game .gsec[data-gsec=props]:not([hidden]) { flex: 1; display: flex; flex-direction: column; }
+#game .gsec[data-gsec=props] > .sliptab, #game .gsec[data-gsec=props] > .slip.dock { margin-top: auto; }
+.slip.dock > .row.between > .tiny { margin-left: auto; }
