@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 75;
+const APP_VERSION = 76;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1837,12 +1837,12 @@ function playerStats(a) {
   const trend = fr?.trend || 0;
   return `<h3>Performance</h3>
     <div class="grid3">
-      <div class="stat"><div class="k">Rating · ${SPAN_LABEL[ratingSpan()].toLowerCase()}</div><div class="v row" style="gap:8px">${fr ? `<span class="formdot ${tone(avg)}">${fmtTotal(fr.rating)}</span><span class="small">${word}${trend > 1.5 ? ' ↗' : trend < -1.5 ? ' ↘' : ''}</span>` : '<span class="small muted">No games</span>'}</div></div>
+      <div class="stat"><div class="k">Rating · ${SPAN_LABEL[ratingSpan()].toLowerCase()}</div><div class="v row" style="gap:8px">${fr ? `<span class="formdot ${tone(avg)}">${fr.rating.toFixed(1)}</span><span class="small">${word}${trend > 1.5 ? ' ↗' : trend < -1.5 ? ' ↘' : ''}</span>` : '<span class="small muted">No games</span>'}</div></div>
       <div class="stat"><div class="k">vs ${esc(groupName(a))}</div><div class="v">${a.perf.ema != null ? pctile + 'th' : '—'}</div></div>
       <div class="stat"><div class="k">Season avg</div><div class="v">${a.perf.season ? a.perf.season.gs.toFixed(1) : '—'}</div></div>
     </div>
-    <div class="card rspan" style="margin-top:10px"><div class="row between"><b>Rating totals</b><span class="tiny muted">tap one to show it everywhere</span></div>
-      <div class="seg3">${totals.map(([k, f]) => `<button class="${ratingSpan() === k ? 'on' : ''}" data-rspan="${k}"><span>${SPAN_LABEL[k]}</span><b>${f ? fmtTotal(f.rating) : '—'}</b><em>${f ? `${f.n} game${f.n > 1 ? 's' : ''} · ${f.avg.toFixed(1)} avg` : 'no games'}</em></button>`).join('')}</div></div>
+    <div class="card rspan" style="margin-top:10px"><div class="row between"><b>Rating by period</b><span class="tiny muted">tap one to show it everywhere</span></div>
+      <div class="seg3">${totals.map(([k, f]) => `<button class="${ratingSpan() === k ? 'on' : ''}" data-rspan="${k}"><span>${SPAN_LABEL[k]}</span><b>${f ? f.rating.toFixed(1) : '—'}</b><em>${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</em></button>`).join('')}</div></div>
     ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">game ratings · oldest → latest</span></div>
       <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g).toFixed(1)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div>
       <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${last.map((g) => `<div class="driver"><span class="formdot xs ${tone(rate(g))}" style="margin-right:2px"></span><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div><div class="pct">${g.gs.toFixed(1)}</div></div>`).join('')}</div>
@@ -3871,12 +3871,11 @@ const formTone = (v) => (v >= 5 ? 'hi' : v >= 2 ? 'mid' : 'lo');
 // A player's current form in a circle, against players at his position. Green is hot, orange middling, red cold.
 const SPAN_LABEL = { '7d': '7 days', '30d': '30 days', season: 'Season' };
 const ratingSpan = () => (SPAN_LABEL[state.settings.ratingSpan] ? state.settings.ratingSpan : '7d');
-const fmtTotal = (v) => (Math.abs(v) >= 100 ? String(Math.round(v)) : v.toFixed(1));
 function formDot(a, size = '') {
   const f = formRating(state, a, ratingSpan());
   if (!f) return '';
-  // The number is his rating total over the chosen period; the colour is his per-game level.
-  return `<span class="formdot ${size} ${formTone(f.avg)}" aria-label="Rating total ${f.rating.toFixed(1)} over ${f.n} game${f.n > 1 ? 's' : ''}">${fmtTotal(f.rating)}</span>`;
+  // His average game rating over the chosen period, 0–15.
+  return `<span class="formdot ${size} ${formTone(f.avg)}" aria-label="Average rating ${f.rating.toFixed(1)} over ${f.n} game${f.n > 1 ? 's' : ''}">${f.rating.toFixed(1)}</span>`;
 }
 // The best three players of the game so far, by game score.
 function topPerformers(g, league) {

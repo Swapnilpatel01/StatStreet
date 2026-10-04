@@ -311,21 +311,21 @@ t('chart gaps from time away are filled with market wiggle; real points and jump
   assert.equal(E.fillGaps(st, t0 + 22 * H), 0, 'filling twice changes nothing');
 });
 
-t('rating totals over 7 days, 30 days and the season', () => {
+t('ratings over 7 days, 30 days and the season stay on the 0-15 scale', () => {
   const st = E.newState(100); st.stats = { nba: { ALL: { mu: 20, sd: 6 } } };
   const now = 1.8e12; const D = 86400e3;
   const L = (pts) => ({ pts, reb: 5, ast: 5, stl: 1, blk: 0, to: 2 });
   const p = { kind: 'player', league: 'nba', pos: 'G', perf: { ema: 20, gn: 8, last: [[1, 45], [3, 15], [10, 15], [20, 15], [40, 30]].map(([d, pts]) => ({ t: now - d * D, gs: pts, line: L(pts) })) } };
   const one = (pts) => E.gameRating(st, p, { line: L(pts) });
   const r = (x) => Math.round(x * 10) / 10;
-  const w = E.formRating(st, p, '7d', now); assert.equal(w.rating, r(one(45) + one(15))); assert.equal(w.n, 2);
-  const m = E.formRating(st, p, '30d', now); assert.equal(m.rating, r(one(45) + 3 * one(15))); assert.equal(m.n, 4);
-  assert.equal(E.formRating(st, p, 'season', now).rating, r(one(45) + 3 * one(15) + one(30)));
-  // games from before ratings were kept: the season averages fill in the season total
+  const w = E.formRating(st, p, '7d', now); assert.equal(w.sum, r(one(45) + one(15))); assert.equal(w.n, 2); assert.equal(w.rating, r((one(45) + one(15)) / 2));
+  const m = E.formRating(st, p, '30d', now); assert.equal(m.sum, r(one(45) + 3 * one(15))); assert.equal(m.n, 4); assert.equal(m.rating, r(m.sum / 4));
+  assert.equal(E.formRating(st, p, 'season', now).rating, r((one(45) + 3 * one(15) + one(30)) / 5));
+  // games from before ratings were kept: the season averages fill in the season
   p.perf.avg = L(20); p.perf.season = { gs: 20, gp: 60 };
-  const s = E.formRating(st, p, 'season', now); assert.equal(s.n, 60); assert.equal(s.rating, r(one(20) * 60));
+  const s = E.formRating(st, p, 'season', now); assert.equal(s.n, 60); assert.equal(s.rating, one(20)); assert.ok(s.rating <= 15 && s.rating >= 0);
   // kept ratings outlive the ten-game log
-  p.perf.rt = [[now - 2 * D, 9]]; assert.equal(E.formRating(st, p, '7d', now).rating, r(one(45) + one(15) + 9));
+  p.perf.rt = [[now - 2 * D, 9]]; assert.equal(E.formRating(st, p, '7d', now).sum, r(one(45) + one(15) + 9));
   assert.equal(E.formRating(st, { ...p, perf: { last: [] } }, '7d', now), null); assert.equal(E.formRating(st, { kind: 'team' }), null);
   assert.ok(E.gameRating(st, p, { gs: 30 }) != null, 'old saved games without a stat line still get a rating');
 });

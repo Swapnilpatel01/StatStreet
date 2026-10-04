@@ -322,7 +322,8 @@ function ratedGames(state, a) {
   for (const g of a.perf.last || []) if (g.t != null && !seen.has(g.t)) { const r = gameRating(state, a, g); if (r != null) seen.set(g.t, r); }
   return [...seen.entries()].sort((x, y) => x[0] - y[0]);
 }
-// A player's rating total over the last 7 days, 30 days or the season, the way Real adds them up.
+// A player's rating over the last 7 days, 30 days or the season: his average game rating in that
+// period, so it stays on the 0–15 scale. The plain total is returned too (sum).
 export function formRating(state, a, span = '7d', now = Date.now()) {
   if (a.kind !== 'player' || !a.perf) return null;
   const all = ratedGames(state, a);
@@ -335,10 +336,12 @@ export function formRating(state, a, span = '7d', now = Date.now()) {
     n = a.perf.season.gp; rating = perfRating(a.league, { ...emptyLine(a.league), ...a.perf.avg }) * n;
   }
   if (!n) return null;
-  rating = Math.round(rating * 10) / 10;
+  // Shown on the same 0–15 scale as a single game: the average rating per game in the period.
+  const sum = Math.round(rating * 10) / 10;
+  rating = Math.round(clamp(rating / n, 0, 15) * 10) / 10;
   const last = all.slice(-5).map((x) => x[1]).reverse();
   const trend = last.length >= 4 ? (last[0] + last[1]) / 2 - last.slice(2).reduce((t, r) => t + r, 0) / (last.length - 2) : 0;
-  return { rating, avg: Math.round((rating / n) * 10) / 10, n, trend, span };
+  return { rating, avg: rating, sum, n, trend, span };
 }
 
 export function playerZ(state, a) {
