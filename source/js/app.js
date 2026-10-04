@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 77;
+const APP_VERSION = 78;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1831,7 +1831,7 @@ function playerStats(a) {
   const tone = formTone;
   const last = a.perf.last.slice(0, 5);
   return `<h3>Performance</h3>
-    <div class="grid3">${totals.map(([k, f]) => `<div class="stat rstat"><div class="k">${SPAN_LABEL[k]}</div><div class="v">${f ? `<span class="formdot ${tone(f.rating)}">${f.rating.toFixed(1)}</span>` : '—'}</div><div class="tiny faint">${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</div></div>`).join('')}</div>
+    <div class="grid2">${totals.map(([k, f]) => `<div class="stat rstat"><div class="k">${SPAN_LABEL[k]}</div><div class="v">${f ? `<span class="formdot ${tone(f.rating)}">${f.rating.toFixed(1)}</span>` : '—'}</div><div class="tiny faint">${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</div></div>`).join('')}</div>
     ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">game ratings · oldest → latest</span></div>
       <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g).toFixed(1)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div>
       <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${last.map((g) => `<div class="driver"><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div>${rtgChip(rate(g))}</div>`).join('')}</div>
@@ -3857,7 +3857,7 @@ function gameProps(g, league) {
 }
 const formTone = (v) => (v >= 5 ? 'hi' : v >= 2 ? 'mid' : 'lo');
 // A player's current form in a circle, against players at his position. Green is hot, orange middling, red cold.
-const SPAN_LABEL = { '7d': '7 days', '30d': '30 days', season: 'Season' };
+const SPAN_LABEL = { '7d': '7 days', '30d': '30 days' };
 function formDot(a, size = '') {
   // His average game rating over the last 7 days; failing that the last 30, then the season.
   const f = formRating(state, a, '7d') || formRating(state, a, '30d') || formRating(state, a, 'season');

@@ -1,7 +1,7 @@
 // Service worker: caches the app shell so StatStreet opens instantly and works
 // offline (with the last prices it saw). Live data always goes to the network.
 
-const VERSION = 'statstreet-v77';
+const VERSION = 'statstreet-v78';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/engine.js', 'js/scoring.js', 'js/sync.js', 'js/api.js', 'js/store.js', 'js/chart.js', 'js/util.js',
