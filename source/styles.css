@@ -1013,3 +1013,12 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .livedot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--live); margin-left: 4px; animation: pulse 1.6s infinite; }
 .pkline { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 #game .dtabs.gtabs button { font-size: 13px; padding: 9px 2px; }
+
+/* v57: bet slip docked inside a game */
+.slip.dock { position: sticky; bottom: calc(10px + env(safe-area-inset-bottom)); margin-top: 12px; z-index: 2; background: var(--card2); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.slip.dock .slip-leg { padding: 6px 0; }
+.props-game .more { width: 100%; padding: 10px 0 6px; color: var(--accent); font-weight: 700; font-size: 13.5px; }
+.slip .row:has(#stake) { flex-wrap: wrap; }
+.slip .price-field { flex: 1 1 100%; }
+.slip .price-field span { white-space: nowrap; }
+.slip .row:has(#stake) .chip { flex: 1; }

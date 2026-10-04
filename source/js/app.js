@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 56;
+const APP_VERSION = 57;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -996,6 +996,26 @@ function renderDraft(keepList = false) {
 }
 
 // --- Props ---
+// The bet slip: picks, stake and the place button. Docked at the bottom of a game's Props tab.
+function slipCard(dock = false) {
+  const slip = ui.slip;
+  if (!slip?.legs.length) return '';
+  const n = slip.legs.length; const stake = Number(slip.stake) || 0;
+  return `<div class="card slip ${dock ? 'dock' : ''}">
+      <div class="row between"><b>Bet slip</b><span class="tiny muted">${n} pick${n > 1 ? 's' : ''} · ${(PROP_ODDS ** n).toFixed(2)}×</span></div>
+      ${slip.legs.map((l, i) => `<div class="slip-leg"><div class="grow ellipsis"><b>${esc(state.assets[l.assetId]?.name || '')}</b> <span class="muted">${l.side === 'over' ? 'Over' : 'Under'} ${l.line} ${esc(l.short)}</span></div><button class="x-btn" data-rmleg="${i}">✕</button></div>`).join('')}
+      <div class="row" style="margin-top:10px;gap:8px"><label class="price-field grow" style="margin:0"><span class="small muted">Stake $</span><input id="stake" inputmode="decimal" value="${esc(slip.stake)}" placeholder="0"></label>
+        <button class="chip" data-stake="${minOrder(state)}">${money(minOrder(state))}</button><button class="chip" data-stake="10%">10%</button><button class="chip" data-stake="25%">25%</button></div>
+      <div class="row between small" style="margin-top:8px"><span class="muted">Pays</span><b class="up" id="slippay">${money(potentialPayout(stake, n))}</b></div>
+      <div class="err" id="slerr">${esc(slip.err || '')}</div>
+      <button class="btn buy" data-act="placebet">Place bet</button>
+    </div>`;
+}
+// Redraw whichever screen holds the slip, keeping the scroll position.
+function redrawSlip() {
+  if (ui.game) { const y = $('#game').scrollTop; renderGame(true); $('#game').scrollTop = y; } else { const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+}
+const slipEl = (id) => (ui.game && $(`#game #${id}`)) || $(`#${id}`);
 // One over/under line. Live lines also show what the player has so far.
 function propRow(p, sub) {
   const a = state.assets[p.assetId]; const sel = ui.slip?.legs.find((l) => l.assetId === p.assetId);
@@ -1006,7 +1026,9 @@ function propRow(p, sub) {
 }
 function gamesProps() {
   const now = Date.now();
-  const board = propBoard(state, now, enabledLeagues());
+  // Only the headline props here: the biggest names. Every game's full list is on its own screen.
+  const all = propBoard(state, now, enabledLeagues(), { perGame: 3 });
+  const board = [...all.filter((p) => p.live).sort((x, y) => y.price - x.price).slice(0, 6), ...all.filter((p) => !p.live).sort((x, y) => y.price - x.price).slice(0, 12)];
   ui.slip ||= { legs: [], stake: '' };
   const slip = ui.slip;
   slip.legs = slip.legs.filter((l) => (l.live ? !!state.liveGames[l.gameId] : l.date > now));
@@ -1015,28 +1037,21 @@ function gamesProps() {
   const open = bets.filter((b) => b.status === 'open');
   const done = bets.filter((b) => b.status !== 'open').slice(0, 10);
   const byGame = {};
-  for (const p of board) (byGame[p.gameId] ||= { name: p.game, date: p.date, league: p.league, live: !!p.live, list: [] }).list.push(p);
+  for (const p of board) (byGame[p.gameId] ||= { id: p.gameId, name: p.game, date: p.date, league: p.league, live: !!p.live, list: [] }).list.push(p);
   const stake = Number(slip.stake) || 0;
   return `
     <p class="small muted" style="margin:12px 0 10px">Over or under on real stat lines, for games in progress and the next two days. A hit pays ${PROP_ODDS}× your stake${max > 1 ? `; parlays of up to ${max} picks multiply (2 picks ${(PROP_ODDS ** 2).toFixed(2)}×, 3 picks ${(PROP_ODDS ** 3).toFixed(2)}×)` : '; parlays unlock at level 4'}.</p>
-    ${slip.legs.length ? `<div class="card slip">
-      <div class="row between"><b>Bet slip</b><span class="tiny muted">${slip.legs.length} pick${slip.legs.length > 1 ? 's' : ''} · ${(PROP_ODDS ** slip.legs.length).toFixed(2)}×</span></div>
-      ${slip.legs.map((l, i) => `<div class="slip-leg"><div class="grow"><b>${esc(state.assets[l.assetId]?.name || '')}</b> <span class="muted">${l.side === 'over' ? 'Over' : 'Under'} ${l.line} ${esc(l.short)}</span></div><button class="x-btn" data-rmleg="${i}">✕</button></div>`).join('')}
-      <div class="row" style="margin-top:10px;gap:8px"><label class="price-field grow" style="margin:0"><span class="small muted">Stake $</span><input id="stake" inputmode="decimal" value="${esc(slip.stake)}" placeholder="0"></label>
-        <button class="chip" data-stake="${minOrder(state)}">${money(minOrder(state))}</button><button class="chip" data-stake="10%">10%</button><button class="chip" data-stake="25%">25%</button></div>
-      <div class="row between small" style="margin-top:8px"><span class="muted">Pays</span><b class="up" id="slippay">${money(potentialPayout(stake, slip.legs.length))}</b></div>
-      <div class="err" id="slerr">${esc(slip.err || '')}</div>
-      <button class="btn buy" data-act="placebet">Place bet</button>
-    </div>` : ''}
+    ${slipCard()}
     ${open.length ? `<h2>Open bets</h2><div class="list">${open.map(betRow).join('')}</div>` : ''}
     ${(() => {
       const games = Object.values(byGame);
       const card = (g) => `<div class="card props-game">
       <div class="row between">${lgTag(g.league)}${g.live ? ' <span class="tag live">LIVE</span>' : ''}<span class="tiny muted" style="margin-left:auto">${esc(g.name)}${g.live ? '' : ` · ${fmtDateTime(g.date)}`}</span></div>
-      ${g.list.map((p) => propRow(p, p.label)).join('')}</div>`;
+      ${g.list.map((p) => propRow(p, p.label)).join('')}
+      <button class="more" data-game="${g.league}|${g.id}|props">All props for this game ›</button></div>`;
       const live = games.filter((g) => g.live); const next = games.filter((g) => !g.live).sort((x, y) => x.date - y.date);
-      return `${live.length ? `<h2>Live props</h2><p class="tiny faint" style="margin:-4px 2px 8px">Lines move with the game and close for the final stretch.</p>${live.map(card).join('')}` : ''}
-        <h2>Next two days</h2>${next.length ? next.map(card).join('') : '<div class="card empty">No upcoming props right now. They open two days before each game.</div>'}`;
+      return `${live.length ? `<h2>Popular live props</h2><p class="tiny faint" style="margin:-4px 2px 8px">Lines move with the game and close for the final stretch.</p>${live.map(card).join('')}` : ''}
+        <h2>Popular props <span class="faint small">next two days</span></h2>${next.length ? next.map(card).join('') : '<div class="card empty">No upcoming props right now. They open two days before each game.</div>'}`;
     })()}
     ${done.length ? `<h2>Settled</h2><div class="list">${done.map(betRow).join('')}</div>` : ''}`;
 }
@@ -1392,13 +1407,13 @@ function findGame(league, id) {
   return null;
 }
 
-function openGame(league, id, { push = true } = {}) {
+function openGame(league, id, { push = true, tab = 'summary' } = {}) {
   if (!findGame(league, id)) { toast('Game details are no longer available'); return; }
-  ui.game = { league, id }; ui.gview = 'summary';
+  ui.game = { league, id }; ui.gview = tab;
   if (push) { try { history.pushState({ game: id, lg: league }, ''); } catch { /* */ } }
   const el = $('#game');
   el.style.zIndex = ui.detail ? '34' : ''; // above the player page when opened from it
-  renderGame();
+  renderGame(true);
   el.scrollTop = 0;
   el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter');
   loadPlays(league, id);
@@ -1411,7 +1426,9 @@ function closeGame({ animate = true } = {}) {
   if (animate && !el.hidden) slideOut(el, 'x', finish); else finish();
 }
 
-function renderGame() {
+function renderGame(force = false) {
+  // Never redraw under someone typing a stake.
+  if (!force && document.activeElement?.id === 'stake' && $('#game').contains(document.activeElement)) return;
   const { league, id } = ui.game;
   const g = findGame(league, id);
   const el = $('#game');
@@ -2284,10 +2301,10 @@ document.addEventListener('click', async (e) => {
       else { const pk = makePick(state, g, d.team); toast(`Picked ${pk.abbr} · win pays ${money(pickPayout(state, pk))}`); }
       dirty = true;
     } catch (err) { toast(err.message); }
-    if (ui.game) renderGame(); else { const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+    redrawSlip();
     return;
   }
-  if (d.game) { const [lg, gid] = d.game.split('|'); openGame(lg, gid); return; }
+  if (d.game) { const [lg, gid, tab] = d.game.split('|'); openGame(lg, gid, { tab }); return; }
   if (d.gtab) { ui.gtab = d.gtab; ui.tab = 'games'; closeOverlays(); render(); view().scrollTop = 0; return; }
   if (d.draft) { const [lg, tier] = d.draft.split('|'); openDraft(lg, tier); return; }
   if (d.dpick && ui.draft) {
@@ -2307,13 +2324,13 @@ document.addEventListener('click', async (e) => {
     else if (slip.legs.length >= MAX_LEGS(state)) { if (MAX_LEGS(state) === 1) slip.legs = [{ ...p, side }]; else { toast('Up to 3 picks per parlay'); return; } }
     else slip.legs.push({ ...p, side });
     slip.err = ''; buzz();
-    if (ui.game) { const y = $('#game').scrollTop; renderGame(); $('#game').scrollTop = y; } else { const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+    redrawSlip();
     return;
   }
-  if (d.rmleg) { ui.slip.legs.splice(Number(d.rmleg), 1); const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
+  if (d.rmleg) { ui.slip.legs.splice(Number(d.rmleg), 1); redrawSlip(); return; }
   if (d.stake) {
     ui.slip.stake = d.stake.endsWith('%') ? (Math.floor(Math.min(state.cash * Number(d.stake.slice(0, -1)) / 100, netWorth(state) * 0.25) * 100) / 100).toFixed(2) : d.stake;
-    const inp = $('#stake'); if (inp) inp.value = ui.slip.stake; updateSlipPay(); return;
+    const inp = slipEl('stake'); if (inp) inp.value = ui.slip.stake; updateSlipPay(); return;
   }
   if (d.pack) {
     const pack = PACKS.find((x) => x.key === d.pack);
@@ -2478,7 +2495,7 @@ document.addEventListener('click', async (e) => {
     }
     case 'artback': closeArticle(); break;
     case 'pageback': closePage(); break;
-    case 'playsall': if (ui.game) { ui.playsAll = ui.game.id; const y = $('#game').scrollTop; renderGame(); $('#game').scrollTop = y; } break;
+    case 'playsall': if (ui.game) { ui.playsAll = ui.game.id; const y = $('#game').scrollTop; renderGame(true); $('#game').scrollTop = y; } break;
     case 'confirmdone': closeConfirm(); break;
     case 'confirmprotect': closeConfirm(); ui.dtab = 'overview'; if (ui.detail) { renderDetail(); setTimeout(() => $('#sheet .prot')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80); } break;
     case 'duelshare': shareDuel().catch((err) => toast(err.message)); break;
@@ -2548,8 +2565,8 @@ document.addEventListener('click', async (e) => {
         dirty = true; save(); buzz();
         ui.slip = { legs: [], stake: '' };
         toast(`Bet placed: ${money(b.stake)} to win ${money(potentialPayout(b.stake, b.legs.length))}`);
-        const y = view().scrollTop; renderGames(); view().scrollTop = y;
-      } catch (err) { slip.err = err.message; const y = view().scrollTop; renderGames(); view().scrollTop = y; }
+        redrawSlip();
+      } catch (err) { slip.err = err.message; redrawSlip(); }
       break;
     }
     case 'packdone':
@@ -2594,7 +2611,7 @@ function afterBoostChange() {
 }
 
 function updateSlipPay() {
-  const el = $('#slippay'); if (el && ui.slip) el.textContent = money(potentialPayout(Number(ui.slip.stake) || 0, ui.slip.legs.length));
+  const el = slipEl('slippay'); if (el && ui.slip) el.textContent = money(potentialPayout(Number(ui.slip.stake) || 0, ui.slip.legs.length));
 }
 
 function syncQtyInput() {
@@ -3727,7 +3744,7 @@ function gameProps(g, league) {
   return `${mine.length ? `<h3>Your bets on this game</h3><div class="list">${mine.map(betRow).join('')}</div>` : ''}
     ${board.length ? `${[...groups.entries()].map(([label, list]) => `<h3>${esc(label)}</h3><div class="card props-game">${list.map((p) => propRow(p, `${state.assets[p.assetId].teamAbbr || ''} · ${state.assets[p.assetId].pos || ''}`)).join('')}</div>`).join('')}
       <p class="tiny faint" style="margin:8px 2px">A hit pays ${PROP_ODDS}x your stake. ${g.status === 'live' ? 'Live lines move with the game.' : "Lines come from each player's season average."}</p>
-      ${slip.legs.length ? `<button class="btn buy" data-gtab="props" style="width:100%;margin-top:6px">Bet slip · ${slip.legs.length} pick${slip.legs.length > 1 ? 's' : ''} ›</button>` : ''}`
+      ${slipCard(true)}`
       : `<div class="card small muted" style="margin-top:12px">${g.status === 'pre' ? 'Player props for this game open two days before it starts.' : g.status === 'live' ? 'No live lines right now. They close for the final stretch of the game.' : 'This game is over.'}</div>`}`;
 }
 function teamTab(g, league, t) {

@@ -94,7 +94,11 @@ with sync_playwright() as p:
     np_ = page.locator('#game [data-prop]').count(); print('game props:', np_)
     if np_:
         page.click('#game [data-prop] >> nth=0'); page.wait_for_timeout(300); assert page.locator('#game .ou.on').count() == 1
-        page.click('#game [data-prop] >> nth=0'); page.wait_for_timeout(200)
+        assert page.locator('#game .slip.dock').count() == 1
+        page.fill('#game #stake', '5'); page.wait_for_timeout(150); assert '9.50' in page.text_content('#game #slippay')
+        page.screenshot(path=f'{OUT}/77-game-slip.png')
+        page.click('#game [data-act=placebet]'); page.wait_for_timeout(300); print('in-game bet:', toast(page)); assert toast(page).startswith('Bet placed')
+        assert not page.evaluate("document.querySelector('#game').hidden") and 'Your bets on this game' in page.text_content('#game')
     page.click('#game [data-gview=away]'); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/74-game-team-pre.png')
     page.click('#game [data-gview=summary]'); page.wait_for_timeout(200)
     page.click('#game .gsec[data-gsec=summary] .item[data-open] >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(400)
@@ -505,8 +509,12 @@ with sync_playwright() as p:
         page.screenshot(path=f'{OUT}/62-atbat.png')
         page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     page.click('#tabbar [data-tab=games]'); page.wait_for_timeout(300); page.click('[data-gtab=props]'); page.wait_for_timeout(400)
-    pt = page.text_content('#view'); assert 'Next two days' in pt
-    print('props rows:', page.locator('#view .prop-row').count(), 'live section:', 'Live props' in pt)
+    pt = page.text_content('#view'); assert 'Popular props' in pt
+    assert page.locator('#view .prop-row').count() <= 18
+    page.click('#view .props-game .more >> nth=0'); page.wait_for_selector('#game:not([hidden])'); page.wait_for_timeout(500)
+    assert page.locator('#game .gsec[data-gsec=props]').is_visible()
+    page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
+    print('props rows:', page.locator('#view .prop-row').count(), 'live section:', 'live props' in pt)
     page.screenshot(path=f'{OUT}/76-props.png', full_page=True)
     print('v43 features ok')
     print('v37 features ok')
