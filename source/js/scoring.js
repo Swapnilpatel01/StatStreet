@@ -63,7 +63,7 @@ export const RATING_WEIGHTS = {
   nfl: {
     passYds: 0.013, passTD: 0.5, int: -0.4,
     rushYds: 0.032, rushTD: 1, recYds: 0.032, recTD: 1, rec: 0.04, fumLost: -0.8,
-    sacks: 1.4, defInt: 3.5, tkl: 0.2, pd: 0.5, defTD: 5,
+    sacks: 1.4, defInt: 3.5, tkl: 0.2, pd: 0.5, defTD: 5, fr: 3.2, tfl: 0.1, qbh: 0.05,
     fg: 1.6, xp: 0.1,
   },
   // hitters: an out is an at-bat without a hit. A home run counts on top of the hit, run and RBI.
@@ -76,14 +76,15 @@ export function perfRating(league, l) {
   const W = RATING_WEIGHTS;
   let r;
   if (league === 'nba') r = total(W.nba, l);
-  else if (league === 'nfl') r = total(W.nfl, l);
+  // A recovery only counts for a defender: a runner falling on his own fumble made no play.
+  else if (league === 'nfl') r = total(W.nfl, l.tkl > 0 || l.sacks > 0 || l.qbh > 0 || l.defInt > 0 || l.pd > 0 ? l : { ...l, fr: 0 });
   else r = total(W.mlbBat, { ...l, out: Math.max(0, l.ab - l.h) }) + (l.ip > 0 ? total(W.mlbPit, { ...l, ip: mlbIp(l.ip) }) : 0);
   return Math.round(Math.max(-3, Math.min(15, r)) * 10) / 10;
 }
 
 export function emptyLine(league) {
   if (league === 'nba') return { min: 0, pts: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 };
-  if (league === 'nfl') return { passYds: 0, passTD: 0, int: 0, cmp: 0, att: 0, rushYds: 0, rushTD: 0, car: 0, rec: 0, recYds: 0, recTD: 0, fumLost: 0, tkl: 0, sacks: 0, defInt: 0, pd: 0, defTD: 0, fg: 0, xp: 0 };
+  if (league === 'nfl') return { passYds: 0, passTD: 0, int: 0, cmp: 0, att: 0, rushYds: 0, rushTD: 0, car: 0, rec: 0, recYds: 0, recTD: 0, fumLost: 0, tkl: 0, sacks: 0, defInt: 0, pd: 0, defTD: 0, fg: 0, xp: 0, tfl: 0, qbh: 0, fr: 0 };
   return { ab: 0, h: 0, r: 0, rbi: 0, hr: 0, bb: 0, k: 0, ip: 0, ph: 0, er: 0, pbb: 0, pk: 0 };
 }
 
@@ -275,8 +276,8 @@ export function parseBoxScore(league, json) {
           if (catName === 'passing') { const [c, at] = pair(v('C/ATT')); l.cmp += c; l.att += at; l.passYds += num(v('YDS')); l.passTD += num(v('TD')); l.int += num(v('INT')); }
           else if (catName === 'rushing') { l.car += num(v('CAR')); l.rushYds += num(v('YDS')); l.rushTD += num(v('TD')); }
           else if (catName === 'receiving') { l.rec += num(v('REC')); l.recYds += num(v('YDS')); l.recTD += num(v('TD')); }
-          else if (catName === 'fumbles') { l.fumLost += num(v('LOST')); }
-          else if (catName === 'defensive') { l.tkl += num(v('TOT')); l.sacks += num(v('SACKS')); l.pd += num(v('PD')); l.defTD += num(v('TD')); }
+          else if (catName === 'fumbles') { l.fumLost += num(v('LOST')); l.fr += num(v('REC')); }
+          else if (catName === 'defensive') { l.tkl += num(v('TOT')); l.sacks += num(v('SACKS')); l.pd += num(v('PD')); l.defTD += num(v('TD')); l.tfl += num(v('TFL')); l.qbh += num(has('QB HTS') ? v('QB HTS') : v('QB HUR')); }
           else if (catName === 'interceptions') { l.defInt += num(v('INT')); l.defTD += num(v('TD')); }
           else if (catName === 'kicking') { l.fg += pair(v('FG'))[0]; l.xp += pair(v('XP'))[0]; }
         } else {

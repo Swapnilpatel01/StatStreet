@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 84;
+const APP_VERSION = 85;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3927,7 +3927,7 @@ const BOX_COLS = {
   nfl: [['Passing', (l) => l.att > 0, [['C/ATT', (l) => `${l.cmp}/${l.att}`], ['YDS', 'passYds'], ['TD', 'passTD'], ['INT', 'int']]],
     ['Rushing', (l) => l.car > 0, [['CAR', 'car'], ['YDS', 'rushYds'], ['TD', 'rushTD']]],
     ['Receiving', (l) => l.rec > 0, [['REC', 'rec'], ['YDS', 'recYds'], ['TD', 'recTD']]],
-    ['Defense', (l) => l.tkl > 0 || l.sacks > 0 || l.defInt > 0, [['TKL', 'tkl'], ['SCK', 'sacks'], ['INT', 'defInt'], ['PD', 'pd']]]],
+    ['Defense', (l) => l.tkl > 0 || l.sacks > 0 || l.defInt > 0 || l.fr > 0 || l.qbh > 0, [['TKL', 'tkl'], ['SCK', 'sacks'], ['TFL', 'tfl'], ['QBH', 'qbh'], ['INT', 'defInt'], ['PD', 'pd'], ['FR', 'fr']]]],
   mlb: [['Batting', (l) => l.ab > 0 || l.bb > 0, [['AB', 'ab'], ['H', 'h'], ['R', 'r'], ['RBI', 'rbi'], ['HR', 'hr'], ['BB', 'bb'], ['K', 'k']]],
     ['Pitching', (l) => l.ip > 0, [['IP', 'ip'], ['H', 'ph'], ['ER', 'er'], ['BB', 'pbb'], ['K', 'pk']]]],
 };

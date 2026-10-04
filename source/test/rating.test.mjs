@@ -26,7 +26,9 @@ near(nfl({ att: 12, passYds: 111, passTD: 1 }), 1.7, 0.5, 'J. Allen 111 pyds 1 p
 // defenders (quarterback hits and fumble recoveries aren't in the feed this app reads)
 near(nfl({ sacks: 1.5, tkl: 2 }), 2.5, 0.3, 'Watt 1.5 sack 2 solo');
 near(nfl({ sacks: 2, defInt: 1, tkl: 3 }), 7.0, 0.5, 'Watt 2 sack 1 int');
-near(nfl({ tkl: 0 }), 0, 0.1, 'Watt no stats');
+near(nfl({ tkl: 0, qbh: 1 }), 0, 0.1, 'Watt 1 qbh');
+near(nfl({ sacks: 1, qbh: 2, fr: 1, tkl: 1, tfl: 1 }), 5.3, 0.6, 'Watt 1 fr 2 qbh 1 sack');
+near(nfl({ tkl: 1, tfl: 1, sacks: 1, qbh: 1, fr: 1 }), 4.7, 0.3, 'Oweh 1 solo 1 tfl 1 sack 1 qbh 1 ff 1 fr');
 // NBA (points, rebounds and assists as shown)
 const nba = (o) => perfRating('nba', { ...emptyLine('nba'), ...o });
 near(nba({ pts: 15, reb: 17, ast: 12 }), 3.9, 0.6, 'Jokic 15/17/12');
@@ -35,6 +37,7 @@ near(nba({ pts: 33, reb: 15, ast: 12 }), 7.4, 1.0, 'Jokic 33/15/12');
 near(nba({ pts: 40, reb: 8, ast: 13 }), 7.6, 0.5, 'Jokic 40/8/13');
 near(nba({ pts: 23, reb: 21, ast: 19 }), 7.5, 1.1, 'Jokic 23/21/19');
 near(nba({ pts: 35, reb: 14, ast: 13 }), 6.7, 0.5, 'Jokic 35/14/13');
+assert.equal(nfl({ rushYds: 50, fr: 1 }), nfl({ rushYds: 50 }), 'recovering your own fumble is not a defensive play');
 // kickers
 near(nfl({ fg: 4, xp: 1 }), 6.8, 0.5, 'Shrader 4/4 fg 1/1 xp');
 near(nfl({ fg: 3, xp: 3 }), 5.0, 0.5, 'Shrader 3/3 fg 3/3 xp');
