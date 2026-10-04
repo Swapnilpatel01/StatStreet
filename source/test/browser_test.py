@@ -80,6 +80,8 @@ with sync_playwright() as p:
             assert page.locator(f'#game .gsec[data-gsec={k}]').is_visible()
             page.screenshot(path=f'{OUT}/71-game-{k}.png')
         print('team tab rows:', page.locator('#game .gsec[data-gsec=home] .item').count())
+        print('form circles:', page.locator('#game .gsec[data-gsec=home] .formdot').count()); assert page.locator('#game .gsec[data-gsec=home] .formdot').count() >= 1
+        assert not __import__('re').search(r'\d\.\d{4,}', page.text_content('#game')), 'no long decimals'
         page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     page.click('.daystrip .dayb >> nth=2'); page.wait_for_timeout(900); page.screenshot(path=f'{OUT}/72-scores-yday.png')
     sw = """(dx) => { const el = document.querySelector('#view .pkline'); const mk = (x) => new Touch({ identifier: 1, target: el, clientX: x, clientY: 300 });

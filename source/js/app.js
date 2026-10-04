@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 63;
+const APP_VERSION = 64;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3817,6 +3817,13 @@ function gameProps(g, league) {
       ${slipCard(true)}`
       : `<div class="card small muted" style="margin-top:12px">${g.status === 'pre' ? 'Player props for this game open two days before it starts.' : g.status === 'live' ? 'No live lines right now. They close for the final stretch of the game.' : 'This game is over.'}</div>`}`;
 }
+// A player's current form as a number in a circle: where he ranks among players at his
+// position right now (99 best). Green is hot, orange middling, red cold.
+function formDot(a) {
+  if (a.kind !== 'player' || a.perf?.ema == null) return '';
+  const v = Math.max(1, Math.min(99, Math.round(normCdf(formZ(a)) * 100)));
+  return `<span class="formdot ${v >= 66 ? 'hi' : v >= 34 ? 'mid' : 'lo'}" aria-label="Form ${v} out of 99">${v}</span>`;
+}
 function teamTab(g, league, t) {
   const now = Date.now();
   const ta = teamAsset(league, t.id);
@@ -3825,8 +3832,8 @@ function teamTab(g, league, t) {
   const head = ta ? `<button class="item card" data-open="${ta.id}" style="margin-top:12px">${avatar(ta)}<div class="grow"><div class="name">${esc(ta.name)}</div><div class="sub">${recText(ta)}${ta.rec?.streak ? ` · ${ta.rec.streak > 0 ? 'W' : 'L'}${Math.abs(ta.rec.streak)}` : ''}</div></div>
       <div class="price-col"><div class="price" data-p="${ta.id}">${money(ta.price)}</div><div class="small ${cls(change(ta, now))}" data-c="${ta.id}" data-plain="1">${fmtPct(change(ta, now))}</div></div></button>` : '';
   const row = (a, sub, tag = '') => `<button class="item" data-open="${a.id}">${avatar(a)}<div class="grow"><div class="name ellipsis">${esc(a.name)} <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">Owned</span>' : ''}${tag}</div>
-      <div class="sub ellipsis">${sub}</div></div><div class="price-col"><div class="price" data-p="${a.id}">${money(a.price)}</div><div class="small ${cls(change(a, now))}" data-c="${a.id}" data-plain="1">${fmtPct(change(a, now))}</div></div></button>`;
-  const inj = (a) => (a.injury ? ` <span class="tag inj">${esc(shortInj(a.injury.status))}</span>` : '');
+      <div class="sub ellipsis">${sub}</div></div>${formDot(a)}<div class="price-col"><div class="price" data-p="${a.id}">${money(a.price)}</div><div class="small ${cls(change(a, now))}" data-c="${a.id}" data-plain="1">${fmtPct(change(a, now))}</div></div></button>`;
+  const inj = (a) => (a.injury && !/^active$/i.test(a.injury.status || '') ? ` <span class="tag inj">${esc(shortInj(a.injury.status))}</span>` : '');
   if (box.length) {
     const rows = box.map((p) => ({ p, a: state.assets[`${league}:p:${p.id}`], st: c.box.starters.has(p.id) })).filter((x) => x.a);
     const starters = rows.filter((x) => x.st); const bench = rows.filter((x) => !x.st);
@@ -3836,7 +3843,8 @@ function teamTab(g, league, t) {
   }
   // Before the game: the team's players in your market, best first, with their season averages.
   const roster = Object.values(state.assets).filter((a) => a.kind === 'player' && a.league === league && a.teamId === t.id && a.hist.length).sort((x, y) => y.price - x.price).slice(0, 24);
-  const avgLine = (a) => { try { const s = a.perf?.avg ? lineText(league, a.perf.avg) : ''; return s && !/^0|NaN/.test(s) ? `${esc(s)} a game` : a.perf?.ema != null ? `Form ${a.perf.ema.toFixed(1)}` : '—'; } catch { return '—'; } };
+  const r1 = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? Math.round(v * 10) / 10 : v]));
+  const avgLine = (a) => { try { const s = a.perf?.avg ? lineText(league, r1(a.perf.avg)) : ''; return s && !/^0|NaN/.test(s) ? esc(s) : ''; } catch { return '—'; } };
   return `${head}<h3>${g.status === 'pre' ? 'Likely lineup' : 'Players'} <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">season averages</span></h3>
     ${roster.length ? `<div class="list">${roster.map((a) => row(a, avgLine(a), inj(a))).join('')}</div>` : '<div class="card empty">No players from this team in your market yet.</div>'}
     ${g.status === 'pre' ? '<p class="tiny faint" style="margin:8px 2px">Confirmed starters and live stat lines appear here once the game begins.</p>' : ''}`;

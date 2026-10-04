@@ -209,6 +209,7 @@ export function parseScoreboard(league, json) {
         id: String(c.team?.id ?? c.id), abbr: c.team?.abbreviation, score: num(c.score),
         winner: c.winner === true, home: c.homeAway === 'home', logo: c.team?.logo || '', color: /^[0-9a-f]{6}$/i.test(c.team?.color || '') ? c.team.color : '',
         lines: (c.linescores || []).map((l) => num(l.value ?? l.displayValue)),
+        ...(c.probables ? { probables: c.probables.map((p) => String(p.athlete?.id ?? p.playerId ?? '')).filter(Boolean) } : {}),
       })),
     };
   });
@@ -409,7 +410,7 @@ export function sentimentScore(text) {
 // something about the ones named in the headline.
 const ROUNDUP_RE = /\b(fantasy|rankings?|mock draft|picks|odds|betting|best bets|start ?'?em|sit ?'?em|waiver|inactives|takeaways|grades|predictions?|what to know|how to watch|preview|props|dfs|sleepers|buzz|mailbag|podcast|tracker|round-?up|winners and losers|injury report|live updates|questions)\b/i;
 const nameRe = (w) => new RegExp(`(?<![A-Za-z])${esc(w)}(?![A-Za-z])`, 'i');
-function nameIn(text, name) {
+export function nameIn(text, name) {
   const parts = String(name || '').replace(/\b(jr|sr|ii|iii|iv)\.?$/i, '').trim().split(/\s+/);
   if (!parts[0]) return -1;
   const last = parts[parts.length - 1]; const first = parts[0];
@@ -440,6 +441,10 @@ export function newsEffects(art, subjects) {
       out[x.id] = several ? (clauses.find((c) => at >= c.start && at <= c.end)?.score ?? 0) : whole;
     } else if (players.length === 1 && !roundup) {
       out[x.id] = whole; // the only player tagged: the story is about him
+    } else if (!roundup && art.desc) {
+      // Named only in the summary: he gets what the sentence about him says.
+      const sent = String(art.desc).split(/(?<=[.!?])\s+/).find((t) => nameIn(t, x.name) >= 0);
+      if (sent) out[x.id] = sentimentScore(sent).score || (named.length === 0 ? whole : 0);
     }
   }
   if (!roundup) {

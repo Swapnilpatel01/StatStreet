@@ -151,7 +151,9 @@ async function loadSchedule(state, league, now) {
   try {
     const events = await loadScoreboards(league, now, now + 7 * DAY); // a week, so NFL Sundays are always in view
     state.schedule[league] = events.filter((e) => e.state === 'pre' && e.date > now - HOUR).slice(0, 120)
-      .map((e) => ({ id: e.id, date: e.date, name: e.name, preseason: e.preseason, teams: e.teams.map((t) => ({ id: t.id, abbr: t.abbr, home: t.home })) }));
+      .map((e) => ({ id: e.id, date: e.date, name: e.name, preseason: e.preseason, teams: e.teams.map((t) => ({ id: t.id, abbr: t.abbr, home: t.home })),
+        // MLB: tonight's announced starting pitchers (empty until they are named)
+        ...(league === 'mlb' ? { probables: e.teams.flatMap((t) => t.probables || []) } : {}) }));
     s.schedule = now; s.scheduleTo = now + 7 * DAY;
   } catch { /* optional */ }
 }

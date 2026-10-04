@@ -754,6 +754,9 @@ const NEWS_W = { player: 0.07, team: 0.035 };
 const effectsFor = (state, art, targets) => newsEffects(art, targets.map((id) => state.assets[id]).filter(Boolean)
   .map((a) => ({ id: a.id, kind: a.kind, name: a.name, abbr: a.kind === 'team' ? a.ticker : '' })));
 
+function leaguePlayers(state, league) {
+  return Object.values(state.assets).filter((a) => a.kind === 'player' && a.league === league);
+}
 export function applyNews(state, league, articles, { now = Date.now() } = {}) {
   let added = 0;
   for (const art of articles) {
@@ -764,6 +767,13 @@ export function applyNews(state, league, articles, { now = Date.now() } = {}) {
       ...art.athletes.map((i) => pid(league, i)),
       ...art.teams.map((i) => tid(league, i)),
     ].filter((id) => state.assets[id]);
+    // The feed often tags only the team. A player named in full in the story is a subject too.
+    const text = `${art.headline}. ${art.desc || ''}`;
+    for (const a of leaguePlayers(state, league)) {
+      if (targets.includes(a.id)) continue;
+      const parts = String(a.name).split(/\s+/);
+      if (parts.length >= 2 && text.includes(parts[parts.length - 1]) && text.includes(a.name.replace(/\s+(Jr|Sr|II|III|IV)\.?$/i, ''))) targets.push(a.id);
+    }
     const age = now - art.published;
     // Each player and team gets only what the story says about them.
     const fx = effectsFor(state, art, targets);

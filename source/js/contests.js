@@ -183,6 +183,12 @@ export function propLine(a) {
   return Math.floor(m) + 0.5; // half-point lines: no ties
 }
 
+// Has he actually been playing? No game in a while (or none logged) means he may well sit.
+export function playsLately(a, now = Date.now()) {
+  const t = a.perf?.last?.[0]?.t;
+  if (!t) return true; // nothing logged yet (start of a season): no evidence either way
+  return now - t < (a.league === 'nfl' ? 16 : a.league === 'mlb' ? 5 : 8) * DAY;
+}
 // A line for a game in progress: what he has so far plus his average over what's left.
 export function liveLine(a, g) {
   const st = propStat(a);
@@ -228,6 +234,8 @@ export function propBoard(state, now = Date.now(), leagues = Object.keys(LEAGUES
         const line = propLine(a);
         if (line == null) continue;
         const st = propStat(a);
+        if (st.short === 'K' && g.probables && !g.probables.includes(String(a.rid))) continue; // not tonight's starter
+        if (!playsLately(a, now)) continue;
         rows.push({ key: `${g.id}:${a.id}`, gameId: g.id, game: g.name, league: lg, date: g.date, assetId: a.id, label: st.label, short: st.short, line, price: a.price });
       }
       add(lg, g, rows);

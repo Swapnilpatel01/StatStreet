@@ -60,4 +60,13 @@ assert.ok(S.injuryFactor('Injured Reserve', good) > 0.85 && S.injuryFactor('Inju
   assert.ok(a.price > low * 1.1, `better report lifts the price: ${low} -> ${a.price}`);
   assert.ok(a.events[0].text.startsWith('Outlook improving') && a.events[0].pct > 0);
 }
+{
+  // The feed tags only the team; the player named in the story still moves.
+  const a = st.assets['nfl:p:c']; const before = a.price; const t3 = now + 5000;
+  E.applyNews(st, 'nfl', [{ id: 'untagged1', headline: 'Texans receiver suspended six games', desc: 'Houston wide receiver Nico Collins has been suspended for six games following a positive test.', published: t3, athletes: [], teams: ['1'] }], { now: t3 });
+  const item = st.news.find((n) => n.id === 'untagged1');
+  assert.ok(item.targets.includes('nfl:p:c') && item.fx['nfl:p:c'] < 0, JSON.stringify(item.fx));
+  assert.ok(!item.targets.includes('nfl:p:s'), 'a player who is not named is left alone');
+  assert.ok(a.price < before, `named player drops: ${before} -> ${a.price}`);
+}
 console.log('ok - news tests');

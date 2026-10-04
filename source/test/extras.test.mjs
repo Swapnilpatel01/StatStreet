@@ -54,6 +54,27 @@ t('mover alerts fire once per step, and when a game goes live', () => {
   assert.ok(al.some((x) => /is live/.test(x.text)));
   assert.ok(!X.moverAlerts(st, now + 4000).some((x) => /is live/.test(x.text)));
 });
+t('daily challenge only asks about someone who will play', () => {
+  const st = build();
+  // Everyone on tonight's two teams last played three weeks ago, except one.
+  for (const a of Object.values(st.assets)) if (a.kind === 'player') a.perf.last = [{ t: now - 21 * DAY, gs: 10, line: line(10) }];
+  assert.equal(X.dailyChallenge(st, now).cur, null, 'nobody has played lately: no question');
+  st.assets['nba:p:p5'].perf.last = [{ t: now - 2 * DAY, gs: 10, line: line(10) }]; // WAS, plays tonight
+  st.challenge.cur = null;
+  assert.equal(X.dailyChallenge(st, now).cur.id, 'nba:p:p5');
+  // Baseball: a pitcher only when he is the announced starter.
+  E.upsertTeam(st, 'mlb', { id: '10', abbr: 'NYY', name: 'Yankees', w: 80, l: 60, gp: 140, diff: 50, streak: 1 });
+  E.upsertTeam(st, 'mlb', { id: '11', abbr: 'BOS', name: 'Red Sox', w: 70, l: 70, gp: 140, diff: 0, streak: 1 });
+  for (const [id, pos, team] of [['s1', 'SP', '10'], ['s2', 'SP', '10'], ['s3', 'SP', '11']]) E.seedPlayer(st, 'mlb', { id, name: `Pitcher ${id}`, pos, teamId: team, teamAbbr: 'X', gp: 20, gs: 12, line: {} });
+  E.initForm(st, 'mlb', { all: true }); E.repriceLeague(st, 'mlb', now);
+  for (const a of Object.values(st.assets)) { if (a.league === 'nba' && a.kind === 'player') a.perf.last = [{ t: now - 21 * DAY }]; if (a.league === 'mlb' && a.kind === 'player') { a.perf.n = 5; a.perf.ema ??= 10; } }
+  st.schedule.mlb = [{ id: 'm1', date: now + 3 * HOUR, name: 'BOS @ NYY', teams: [{ id: '10', abbr: 'NYY', home: true }, { id: '11', abbr: 'BOS' }], probables: ['s2'] }];
+  st.challenge.cur = null;
+  assert.equal(X.dailyChallenge(st, now).cur?.id, 'mlb:p:s2', 'the announced starter, not the other pitchers');
+  st.schedule.mlb[0].probables = []; st.challenge.cur = null;
+  assert.equal(X.dailyChallenge(st, now).cur, null, 'no starter announced: no pitcher question');
+});
+
 t('daily challenge: one a day, settles on the final, streak and XP', () => {
   const st = build();
   const ch = X.dailyChallenge(st, now);

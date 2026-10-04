@@ -148,6 +148,8 @@ export function dailyChallenge(state, now = Date.now()) {
   state.challenge ||= { streak: 0, best: 0, won: 0, lost: 0, cur: null };
   const ch = state.challenge;
   const today = dayKey(now);
+  // An unanswered question made by an older version may be about someone who isn't playing: ask again.
+  if (ch.cur && !ch.cur.pick && ch.cur.v !== 2) ch.cur = null;
   if (ch.cur && (ch.cur.day === today || (ch.cur.pick && !ch.cur.result && now - ch.cur.date < 2 * DAY))) return ch;
   if (ch.cur?.pick && !ch.cur.result) { ch.cur.result = 'void'; } // game never came in
   // Candidates: players with a game today that hasn't started, preferring ones you own, then stars.
@@ -158,7 +160,12 @@ export function dailyChallenge(state, now = Date.now()) {
       if (dayKey(g.date) !== today || g.date < now + 5 * 60e3 || g.preseason) continue;
       const ids = new Set(g.teams.map((t) => t.id));
       for (const a of Object.values(state.assets)) {
-        if (a.kind !== 'player' || a.league !== lg || !ids.has(a.teamId) || a.injury || a.perf?.ema == null || (a.perf.n || 0) < 3) continue;
+        if (a.kind !== 'player' || a.league !== lg || !ids.has(a.teamId) || (a.injury && a.injury.factor < 0.99) || a.perf?.ema == null || (a.perf.n || 0) < 3) continue;
+        // Only someone who will actually play: pitchers must be tonight's announced starter,
+        // and everyone must have played in his team's recent games.
+        if (lg === 'mlb' && /^(SP|RP|P|CL)$/i.test(a.pos || '') && !(g.probables || []).includes(String(a.rid))) continue;
+        const lastT = a.perf.last?.[0]?.t;
+        if (lastT && now - lastT > (lg === 'nfl' ? 16 : lg === 'mlb' ? 4 : 8) * DAY) continue;
         cands.push({ a, g, score: (state.holdings[a.id] ? 1000 : 0) + (a.fame || 1) * 100 + a.price / 10 });
       }
     }
@@ -169,7 +176,7 @@ export function dailyChallenge(state, now = Date.now()) {
   const top = cands.slice(0, 6);
   const pick = top[Math.abs(hash(today)) % top.length];
   ch.cur = { day: today, id: pick.a.id, name: pick.a.name, ticker: pick.a.ticker, gid: pick.g.id, game: pick.g.name, date: pick.g.date,
-    line: Math.round(pick.a.perf.ema * 10) / 10, pick: null, result: null };
+    line: Math.round(pick.a.perf.ema * 10) / 10, pick: null, result: null, v: 2 };
   return ch;
 }
 function hash(s) { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return h; }

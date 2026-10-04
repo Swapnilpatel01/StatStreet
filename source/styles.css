@@ -1104,3 +1104,9 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .linescore td { text-align: center; padding: 5px 6px; color: var(--muted); }
 .linescore td:first-child { text-align: left; font-weight: 800; color: var(--text); }
 .linescore td:last-child { color: var(--text); }
+
+/* v64: form circle */
+.formdot { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; border: 2px solid currentColor; }
+.formdot.hi { color: var(--up); background: var(--up-bg); }
+.formdot.mid { color: #ffa726; background: color-mix(in srgb, #ffa726 14%, transparent); }
+.formdot.lo { color: var(--down); background: var(--down-bg); }
