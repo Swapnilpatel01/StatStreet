@@ -532,6 +532,12 @@ with sync_playwright() as p:
         assert page.locator('#game .gsec[data-gsec=summary]').is_hidden()
         gt = page.text_content('#game'); assert 'Play by play' in gt, gt[:200]
         assert page.locator('#game .linescore td').count() >= 8, 'line score'
+        page.evaluate("(() => { const g = document.querySelector('#game'); g.scrollTop = 40; g.dispatchEvent(new Event('scroll')); })()"); page.wait_for_timeout(150)
+        st = page.evaluate("(() => { const g = document.querySelector('#game'); return [g.classList.contains('pinned'), getComputedStyle(g.querySelector('.gpin-score')).opacity, g.scrollHeight - g.clientHeight]; })()")
+        print('pinned after a small scroll:', st); assert not st[0] or st[2] < 60, 'score bar must not pin over the win chart'
+        page.evaluate("(() => { const g = document.querySelector('#game'); g.scrollTop = 99999; g.dispatchEvent(new Event('scroll')); })()"); page.wait_for_timeout(150)
+        print('pinned at the bottom:', page.evaluate("[document.querySelector('#game').classList.contains('pinned'), document.querySelector('#game').scrollTop]"))
+        page.evaluate("(() => { const g = document.querySelector('#game'); g.scrollTop = 0; g.dispatchEvent(new Event('scroll')); })()"); page.wait_for_timeout(100)
         assert page.locator('#game .pbp .pb [data-c]').count() == 0, 'no price change on plays'
         print('plays shown:', page.locator('#game .pbp .pb').count())
         assert page.locator('#game .pbp .pb').count() >= 1

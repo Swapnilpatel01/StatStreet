@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 78;
+const APP_VERSION = 79;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3952,7 +3952,8 @@ function shiftScoreDay(step) {
 $('#game').addEventListener('scroll', () => {
   const el = $('#game'); const head = el.querySelector('.gc-head'); const pin = el.querySelector('.gpin');
   if (!head || !pin) return;
-  el.classList.toggle('pinned', head.getBoundingClientRect().bottom < pin.getBoundingClientRect().top + 30);
+  // Pinned only once the bar has actually reached the top of the screen and stuck there.
+  el.classList.toggle('pinned', pin.getBoundingClientRect().top <= el.getBoundingClientRect().top + 1);
 }, { passive: true });
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {
