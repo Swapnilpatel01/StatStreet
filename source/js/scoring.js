@@ -84,7 +84,7 @@ export function perfRating(league, l) {
 
 export function emptyLine(league) {
   if (league === 'nba') return { min: 0, pts: 0, fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 };
-  if (league === 'nfl') return { passYds: 0, passTD: 0, int: 0, cmp: 0, att: 0, rushYds: 0, rushTD: 0, car: 0, rec: 0, recYds: 0, recTD: 0, fumLost: 0, tkl: 0, sacks: 0, defInt: 0, pd: 0, defTD: 0, fg: 0, xp: 0, tfl: 0, qbh: 0, fr: 0 };
+  if (league === 'nfl') return { passYds: 0, passTD: 0, int: 0, cmp: 0, att: 0, rushYds: 0, rushTD: 0, car: 0, rec: 0, recYds: 0, recTD: 0, fumLost: 0, tkl: 0, sacks: 0, defInt: 0, pd: 0, defTD: 0, fg: 0, xp: 0, tfl: 0, qbh: 0, fr: 0, fga: 0, xpa: 0 };
   return { ab: 0, h: 0, r: 0, rbi: 0, hr: 0, bb: 0, k: 0, ip: 0, ph: 0, er: 0, pbb: 0, pk: 0 };
 }
 
@@ -279,7 +279,7 @@ export function parseBoxScore(league, json) {
           else if (catName === 'fumbles') { l.fumLost += num(v('LOST')); l.fr += num(v('REC')); }
           else if (catName === 'defensive') { l.tkl += num(v('TOT')); l.sacks += num(v('SACKS')); l.pd += num(v('PD')); l.defTD += num(v('TD')); l.tfl += num(v('TFL')); l.qbh += num(has('QB HTS') ? v('QB HTS') : v('QB HUR')); }
           else if (catName === 'interceptions') { l.defInt += num(v('INT')); l.defTD += num(v('TD')); }
-          else if (catName === 'kicking') { l.fg += pair(v('FG'))[0]; l.xp += pair(v('XP'))[0]; }
+          else if (catName === 'kicking') { const [fg, fga] = pair(v('FG')); const [xp, xpa] = pair(v('XP')); l.fg += fg; l.xp += xp; l.fga += fga; l.xpa += xpa; }
         } else {
           if (has('IP')) {
             l.ip += innings(v('IP')); l.ph += num(v('H')); l.er += num(v('ER')); l.pbb += num(v('BB')); l.pk += num(v('K'));
