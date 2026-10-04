@@ -1174,3 +1174,11 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .box td.rtg { padding: 6px 4px; }
 .box td:nth-child(3) { color: var(--muted); font-weight: 400; } .box td:nth-child(4) { color: var(--text); font-weight: 700; }
 .top .tr { position: absolute; right: 8px; top: 8px; }
+
+/* v75: rating totals by period */
+.seg3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.seg3 button { background: var(--card2); border-radius: 12px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; border: 1.5px solid transparent; }
+.seg3 button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card2)); }
+.seg3 span { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.seg3 b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.seg3 em { font-style: normal; font-size: 10.5px; color: var(--faint); }

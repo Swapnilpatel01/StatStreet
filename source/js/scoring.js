@@ -64,7 +64,7 @@ export const RATING_WEIGHTS = {
     passYds: 0.013, passTD: 0.5, int: -0.4,
     rushYds: 0.032, rushTD: 1, recYds: 0.032, recTD: 1, rec: 0.04, fumLost: -0.8,
     sacks: 1.4, defInt: 3.5, tkl: 0.2, pd: 0.5, defTD: 5,
-    fg: 0.8, xp: 0.2,
+    fg: 1.6, xp: 0.1,
   },
   // hitters: an out is an at-bat without a hit. A home run counts on top of the hit, run and RBI.
   mlbBat: { h: 0.5, hr: 1, r: 0.6, rbi: 0.7, bb: 0.3, out: -0.125 },

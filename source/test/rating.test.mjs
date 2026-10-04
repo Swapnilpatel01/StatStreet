@@ -35,6 +35,13 @@ near(nba({ pts: 33, reb: 15, ast: 12 }), 7.4, 1.0, 'Jokic 33/15/12');
 near(nba({ pts: 40, reb: 8, ast: 13 }), 7.6, 0.5, 'Jokic 40/8/13');
 near(nba({ pts: 23, reb: 21, ast: 19 }), 7.5, 1.1, 'Jokic 23/21/19');
 near(nba({ pts: 35, reb: 14, ast: 13 }), 6.7, 0.5, 'Jokic 35/14/13');
+// kickers
+near(nfl({ fg: 4, xp: 1 }), 6.8, 0.5, 'Shrader 4/4 fg 1/1 xp');
+near(nfl({ fg: 3, xp: 3 }), 5.0, 0.5, 'Shrader 3/3 fg 3/3 xp');
+near(nfl({ fg: 1, xp: 2 }), 1.4, 0.5, 'Shrader 1/1 fg 2/3 xp');
+near(nfl({ fg: 1 }), 2.1, 0.6, 'Shrader 1/1 fg');
+near(nfl({ fg: 2 }), 2.7, 0.6, 'Shrader 2/2 fg (53 long)');
+near(nfl({ fg: 2 }), 3.7, 0.6, 'Shrader 2/2 fg (61 long)');
 // shape: more is better, and the top is a ceiling
 assert.ok(nfl({ rushYds: 250, rushTD: 5, rec: 8, recYds: 80 }) <= 15);
 assert.ok(perfRating('nba', { ...emptyLine('nba'), pts: 50, reb: 12, ast: 10, stl: 2, blk: 1, to: 3 }) > perfRating('nba', { ...emptyLine('nba'), pts: 20, reb: 5, ast: 4, stl: 1, blk: 0, to: 2 }));

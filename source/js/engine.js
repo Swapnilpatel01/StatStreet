@@ -315,15 +315,30 @@ export function gameRating(state, a, g) {
   const z = (g.gs - st.mu) / Math.sqrt(st.sd * st.sd + d * d);
   return Math.round(clamp(3 + 2.5 * z, -2, 15) * 10) / 10;
 }
-export function formRating(state, a) {
+export const RATING_SPANS = { '7d': 7 * DAY, '30d': 30 * DAY, season: Infinity };
+// All of a player's rated games on record, oldest first: [time, rating].
+function ratedGames(state, a) {
+  const seen = new Map((a.perf.rt || []).map((x) => [x[0], x[1]]));
+  for (const g of a.perf.last || []) if (g.t != null && !seen.has(g.t)) { const r = gameRating(state, a, g); if (r != null) seen.set(g.t, r); }
+  return [...seen.entries()].sort((x, y) => x[0] - y[0]);
+}
+// A player's rating total over the last 7 days, 30 days or the season, the way Real adds them up.
+export function formRating(state, a, span = '7d', now = Date.now()) {
   if (a.kind !== 'player' || !a.perf) return null;
-  const rs = (a.perf.last || []).slice(0, 5).map((g) => gameRating(state, a, g)).filter((r) => r != null);
-  const n = rs.length;
-  if (!n) return null; // nothing to add up yet
-  const rating = Math.round(rs.reduce((t, r) => t + r, 0) * 10) / 10;
-  const avg = Math.round((rating / n) * 10) / 10;
-  const trend = n >= 4 ? (rs[0] + rs[1]) / 2 - rs.slice(2).reduce((t, r) => t + r, 0) / (n - 2) : 0;
-  return { rating, avg, n, trend, games: rs };
+  const all = ratedGames(state, a);
+  const from = now - (RATING_SPANS[span] ?? RATING_SPANS['7d']);
+  let rs = all.filter((x) => x[0] >= from).map((x) => x[1]);
+  let n = rs.length; let rating = rs.reduce((t, r) => t + r, 0);
+  // Season: the feed's season averages cover games from before this app was keeping ratings.
+  // The rating is a straight sum over stats, so average line × games played is the season total.
+  if (span === 'season' && a.perf.avg && a.perf.season?.gp > n) {
+    n = a.perf.season.gp; rating = perfRating(a.league, { ...emptyLine(a.league), ...a.perf.avg }) * n;
+  }
+  if (!n) return null;
+  rating = Math.round(rating * 10) / 10;
+  const last = all.slice(-5).map((x) => x[1]).reverse();
+  const trend = last.length >= 4 ? (last[0] + last[1]) / 2 - last.slice(2).reduce((t, r) => t + r, 0) / (last.length - 2) : 0;
+  return { rating, avg: Math.round((rating / n) * 10) / 10, n, trend, span };
 }
 
 export function playerZ(state, a) {
@@ -581,6 +596,9 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       a.perf.n = Math.min(a.perf.n + 1, 20);
       a.perf.last.unshift({ e: game.id, t: game.date, gs: Math.round(gs * 10) / 10, text, opp, line: p.line });
       if (a.perf.last.length > 10) a.perf.last.length = 10;
+      // Every game's rating is kept (time, rating) so totals over a week, a month or the season can be added up.
+      a.perf.rt ||= [];
+      if (!a.perf.rt.some((x) => x[0] === game.date)) { a.perf.rt.push([game.date, perfRating(league, { ...emptyLine(league), ...p.line })]); a.perf.rt.sort((x, y) => x[0] - y[0]); if (a.perf.rt.length > 200) a.perf.rt.splice(0, a.perf.rt.length - 200); }
       a.live = null;
     }, { force: gs !== 0 });
     if (!game.preseason && !backfill) boostAfterGame(state, a, playerPct, playerBefore, at, game.date);
