@@ -601,6 +601,15 @@ with sync_playwright() as p:
     page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     print('props rows:', page.locator('#view .prop-row').count(), 'live section:', 'live props' in pt)
     page.screenshot(path=f'{OUT}/76-props.png', full_page=True)
+    # swipe a row: the panel behind it
+    page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300)
+    page.evaluate("""(() => { const el = document.querySelector('#mlist .list > .item'); const r = el.getBoundingClientRect(); const mk = (x) => new Touch({ identifier: 1, target: el, clientX: x, clientY: r.top + 20 });
+        el.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [mk(250)], changedTouches: [mk(250)] }));
+        el.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, touches: [mk(225)], changedTouches: [mk(225)] }));
+        el.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, touches: [mk(160)], changedTouches: [mk(160)] })); window._sw = [el, mk]; })()"""); page.wait_for_timeout(150)
+    assert 'Watch' in page.inner_text('.swipe-bg.watch.armed'); page.screenshot(path=f'{OUT}/90-swipe.png')
+    page.evaluate("(() => { const [el, mk] = window._sw; el.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [mk(160)] })); })()"); page.wait_for_timeout(400)
+    print('swipe:', toast(page)); assert 'watchlist' in toast(page) and page.locator('.swipe-bg').count() == 0
     # text size and the sideways chart
     page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300); page.click('[data-textsize="2"]'); page.wait_for_timeout(200)
     assert page.evaluate("document.documentElement.classList.contains('xl-text')"); page.click('[data-textsize="0"]'); page.wait_for_timeout(200)

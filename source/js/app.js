@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 95;
+const APP_VERSION = 96;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -613,8 +613,8 @@ function renderMarket(keepFocus = false) {
     ${!ui.q.trim() ? marketBanners() : ''}
     ${!ui.q.trim() && ui.kind === 'player' ? trendingStrip() : ''}
     <div class="chips" style="margin-top:10px">${SORTS.map(([k, n]) => `<button class="chip ${ui.sort === k ? 'on' : ''}" data-sort="${k}">${n}</button>`).join('')}</div>
-    ${!ui.q.trim() && ui.kind === 'player' ? `<div class="chips pos-chips" style="margin-top:6px">${POSITIONS[ui.league] ? [['all', 'All positions'], ...POSITIONS[ui.league]].map(([k, n]) => `<button class="chip ${(ui.pos || 'all') === k ? 'on' : ''}" data-pos="${k}">${n}</button>`).join('') : ''}<button class="chip ${ui.healthy ? 'on' : ''}" data-act="healthy">${ui.healthy ? '✓ ' : ''}Healthy only</button></div>` : ''}
-    <div class="chips price-chips" style="margin-top:6px">${PRICE_BANDS.map(([k, n]) => `<button class="chip ${(ui.price || 'any') === k ? 'on' : ''}" data-price="${k}">${n}</button>`).join('')}</div>
+    ${!ui.q.trim() && ui.kind === 'player' && POSITIONS[ui.league] ? `<div class="chips pos-chips" style="margin-top:6px">${[['all', 'All positions'], ...POSITIONS[ui.league]].map(([k, n]) => `<button class="chip ${(ui.pos || 'all') === k ? 'on' : ''}" data-pos="${k}">${n}</button>`).join('')}</div>` : ''}
+    <div class="chips price-chips" style="margin-top:6px">${ui.kind === 'player' ? `<button class="chip ${ui.healthy ? 'on' : ''}" data-act="healthy">${ui.healthy ? '✓ ' : ''}Healthy only</button>` : ''}${PRICE_BANDS.map(([k, n]) => `<button class="chip ${(ui.price || 'any') === k ? 'on' : ''}" data-price="${k}">${n}</button>`).join('')}</div>
     <div class="row between" style="margin-top:8px"><span class="tiny muted">${ui.mview === 'heat' ? 'Tile size = share price · color = today\'s move' : ''}</span>
       <div class="seg mini">${[['list', 'List'], ['heat', 'Heatmap']].map(([k, n]) => `<button data-mview="${k}" class="${ui.mview === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
     <div id="mlist" style="margin-top:8px">${ui.mview === 'heat' && items.length ? heatmapHTML(items) : `<div class="list">
@@ -4141,7 +4141,18 @@ $('#game').addEventListener('scroll', () => {
 // Swipe a player or team row: left adds it to (or drops it from) your watchlist, right opens Buy.
 (() => {
   const el = view(); let row = null; let sx = 0; let sy = 0; let dx = 0; let on = null;
-  const reset = () => { if (row) { row.style.transition = 'transform .18s'; row.style.transform = ''; const r = row; setTimeout(() => { r.style.transition = ''; r.classList.remove('sw-l', 'sw-r'); }, 200); } row = null; on = null; dx = 0; };
+  let bg = null;
+  const reset = () => {
+    if (row) { row.style.transition = 'transform .18s'; row.style.transform = ''; const r = row; const b = bg; setTimeout(() => { r.style.transition = ''; r.classList.remove('swiping'); b?.remove(); }, 200); }
+    row = null; bg = null; on = null; dx = 0;
+  };
+  // The panel behind the row: green "Buy" on a swipe right, gold "Watch" on a swipe left.
+  const paint = () => {
+    if (!bg) { bg = document.createElement('div'); bg.className = 'swipe-bg'; row.parentNode.style.position = 'relative'; bg.style.top = `${row.offsetTop}px`; bg.style.height = `${row.offsetHeight}px`; row.parentNode.insertBefore(bg, row); row.classList.add('swiping'); }
+    const right = dx > 0; const armed = Math.abs(dx) >= 72; const watching = state.watch.includes(row.dataset.open);
+    bg.className = `swipe-bg ${right ? 'buy' : 'watch'} ${armed ? 'armed' : ''}`;
+    bg.innerHTML = right ? '<span>Buy</span>' : `<span>${watching ? '☆ Unwatch' : '★ Watch'}</span>`;
+  };
   el.addEventListener('touchstart', (e) => {
     row = null; on = null; dx = 0;
     if (e.touches.length !== 1 || overlayOpen() || (ui.tab === 'games' && ui.gtab === 'pickem')) return;
@@ -4155,7 +4166,7 @@ $('#game').addEventListener('scroll', () => {
     const t = e.touches[0]; dx = t.clientX - sx; const dy = t.clientY - sy;
     if (on === null) { if (Math.abs(dx) > 12 && Math.abs(dx) > 1.6 * Math.abs(dy)) on = true; else if (Math.abs(dy) > 10) { on = false; return; } else return; }
     row.style.transform = `translateX(${Math.max(-96, Math.min(96, dx))}px)`;
-    row.classList.toggle('sw-l', dx < -40); row.classList.toggle('sw-r', dx > 40);
+    paint();
   }, { passive: true });
   const end = () => {
     if (!row || on !== true) { reset(); return; }

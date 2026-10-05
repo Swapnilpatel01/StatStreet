@@ -1284,3 +1284,12 @@ html.xl-text { -webkit-text-size-adjust: 132%; text-size-adjust: 132%; }
 .land-top { display: flex; align-items: center; gap: 12px; height: 44px; font-size: 14px; }
 .land-top b { max-width: 34%; font-size: 15px; } .land-top .lp { font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; }
 .land-top .ranges { margin: 0; }
+
+/* v96: swipe panel */
+.pos-chips .chip:last-child { margin-left: 0; }
+.swipe-bg { position: absolute; left: 0; right: 0; z-index: 0; display: flex; align-items: center; padding: 0 22px; font-weight: 800; font-size: 15px; letter-spacing: .01em; }
+.swipe-bg.buy { background: var(--up); color: #04130c; justify-content: flex-start; }
+.swipe-bg.watch { background: #f5c542; color: #1a1300; justify-content: flex-end; }
+.swipe-bg span { opacity: .75; transition: opacity .12s, transform .12s; }
+.swipe-bg.armed span { opacity: 1; transform: scale(1.12); }
+.list > .item.swiping { position: relative; z-index: 1; background: var(--card); }
