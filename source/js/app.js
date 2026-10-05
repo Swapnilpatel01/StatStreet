@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 91;
+const APP_VERSION = 92;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -99,8 +99,10 @@ function avatar(a) {
 
 const lgTag = (lg) => (LEAGUES[lg] ? `<span class="lg ${lg}">${LEAGUES[lg].name}</span>` : '<span class="lg" style="background:var(--text)">FUND</span>');
 
-function subLine(a) {
-  const bits = [lgTag(a.kind === 'fund' ? 'fund' : a.league), `<span>${esc(a.ticker)}</span>`];
+// In lists a player's row leaves out the ticker, so his team, position and injury tag fit.
+function subLine(a, { ticker = a.kind !== 'player' } = {}) {
+  const bits = [lgTag(a.kind === 'fund' ? 'fund' : a.league)];
+  if (ticker) bits.push(`<span>${esc(a.ticker)}</span>`);
   if (a.kind === 'player') bits.push(`<span>${esc(a.teamAbbr || '')}${a.pos ? ' · ' + esc(a.pos) : ''}</span>`);
   else if (a.kind === 'team') bits.push(`<span>${recText(a)}</span>`);
   else bits.push(`<span>${Object.keys(a.cons || {}).length} holdings</span>`);
@@ -1668,7 +1670,7 @@ function renderDetail({ keepScroll = true } = {}) {
         <button class="icon-btn ${watching ? 'on' : ''}" data-act="watch" aria-label="Watchlist"><svg viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg></button>
       </div>
     </div>
-    <div class="hero">${avatar(a)}<div class="grow"><div class="name ellipsis" style="font-size:19px">${esc(a.name)}</div><div class="sub">${subLine(a)}</div>${a.kind !== 'fund' ? `<div style="margin-top:4px">${rarChip(a)}</div>` : ''}</div></div>
+    <div class="hero">${avatar(a)}<div class="grow"><div class="name ellipsis" style="font-size:19px">${esc(a.name)}</div><div class="sub">${subLine(a, { ticker: true })}</div>${a.kind !== 'fund' ? `<div style="margin-top:4px">${rarChip(a)}</div>` : ''}</div></div>
     <div class="big-value" id="dprice">${money(a.price)}</div>
     <div class="change-line ${cls(ch)}" id="dchg">${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(a.price - ref))} (${fmtPct(ch)}) <span class="muted">${rangeLabel(ui.range)}</span></div>
     <div class="chart-wrap" id="dchart"></div>
