@@ -125,11 +125,17 @@ t('themes and titles: level-gated, bought with coins, equipped', () => {
   assert.equal(X.career(st).title, 'Sixth Man');
 });
 
-t('contests: cap enforced, bots draft legal lineups, real box scores score it, payout at week end', () => {
+t('contests are daily: one day\'s games, players from those games only, paid the next day', () => {
   const st = build(1000);
-  const cap = K.salaryCap(st, 'nba');
+  assert.equal(K.availableContests(st, now, ['nba']).length, 0, 'no games coming up: no contest');
+  const day1 = new Date(now + DAY).setHours(12, 0, 0, 0);
+  const g = (id, date, a, b) => ({ id, date, name: 'x', teams: [{ id: a, abbr: a, home: true }, { id: b, abbr: b }] });
+  st.schedule.nba = [g('cg1', day1, '1', '2'), g('cg2', day1 + 2 * HOUR, '3', '2'), g('cg9', day1 + 3 * DAY, '1', '3')];
+  const slate = K.nextSlate(st, 'nba', now);
+  assert.deepEqual(slate.games.map((x) => x.id), ['cg1', 'cg2'], 'the next day with games, and only that day');
+  const cap = K.salaryCap(st, 'nba', now);
   assert.ok(cap > 0);
-  const pool = K.draftPool(st, 'nba');
+  const pool = K.draftPool(st, 'nba', now);
   const bad = pool.slice(0, 5).map((a) => a.id);
   if (pool.slice(0, 5).reduce((s, a) => s + K.salary(a), 0) > cap) assert.throws(() => K.enterContest(st, { league: 'nba', tier: 'rookie', lineup: bad }, now), /cap/);
   const lineup = pool.slice(-5).map((a) => a.id); // five cheapest always fit
@@ -137,20 +143,31 @@ t('contests: cap enforced, bots draft legal lineups, real box scores score it, p
   const cash = st.cash;
   const c = K.enterContest(st, { league: 'nba', tier: 'rookie', lineup }, now);
   assert.equal(st.cash, cash - c.fee);
+  assert.deepEqual(c.gameIds, ['cg1', 'cg2']);
   assert.throws(() => K.enterContest(st, { league: 'nba', tier: 'rookie', lineup }, now), /already/);
   assert.throws(() => K.enterContest(st, { league: 'nba', tier: 'pro', lineup }, now), /level 2/);
   for (const b of c.bots) {
     assert.equal(b.lineup.length, 5);
-    const total = b.lineup.reduce((s, id) => s + K.salary(st.assets[id]), 0);
-    assert.ok(total <= c.cap, `${b.name} over cap`);
+    assert.ok(b.lineup.reduce((s, id) => s + K.salary(st.assets[id]), 0) <= c.cap, `${b.name} over cap`);
   }
-  E.applyFinalGame(st, 'nba', box('cg1', now + DAY, [row(rid, 60)]), { now: now + DAY + 3 * HOUR });
+  E.applyFinalGame(st, 'nba', box('cg9', day1 + 3 * DAY, [row(rid, 99)]), { now: day1 + 3 * DAY + 3 * HOUR });
+  assert.equal(c.pts, 0, 'a game on another day does not count');
+  E.applyFinalGame(st, 'nba', box('cg1', day1, [row(rid, 60)]), { now: day1 + 3 * HOUR });
   assert.ok(c.pts >= 60);
-  E.applyFinalGame(st, 'nba', box('cg1', now + DAY, [row(rid, 60)]), { now: now + DAY + 4 * HOUR }); // replay ignored
+  E.applyFinalGame(st, 'nba', box('cg1', day1, [row(rid, 60)]), { now: day1 + 4 * HOUR }); // replay ignored
   assert.equal(c.ppts[lineup[0]], 60);
-  K.runContests(st, c.end + 1);
-  assert.ok(c.done && c.place >= 1);
+  K.runContests(st, day1 + 6 * HOUR); assert.ok(!c.done, 'not paid on the day itself');
+  K.runContests(st, c.end + HOUR); assert.ok(!c.done, 'still waiting for the late game');
+  E.applyFinalGame(st, 'nba', box('cg2', day1 + 2 * HOUR, []), { now: c.end + 2 * HOUR });
+  K.runContests(st, c.end + 2 * HOUR);
+  assert.ok(c.done && c.place >= 1, 'paid the next day once every game is in');
   if (c.place === 1) assert.ok(c.payout === c.fee * 3);
+  // a one-game day is a slate of that one game
+  st.schedule.nba = [g('solo', day1 + 3 * DAY, '1', '2')];
+  const p1 = K.draftPool(st, 'nba', day1 + 2 * DAY);
+  assert.ok(p1.length > 5 && p1.every((a) => ['1', '2'].includes(a.teamId)), 'only players in that game');
+  // once a game has started its players are no longer draftable
+  assert.equal(K.draftPool(st, 'nba', day1 + 3 * DAY + 60e3).length, 0);
 });
 
 t('live props: line is what he has plus his average over the rest, moves, closes late', () => {

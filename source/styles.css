@@ -1224,3 +1224,7 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 
 .box td:nth-child(3) { font-weight: 700; } .box td:nth-child(3).up { color: var(--up); } .box td:nth-child(3).down { color: var(--down); }
 .box td:nth-child(4) { color: var(--muted); font-weight: 400; } .box td:nth-child(5) { color: var(--text); font-weight: 700; }
+
+/* v91 */
+.box td:first-child, .box th:first-child { max-width: 170px; min-width: 118px; }
+.box th:first-child { text-align: left; }

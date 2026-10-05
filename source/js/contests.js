@@ -1,9 +1,9 @@
-// Weekly salary-cap contests and over/under player props, both settled from real box scores.
+// Daily salary-cap contests and over/under player props, both settled from real box scores.
 // Contests: draft 5 players of one league under a salary cap, pay an entry fee from your
-// bankroll, and score their real game scores for the rest of the week against 5 bots.
+// bankroll, and score their real game scores in that day's games against 5 bots. Paid out the next day.
 // Props: bet over/under on a real stat line (points, yards, strikeouts…), alone or as a parlay.
 
-import { DAY, HOUR, weekEnd, weekId, seeded } from './util.js';
+import { DAY, HOUR, seeded } from './util.js';
 import { gameHooks, notify, change, netWorth, minOrder } from './engine.js';
 import { LEAGUES, gameScore, posGroup } from './scoring.js';
 import { addXP, addCoins, hasLevel } from './xp.js';
@@ -31,33 +31,50 @@ const seasonBal = (state) => state.season?.bal || state.startCash || 100;
 export const entryFee = (state, tier) => Math.max(0.05, round2(seasonBal(state) * tier.fee));
 export const salary = (a) => Math.max(1, Math.round(a.price));
 
-// Draftable players: healthy-ish, with a performance history, most valuable first.
-export function draftPool(state, league) {
+// A contest covers one day's games in one league (a "slate"): the next local day that still
+// has a game to start. A day with one game is a slate of that one game.
+const dayStartOf = (t) => new Date(t).setHours(0, 0, 0, 0);
+const dayKeyOf = (t) => new Date(t).toLocaleDateString('en-CA');
+export function nextSlate(state, league, now = Date.now()) {
+  const games = (state.schedule?.[league] || []).filter((g) => g.date > now + 60e3).sort((x, y) => x.date - y.date);
+  if (!games.length) return null;
+  const day = dayStartOf(games[0].date);
+  const list = games.filter((g) => dayStartOf(g.date) === day);
+  return { day, key: dayKeyOf(day), games: list, first: list[0].date, last: list[list.length - 1].date, teams: new Set(list.flatMap((g) => g.teams.map((t) => t.id))) };
+}
+
+// Draftable players: on a team in the slate's games that haven't started, healthy-ish, with a
+// performance history, most valuable first.
+export function draftPool(state, league, now = Date.now()) {
+  const slate = nextSlate(state, league, now);
+  if (!slate) return [];
   return Object.values(state.assets)
-    .filter((a) => a.kind === 'player' && a.league === league && a.price > 0 && a.perf?.ema != null && !(a.injury && a.injury.factor < 0.9))
+    .filter((a) => a.kind === 'player' && a.league === league && slate.teams.has(a.teamId) && a.price > 0 && a.perf?.ema != null && !(a.injury && a.injury.factor < 0.9))
     .sort((x, y) => y.price - x.price)
     .slice(0, 160);
 }
 
 // The cap fits about one star, a couple of good starters and some value picks.
-export function salaryCap(state, league) {
-  const p = draftPool(state, league);
+export function salaryCap(state, league, now = Date.now()) {
+  const p = draftPool(state, league, now);
   if (p.length < LINEUP + 1) return 0;
-  const cap = [2, 9, 24, 49, 89].map((i) => salary(p[Math.min(i, p.length - 1)])).reduce((s, x) => s + x, 0) * 1.05;
+  // ranks scale with the size of the pool: a one-game slate has far fewer players than a full day
+  const cap = [0.02, 0.1, 0.27, 0.55, 0.9].map((f) => salary(p[Math.min(Math.round(f * (p.length - 1)), p.length - 1)])).reduce((s, x) => s + x, 0) * 1.05;
   const cheapest = p.map(salary).sort((x, y) => x - y).slice(0, LINEUP).reduce((s, x) => s + x, 0);
   return Math.round(Math.max(cap, cheapest * 1.15)); // always room for a real choice
 }
 
-export const contestId = (now, league, tier) => `${weekId(now)}:${league}:${tier}`;
+export const contestId = (slateKey, league, tier) => `${slateKey}:${league}:${tier}`;
 
 export function availableContests(state, now = Date.now(), leagues = Object.keys(LEAGUES)) {
   const out = [];
-  if (weekEnd(now) - now < 6 * HOUR) return out; // too late in the week
   for (const lg of leagues) {
-    const cap = salaryCap(state, lg);
+    const slate = nextSlate(state, lg, now);
+    const cap = slate ? salaryCap(state, lg, now) : 0;
     if (!cap) continue;
     for (const tier of CONTEST_TIERS) {
-      out.push({ league: lg, tier, fee: entryFee(state, tier), cap, id: contestId(now, lg, tier.key), entered: state.contests?.[contestId(now, lg, tier.key)], locked: !hasLevel(state, tier.level) });
+      const id = contestId(slate.key, lg, tier.key);
+      out.push({ league: lg, tier, fee: entryFee(state, tier), cap, id, slate, entered: state.contests?.[id], locked: !hasLevel(state, tier.level) });
     }
   }
   return out;
@@ -78,7 +95,7 @@ function draft(pool, cap, score, exclude = new Set()) {
 }
 
 function botLineups(state, league, cap, now, seed) {
-  const pool = draftPool(state, league);
+  const pool = draftPool(state, league, now);
   const rnd = seeded(seed);
   const rand = new Map(pool.map((a) => [a.id, rnd()]));
   const scorer = {
@@ -95,22 +112,25 @@ export function enterContest(state, { league, tier: tierKey, lineup }, now = Dat
   const tier = CONTEST_TIERS.find((t) => t.key === tierKey);
   if (!tier) throw new Error('Unknown contest');
   if (!hasLevel(state, tier.level)) throw new Error(`${tier.name} contests unlock at level ${tier.level}`);
-  if (weekEnd(now) - now < 6 * HOUR) throw new Error('This week\'s contests are closed — new ones open Monday');
-  const id = contestId(now, league, tierKey);
+  const slate = nextSlate(state, league, now);
+  if (!slate) throw new Error('No games coming up — contests open on game days');
+  const id = contestId(slate.key, league, tierKey);
   state.contests ||= {};
   if (state.contests[id]) throw new Error('You already entered this contest');
   const ids = [...new Set(lineup)];
   if (ids.length !== LINEUP) throw new Error(`Pick ${LINEUP} different players`);
-  const pool = new Map(draftPool(state, league).map((a) => [a.id, a]));
+  const pool = new Map(draftPool(state, league, now).map((a) => [a.id, a]));
   if (!ids.every((x) => pool.has(x))) throw new Error('One of those players can\'t be drafted right now');
-  const cap = salaryCap(state, league);
+  const cap = salaryCap(state, league, now);
   const total = ids.reduce((s, x) => s + salary(pool.get(x)), 0);
   if (total > cap) throw new Error(`Over the cap by $${total - cap}`);
   const fee = entryFee(state, tier);
   if (state.cash < fee) throw new Error(`Entry is $${fee.toFixed(2)} — you have $${state.cash.toFixed(2)} cash`);
   state.cash = round2(state.cash - fee);
+  // It covers that day's games that hadn't started when you entered, and pays out the next day.
   state.contests[id] = {
-    id, league, tier: tierKey, fee, cap, entered: now, start: now, end: weekEnd(now),
+    id, league, tier: tierKey, fee, cap, entered: now, start: now, day: slate.day, end: slate.day + DAY, first: slate.first, last: slate.last,
+    gameIds: slate.games.map((g) => g.id),
     lineup: ids, pts: 0, ppts: Object.fromEntries(ids.map((x) => [x, 0])), bots: botLineups(state, league, cap, now, id), games: {}, done: false,
   };
   addXP(state, 20, now);
@@ -125,7 +145,8 @@ export function standings(c) {
 
 function scoreContests(state, league, game) {
   for (const c of Object.values(state.contests || {})) {
-    if (c.done || c.league !== league || c.games[game.id] || game.date < c.start || game.date >= c.end) continue;
+    if (c.done || c.league !== league || c.games[game.id]) continue;
+    if (c.gameIds ? !c.gameIds.includes(game.id) : (game.date < c.start || game.date >= c.end)) continue;
     c.games[game.id] = 1;
     for (const p of game.players || []) {
       const id = `${league}:p:${p.id}`;
@@ -138,7 +159,9 @@ function scoreContests(state, league, game) {
 
 function settleContests(state, now) {
   for (const c of Object.values(state.contests || {})) {
-    if (c.done || now < c.end) continue;
+    if (c.done || now < c.end) continue; // never before the next day
+    // Late games can finish after midnight: wait for every game, up to six hours into the next day.
+    if (c.gameIds && c.gameIds.some((g) => !c.games[g]) && now < c.end + 6 * HOUR) continue;
     const rows = standings(c);
     const place = rows.findIndex((r) => r.you) + 1;
     const payout = round2(c.fee * PAYOUT[place - 1]);

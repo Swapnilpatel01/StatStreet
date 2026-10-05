@@ -72,12 +72,16 @@ export const RATING_WEIGHTS = {
 };
 const mlbIp = (ip) => Math.floor(ip) + ((ip % 1) * 10) / 3; // 6.2 innings is 6⅔
 const total = (w, l) => Object.entries(w).reduce((t, [k, v]) => t + v * (l[k] || 0), 0);
+// A defender is someone who made defensive plays and didn't carry, catch or throw the ball.
+// A runner who falls on a fumble or makes a tackle after a turnover is not playing defence,
+// and those don't count toward his rating.
+const nflDefender = (l) => (l.tkl > 0 || l.sacks > 0 || l.qbh > 0 || l.defInt > 0 || l.pd > 0) && !(l.car > 0 || l.rec > 0 || l.att > 0);
 export function perfRating(league, l) {
   const W = RATING_WEIGHTS;
   let r;
   if (league === 'nba') r = total(W.nba, l);
   // A recovery only counts for a defender: a runner falling on his own fumble made no play.
-  else if (league === 'nfl') r = total(W.nfl, l.tkl > 0 || l.sacks > 0 || l.qbh > 0 || l.defInt > 0 || l.pd > 0 ? l : { ...l, fr: 0 });
+  else if (league === 'nfl') r = total(W.nfl, nflDefender(l) ? l : { ...l, fr: 0, tkl: 0 });
   else r = total(W.mlbBat, { ...l, out: Math.max(0, l.ab - l.h) }) + (l.ip > 0 ? total(W.mlbPit, { ...l, ip: mlbIp(l.ip) }) : 0);
   return Math.round(Math.max(-3, Math.min(15, r)) * 10) / 10;
 }

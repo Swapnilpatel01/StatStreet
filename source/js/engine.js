@@ -319,7 +319,8 @@ export const RATING_SPANS = { '7d': 7 * DAY, '30d': 30 * DAY, season: Infinity }
 // All of a player's rated games on record, oldest first: [time, rating].
 function ratedGames(state, a) {
   const seen = new Map((a.perf.rt || []).map((x) => [x[0], x[1]]));
-  for (const g of a.perf.last || []) if (g.t != null && !seen.has(g.t)) { const r = gameRating(state, a, g); if (r != null) seen.set(g.t, r); }
+  // Recent games are rated afresh from their stat lines, so a change to the formula applies to them.
+  for (const g of a.perf.last || []) if (g.t != null && (g.line || !seen.has(g.t))) { const r = gameRating(state, a, g); if (r != null) seen.set(g.t, r); }
   return [...seen.entries()].sort((x, y) => x[0] - y[0]);
 }
 // A player's rating over the last 7 days, 30 days or the season: his average game rating in that

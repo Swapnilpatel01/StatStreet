@@ -26,7 +26,7 @@ import {
   runCareer, TIERS, tierFor, nextTier, seasonReturn, seasonBalance, GOALS, PACKS, THEMES, TITLES, openPack, buyItem, equipItem, themeOf,
 } from './career.js';
 import {
-  CONTEST_TIERS, PAYOUT, LINEUP, availableContests, enterContest, standings, draftPool, salaryCap, salary, entryFee, ordinal,
+  CONTEST_TIERS, PAYOUT, LINEUP, availableContests, enterContest, standings, draftPool, salaryCap, nextSlate, salary, entryFee, ordinal,
   propBoard, placeBet, MAX_LEGS, PROP_ODDS, potentialPayout, propStat,
 } from './contests.js';
 import {
@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 90;
+const APP_VERSION = 91;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -926,24 +926,26 @@ function gamesContests() {
   const byLg = {};
   for (const x of avail) (byLg[x.league] ||= []).push(x);
   return `
-    <p class="small muted" style="margin:12px 0 10px">Draft 5 players under the salary cap and score their real game scores until Sunday night. You face 5 bots: <b>1st pays 3×</b> your entry, 2nd 1.8×, 3rd gets it back.</p>
+    <p class="small muted" style="margin:12px 0 10px">Draft 5 players from one day's games, under the salary cap, and score their real game scores that day. Results and winnings arrive the next day. You face 5 bots: <b>1st pays 3×</b> your entry, 2nd 1.8×, 3rd gets it back.</p>
     ${live.length ? `<h2 style="margin-top:6px">Your contests</h2>${live.map(contestCard).join('')}` : ''}
-    <h2 style="margin-top:${live.length ? 26 : 6}px">This week</h2>
+    <h2 style="margin-top:${live.length ? 26 : 6}px">Next game day</h2>
     ${Object.keys(byLg).length ? Object.entries(byLg).map(([lg, list]) => `<div class="card contest-lg">
-      <div class="row between">${lgTag(lg)}<span class="tiny muted">Cap ${money(list[0].cap).replace('.00', '')} · ends Sun night</span></div>
+      <div class="row between">${lgTag(lg)}<span class="tiny muted">${slateDay(list[0].slate.day)} · ${list[0].slate.games.length} game${list[0].slate.games.length > 1 ? 's' : ''} · cap ${money(list[0].cap).replace('.00', '')}</span></div>
+      <div class="tiny faint" style="margin:6px 0 2px">${list[0].slate.games.slice(0, 6).map((x) => esc(x.name || x.teams.map((t) => t.abbr).join(' @ '))).join(' · ')}${list[0].slate.games.length > 6 ? ` · +${list[0].slate.games.length - 6} more` : ''} · first game ${whenText(list[0].slate.first)}</div>
       ${list.map((x) => `<div class="ctier"><div class="grow"><div class="name">${x.tier.name}</div><div class="tiny muted">Entry ${money(x.fee)} · 1st wins ${money(x.fee * 3)}</div></div>
         ${x.entered ? `<span class="pk">Entered</span>` : x.locked ? `<span class="pk">🔒 Lv ${x.tier.level}</span>` : `<button class="btn buy small" data-draft="${lg}|${x.tier.key}">Draft</button>`}</div>`).join('')}
-    </div>`).join('') : '<div class="card empty">Contests open Monday and close a few hours before the week ends.</div>'}
+    </div>`).join('') : emptyState('cal', 'No games coming up', 'A contest opens for each league on every day it has games.')}
     ${past.length ? `<h2>Results</h2><div class="list">${past.map((c) => `<div class="item">${lgTag(c.league)}<div class="grow"><div class="name">${CONTEST_TIERS.find((t) => t.key === c.tier)?.name} · ${ordinal(c.place)} of 6</div>
-      <div class="sub">Week of ${fmtDate(c.entered)} · ${c.pts.toFixed(1)} pts</div></div><div class="price ${c.payout > c.fee ? 'up' : c.payout ? '' : 'down'}">${c.payout ? '+' + money(c.payout) : '−' + money(c.fee)}</div></div>`).join('')}</div>` : ''}`;
+      <div class="sub">${c.day ? fmtDate(c.day, { weekday: 'short', month: 'short', day: 'numeric' }) : `Week of ${fmtDate(c.entered)}`} · ${c.pts.toFixed(1)} pts</div></div><div class="price ${c.payout > c.fee ? 'up' : c.payout ? '' : 'down'}">${c.payout ? '+' + money(c.payout) : '−' + money(c.fee)}</div></div>`).join('')}</div>` : ''}`;
 }
 
+const slateDay = (day) => { const d0 = new Date().setHours(0, 0, 0, 0); return day === d0 ? 'Today' : day === d0 + DAY || new Date(d0 + 26 * HOUR).setHours(0, 0, 0, 0) === day ? 'Tomorrow' : new Date(day).toLocaleDateString([], { weekday: 'long' }); };
 function contestCard(c) {
   const rows = standings(c);
   const place = rows.findIndex((r) => r.you) + 1;
   const tier = CONTEST_TIERS.find((t) => t.key === c.tier);
   return `<div class="card contest">
-    <div class="row between"><div class="row" style="gap:6px">${lgTag(c.league)}<b>${tier.name}</b></div><span class="tiny muted">${daysLeft(c.end)}</span></div>
+    <div class="row between"><div class="row" style="gap:6px">${lgTag(c.league)}<b>${tier.name}</b></div><span class="tiny muted">${c.day ? (Date.now() < c.first ? `${slateDay(c.day)} · starts ${whenText(c.first)}` : Date.now() < c.end ? `${slateDay(c.day)} · in play · pays out tomorrow` : 'Paying out shortly') : daysLeft(c.end)}</span></div>
     <div class="row between" style="margin-top:8px"><div><div class="big-pct">${ordinal(place)}</div><div class="tiny muted">of 6 · ${c.pts.toFixed(1)} pts</div></div>
       <div class="tiny muted" style="text-align:right">If it ended now:<br><b class="${PAYOUT[place - 1] ? 'up' : 'down'}">${PAYOUT[place - 1] ? money(c.fee * PAYOUT[place - 1]) : 'no payout'}</b></div></div>
     <div class="stand">${rows.map((r, i) => `<div class="${r.you ? 'you' : ''}"><span>${i + 1}. ${esc(r.name)}</span><b>${r.pts.toFixed(1)}</b></div>`).join('')}</div>
@@ -972,6 +974,7 @@ function renderDraft(keepList = false) {
   const cap = salaryCap(state, d.league);
   const fee = entryFee(state, tier);
   const pool = draftPool(state, d.league);
+  const slate = nextSlate(state, d.league);
   const used = d.picks.reduce((s, id) => s + salary(state.assets[id]), 0);
   const left = cap - used;
   const q = d.q.trim().toLowerCase();
@@ -985,7 +988,7 @@ function renderDraft(keepList = false) {
     const fits = on || (slotsLeft > 0 && salary(a) + reserve(slotsLeft - 1) <= left);
     const g = ng(a);
     return `<button class="item draft-row ${on ? 'on' : ''} ${fits ? '' : 'nofit'}" data-dpick="${a.id}">${avatar(a)}
-      <div class="grow"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${esc(a.teamAbbr || '')} · ${esc(a.pos || '')} · avg ${a.perf.ema.toFixed(1)} pts${g ? ` · next ${fmtDate(g.date, { weekday: 'short' })}` : ''}</div></div>
+      <div class="grow"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${esc(a.teamAbbr || '')} · ${esc(a.pos || '')} · avg ${a.perf.ema.toFixed(1)} pts${g ? ` · ${whenText(g.date)}` : ''}</div></div>
       <div class="sal">$${salary(a)}</div><div class="pickbox">${on ? '✓' : '+'}</div></button>`;
   };
   if (keepList && $('#dlist')) {
@@ -1006,7 +1009,7 @@ function renderDraft(keepList = false) {
   el.innerHTML = `<div class="sheet-inner">
     <div class="row between"><button class="icon-btn" data-act="draftback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="row" style="gap:6px">${lgTag(d.league)}<b>${tier.name} contest</b></div><div style="width:38px"></div></div>
-    <p class="small muted" style="margin:10px 0">Pick ${LINEUP} players. Points are their real game scores from now until Sunday night, so players with more games this week score more.</p>
+    <p class="small muted" style="margin:10px 0">Pick ${LINEUP} players from ${slate ? `${slateDay(slate.day).replace(/^(Today|Tomorrow)$/, (x) => x.toLowerCase())}'s ${slate.games.length === 1 ? 'game' : `${slate.games.length} games`}` : 'the next game day'}. Points are their real game scores in ${slate?.games.length === 1 ? 'that game' : 'those games'}; winnings arrive the next day.</p>
     <div id="dhead">${draftHead()}</div>
     <input class="search" id="dq" type="search" placeholder="Search players or team (e.g. LAL)" value="${esc(d.q)}" autocomplete="off" style="margin-top:10px">
     <div class="list" id="dlist" style="margin-top:8px">${list.map(rowHTML).join('')}</div>
@@ -3942,13 +3945,15 @@ function gameChange(a, g) {
   const p1 = g.status === 'live' ? a.price : priceAt(a, Math.min(now, start + ((LEAGUES[a.league]?.gameHours || 3) + 1) * HOUR));
   return p0 > 0 && p1 > 0 ? p1 / p0 - 1 : 0;
 }
+// "Jonathan Taylor" → "J. Taylor" (suffixes kept: "M. Harris II").
+const nameShort = (n) => { const p = String(n).trim().split(/\s+/); return p.length > 1 ? `${p[0][0]}. ${p.slice(1).join(' ')}` : n; };
 function boxTable(league, rows, g) {
   const val = (l, k) => { const v = typeof k === 'function' ? k(l) : l[k]; return typeof v === 'number' ? Math.round(v * 10) / 10 : (v ?? ''); };
   return (BOX_COLS[league] || []).map(([title, has, cols]) => {
     const xs = rows.filter((x) => has(x.p.line)).sort((x, y) => (y.st - x.st) || (gameScore(league, y.p.line) - gameScore(league, x.p.line)));
     if (!xs.length) return '';
-    return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th></th><th>RTG</th><th>Game</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
-      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(a.name.split(' ').slice(-1)[0])}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td><td class="chg ${cls(gameChange(a, g))}">${fmtPct(gameChange(a, g))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="px">${money(a.price)}</td></tr>`).join('')}</table></div>`;
+    return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th>Player</th><th>RTG</th><th>Game</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
+      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(nameShort(a.name))}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td><td class="chg ${cls(gameChange(a, g))}">${fmtPct(gameChange(a, g))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="px">${money(a.price)}</td></tr>`).join('')}</table></div>`;
   }).join('');
 }
 function teamTab(g, league, t) {

@@ -37,7 +37,12 @@ near(nba({ pts: 33, reb: 15, ast: 12 }), 7.4, 1.0, 'Jokic 33/15/12');
 near(nba({ pts: 40, reb: 8, ast: 13 }), 7.6, 0.5, 'Jokic 40/8/13');
 near(nba({ pts: 23, reb: 21, ast: 19 }), 7.5, 1.1, 'Jokic 23/21/19');
 near(nba({ pts: 35, reb: 14, ast: 13 }), 6.7, 0.5, 'Jokic 35/14/13');
-assert.equal(nfl({ rushYds: 50, fr: 1 }), nfl({ rushYds: 50 }), 'recovering your own fumble is not a defensive play');
+assert.equal(nfl({ car: 10, rushYds: 50, fr: 1 }), nfl({ car: 10, rushYds: 50 }), 'recovering your own fumble is not a defensive play');
+{
+  const line = { car: 21, rushYds: 81, rushTD: 1, rec: 3, recYds: 39, recTD: 1 };
+  assert.equal(nfl(line), 6);
+  assert.equal(nfl({ ...line, fr: 1, tkl: 1 }), 6, 'a back with a recovery and a tackle is still rated on his running and catching');
+}
 // kickers
 near(nfl({ fg: 4, xp: 1 }), 6.8, 0.5, 'Shrader 4/4 fg 1/1 xp');
 near(nfl({ fg: 3, xp: 3 }), 5.0, 0.5, 'Shrader 3/3 fg 3/3 xp');
