@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 93;
+const APP_VERSION = 94;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -4035,11 +4035,21 @@ function keepRows(draw) {
   view().scrollTop = y;
 }
 // Tap the very top of the screen (the status bar area) to jump back to the top of whatever is showing.
-$('#toptap')?.addEventListener('click', () => {
-  const top = ui.page ? $('#page') : ui.article ? $('#article') : ui.draft ? $('#draft') : ui.chain ? $('#chain')
-    : ui.game && (!ui.detail || $('#game').style.zIndex === '34') ? $('#game') : ui.detail ? $('#sheet') : view();
-  top?.scrollTo({ top: 0, behavior: 'smooth' });
-});
+{
+  const strip = $('#toptap');
+  const goTop = () => {
+    const top = ui.page ? $('#page') : ui.article ? $('#article') : ui.draft ? $('#draft') : ui.chain ? $('#chain')
+      : ui.game && (!ui.detail || $('#game').style.zIndex === '34') ? $('#game') : ui.detail ? $('#sheet') : view();
+    top?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  // iPhone doesn't send a click to a plain element, so the touch itself is used; a click still
+  // covers a mouse. One of the two fires per tap.
+  let sx = 0; let sy = 0; let last = 0;
+  const fire = () => { if (Date.now() - last < 500) return; last = Date.now(); goTop(); };
+  strip?.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  strip?.addEventListener('touchend', (e) => { const t = e.changedTouches[0]; if (Math.abs(t.clientX - sx) < 12 && Math.abs(t.clientY - sy) < 12) fire(); }, { passive: true });
+  strip?.addEventListener('click', fire);
+}
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {
   if (el.dataset.armed) return true;

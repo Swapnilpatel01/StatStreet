@@ -1230,5 +1230,5 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .box th:first-child { text-align: left; }
 
 /* v93: tap the status bar area to go to the top */
-#toptap { position: absolute; left: 0; right: 0; top: 0; height: var(--safe-t); z-index: 60; }
+#toptap { position: fixed; left: 0; right: 0; top: 0; height: calc(var(--safe-t) + 10px); min-height: 10px; z-index: 60; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .sub .tag { flex: none; }

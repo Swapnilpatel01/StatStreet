@@ -172,7 +172,9 @@ with sync_playwright() as p:
     row = page.evaluate("(() => { const el = [...document.querySelectorAll('#view .chips')].find(e => e.scrollWidth > e.clientWidth + 40); if (!el) return null; el.scrollLeft = 120; const b = [...el.querySelectorAll('button')].pop(); b.click(); return [...document.querySelectorAll('#view .chips')].map(e => e.scrollLeft); })()")
     print('chip rows after tap:', row); assert row is None or max(row) >= 100
     page.evaluate("(() => { document.documentElement.style.setProperty('--safe-t', '44px'); document.querySelector('#view').scrollTop = 600; })()"); page.wait_for_timeout(100)
-    page.mouse.click(200, 10); page.wait_for_timeout(900)
+    page.evaluate("""(() => { const el = document.querySelector('#toptap'); const mk = () => new Touch({ identifier: 1, target: el, clientX: 200, clientY: 10 });
+        el.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [mk()], changedTouches: [mk()] }));
+        el.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [mk()] })); })()"""); page.wait_for_timeout(900)
     yt = page.evaluate("document.querySelector('#view').scrollTop"); print('after top tap:', yt); assert yt < 20
     page.evaluate("document.documentElement.style.removeProperty('--safe-t')")
     page.evaluate("(() => { const b = document.querySelector('#view .chips [data-sort]'); b && b.click(); })()"); page.wait_for_timeout(200)
