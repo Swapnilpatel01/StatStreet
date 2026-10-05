@@ -601,6 +601,9 @@ with sync_playwright() as p:
     page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     print('props rows:', page.locator('#view .prop-row').count(), 'live section:', 'live props' in pt)
     page.screenshot(path=f'{OUT}/76-props.png', full_page=True)
+    page.click('#tabbar [data-tab=marketplace]'); page.wait_for_timeout(400)
+    mp = page.evaluate("(() => { const el = [...document.querySelectorAll('#view .chips')].find(e => e.scrollWidth > e.clientWidth + 40); if (!el) return null; el.scrollLeft = 110; [...el.querySelectorAll('button')].pop().click(); return [...document.querySelectorAll('#view .chips')].map(e => e.scrollLeft); })()")
+    print('marketplace chip rows after tap:', mp); assert mp is None or max(mp) >= 90
     # swipe a row: the panel behind it
     page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300)
     page.evaluate("""(() => { const el = document.querySelector('#mlist .list > .item'); const r = el.getBoundingClientRect(); const mk = (x) => new Touch({ identifier: 1, target: el, clientX: x, clientY: r.top + 20 });

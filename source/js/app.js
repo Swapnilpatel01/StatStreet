@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 96;
+const APP_VERSION = 97;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -2442,7 +2442,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (d.game) { const [lg, gid, tab] = d.game.split('|'); openGame(lg, gid, { tab }); return; }
-  if (d.gtab) { ui.gtab = d.gtab; ui.tab = 'games'; closeOverlays(); render(); view().scrollTop = 0; return; }
+  if (d.gtab) { const x = $('#view .gtabs')?.scrollLeft; ui.gtab = d.gtab; ui.tab = 'games'; closeOverlays(); render(); view().scrollTop = 0; const row = $('#view .gtabs'); if (row) { if (x) row.scrollLeft = x; row.querySelector('.chip.on')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); } return; }
   if (d.draft) { const [lg, tier] = d.draft.split('|'); openDraft(lg, tier); return; }
   if (d.dpick && ui.draft) {
     const p = ui.draft.picks; const i = p.indexOf(d.dpick);
@@ -2517,11 +2517,11 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (d.lot) { openLot(d.lot, !!d.bidbtn); return; }
-  if (d.mprar) { ui.mp.rarity = d.mprar; renderMarketplace(); return; }
-  if (d.mpsort) { ui.mp.sort = d.mpsort; renderMarketplace(); return; }
-  if (d.mpl) { ui.mp.league = d.mpl; renderMarketplace(); return; }
+  if (d.mprar) { ui.mp.rarity = d.mprar; keepRows(renderMarketplace); return; }
+  if (d.mpsort) { ui.mp.sort = d.mpsort; keepRows(renderMarketplace); return; }
+  if (d.mpl) { ui.mp.league = d.mpl; keepRows(renderMarketplace); return; }
   if (d.bidq) { const i = $('#bidamt'); if (i) i.value = d.bidq; return; }
-  if (d.sleague) { ui.scoreLeague = d.sleague; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
+  if (d.sleague) { ui.scoreLeague = d.sleague; keepRows(renderGames); return; }
   if (d.sday) { ui.scoreDay = +d.sday; const x = $('.daystrip')?.scrollLeft; const y = view().scrollTop; renderGames(); view().scrollTop = y; if ($('.daystrip')) $('.daystrip').scrollLeft = x; return; }
   if (d.mview) { ui.mview = d.mview; renderMarket(); return; }
   if (d.league) { ui.league = d.league; ui.pos = 'all'; ui.limit = 60; keepRows(renderMarket); return; }
@@ -2537,8 +2537,8 @@ document.addEventListener('click', async (e) => {
     render(); view().scrollTop = 0; return;
   }
   if (d.idx) { ui.tab = 'market'; ui.league = d.idx; ui.sort = 'price'; render(); return; }
-  if (d.nleague) { ui.newsLeague = d.nleague; renderNews(); return; }
-  if (d.actf) { ui.actFilter = d.actf; renderAccount(); return; }
+  if (d.nleague) { ui.newsLeague = d.nleague; keepRows(renderNews); return; }
+  if (d.actf) { ui.actFilter = d.actf; keepRows(renderAccount); return; }
   if (d.startcash) { state.settings.startCash = Number(d.startcash); dirty = true; const y = view().scrollTop; renderAccount(); view().scrollTop = y; return; }
   if (d.range) { ui.range = d.range; ui.chartAnim = true; renderDetail(); renderLand(); return; }
   if (d.hrange) { ui.homeRange = d.hrange; ui.nwAnim = true; renderHome(); return; }
