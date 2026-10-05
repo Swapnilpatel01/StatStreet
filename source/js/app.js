@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup, storyBlocks, parseScoreboard, parseBoxScore, lineText, gameScore } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, formRating, gameRating, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
+  leagueIndex, rebuildInjuryCache, formRating, gameRating, ratedGames, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -26,7 +26,7 @@ import {
   runCareer, TIERS, tierFor, nextTier, seasonReturn, seasonBalance, GOALS, PACKS, THEMES, TITLES, openPack, buyItem, equipItem, themeOf,
 } from './career.js';
 import {
-  CONTEST_TIERS, PAYOUT, LINEUP, availableContests, enterContest, standings, draftPool, salaryCap, nextSlate, salary, entryFee, ordinal,
+  CONTEST_TIERS, PAYOUT, LINEUP, availableContests, enterContest, standings, draftPool, salaryCap, nextSlate, autoLineup, liveStandings, salary, entryFee, ordinal,
   propBoard, placeBet, MAX_LEGS, PROP_ODDS, potentialPayout, propStat,
 } from './contests.js';
 import {
@@ -37,7 +37,7 @@ import {
 import { squarify, heatColor } from './heatmap.js';
 import { portfolioCard, assetCard, shareCanvas, achievementsCard } from './sharecard.js';
 import { cardArt } from './cardart.js';
-import { parsePlays, parseAtBat, parseSituation } from './moments.js';
+import { parsePlays, parseAtBat, parseSituation, parseDrives, parseBases, parseTeamStats } from './moments.js';
 import {
   closedTrades, journalStats, lineupToday, calendar, moverAlerts, dailyChallenge, answerChallenge, collections, SET_SIZE, SET_BONUS,
   achievements, searchAll, sinceLastOpen, markOpen, compareRows,
@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 94;
+const APP_VERSION = 95;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -397,6 +397,10 @@ function marketItems() {
     div: (a) => dividendYield(state, a, now) > 0,
   };
   if (filters[ui.sort]) list = list.filter(filters[ui.sort]);
+  if (ui.sort === 'rated') list = list.filter((a) => a.kind === 'player');
+  const posOn = !q && ui.kind === 'player' && POSITIONS[ui.league] && ui.pos && ui.pos !== 'all';
+  if (posOn) list = list.filter((a) => posIs(a, ui.pos));
+  if (ui.healthy && ui.sort !== 'injured') list = list.filter((a) => !a.injury || a.injury.factor >= 0.99);
   const band = PRICE_BANDS.find((x) => x[0] === (ui.price || 'any'));
   if (band && band[0] !== 'any') list = list.filter((a) => a.price >= band[2] && a.price < band[3]);
   const key = {
@@ -408,6 +412,7 @@ function marketItems() {
     news: (a) => -(a.shocks || []).filter((s) => now - s.t < 3 * DAY).length,
     injured: (a) => a.injury?.factor || 1,
     hurt: (a) => -breakdown(state, a, now).fair,
+    rated: (a) => -(a.kind === 'player' ? (playerRating(a)?.rating ?? -9) : -9),
     mvp: (a) => -(a.kind === 'player' ? formZ(a) : a.rec?.gp ? a.rec.w / (a.rec.w + a.rec.l || 1) * 2 : -9),
     div: (a) => -dividendYield(state, a, now),
     vol: (a) => -impliedVol(a, now, state),
@@ -417,7 +422,21 @@ function marketItems() {
   return list.map((a) => [key(a), a]).sort((x, y) => x[0] - y[0]).map((x) => x[1]);
 }
 
-const SORTS = [['trending', 'Trending'], ['movers', 'Top gainers'], ['losers', 'Top losers'], ['price', 'Most valuable'], ['mvp', 'MVP race'], ['div', 'Dividends'],
+// Positions you can browse by, per league.
+const POSITIONS = {
+  nba: [['G', 'Guards'], ['F', 'Forwards'], ['C', 'Centers']],
+  nfl: [['QB', 'QB'], ['RB', 'RB'], ['WR', 'WR'], ['TE', 'TE'], ['K', 'K'], ['DEF', 'Defense']],
+  mlb: [['SP', 'Starters'], ['RP', 'Relievers'], ['C', 'Catchers'], ['IF', 'Infield'], ['OF', 'Outfield'], ['DH', 'DH']],
+};
+function posIs(a, key) {
+  const p = String(a.pos || '').toUpperCase();
+  if (a.league === 'nba') return key === 'C' ? p === 'C' : p.includes(key);
+  if (a.league === 'nfl') return key === 'RB' ? ['RB', 'FB', 'HB'].includes(p) : key === 'K' ? ['K', 'PK'].includes(p) : key === 'DEF' ? posGroup('nfl', p) === 'DEF' : p === key;
+  return key === 'IF' ? ['1B', '2B', '3B', 'SS', 'IF'].includes(p) : key === 'OF' ? ['LF', 'CF', 'RF', 'OF'].includes(p) : p === key;
+}
+// The rating shown in a player's circle: 7 days, else 30, else his games on record.
+const playerRating = (a) => formRating(state, a, '7d') || formRating(state, a, '30d') || formRating(state, a, 'season');
+const SORTS = [['trending', 'Trending'], ['rated', 'Top rated'], ['movers', 'Top gainers'], ['losers', 'Top losers'], ['price', 'Most valuable'], ['mvp', 'MVP race'], ['div', 'Dividends'],
   ['vol', 'Most volatile'], ['streak', 'Hot streaks'], ['live', 'Live'], ['news', 'In the news'], ['injured', 'Injured']];
 
 function marketNote(a) {
@@ -594,6 +613,7 @@ function renderMarket(keepFocus = false) {
     ${!ui.q.trim() ? marketBanners() : ''}
     ${!ui.q.trim() && ui.kind === 'player' ? trendingStrip() : ''}
     <div class="chips" style="margin-top:10px">${SORTS.map(([k, n]) => `<button class="chip ${ui.sort === k ? 'on' : ''}" data-sort="${k}">${n}</button>`).join('')}</div>
+    ${!ui.q.trim() && ui.kind === 'player' ? `<div class="chips pos-chips" style="margin-top:6px">${POSITIONS[ui.league] ? [['all', 'All positions'], ...POSITIONS[ui.league]].map(([k, n]) => `<button class="chip ${(ui.pos || 'all') === k ? 'on' : ''}" data-pos="${k}">${n}</button>`).join('') : ''}<button class="chip ${ui.healthy ? 'on' : ''}" data-act="healthy">${ui.healthy ? '✓ ' : ''}Healthy only</button></div>` : ''}
     <div class="chips price-chips" style="margin-top:6px">${PRICE_BANDS.map(([k, n]) => `<button class="chip ${(ui.price || 'any') === k ? 'on' : ''}" data-price="${k}">${n}</button>`).join('')}</div>
     <div class="row between" style="margin-top:8px"><span class="tiny muted">${ui.mview === 'heat' ? 'Tile size = share price · color = today\'s move' : ''}</span>
       <div class="seg mini">${[['list', 'List'], ['heat', 'Heatmap']].map(([k, n]) => `<button data-mview="${k}" class="${ui.mview === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
@@ -702,15 +722,19 @@ function renderAccount() {
     <h2>Appearance</h2>
     <div class="list"><label class="toggle"><span>Light theme<div class="tiny faint">A bright look for daytime</div></span>
       <span class="switch"><input type="checkbox" id="setlight" ${state.settings.light ? 'checked' : ''}><span></span></span></label>
-      <label class="toggle"><span>Larger text<div class="tiny faint">Bigger type across the app</div></span>
-      <span class="switch"><input type="checkbox" id="setbig" ${state.settings.bigText ? 'checked' : ''}><span></span></span></label></div>
+      <div class="toggle" style="display:block"><span>Text size<div class="tiny faint">Scales type across the whole app</div></span>
+        <div class="seg" style="margin-top:8px">${[['0', 'Standard'], ['1', 'Large'], ['2', 'Extra large']].map(([k, n]) => `<button data-textsize="${k}" class="${String(textSize()) === k ? 'on' : ''}">${n}</button>`).join('')}</div></div></div>
 
       <div class="list" style="margin-top:8px"><label class="toggle"><span>Colour-blind friendly<div class="tiny faint">Blue for up and orange for down, instead of green and red</div></span>
       <span class="switch"><input type="checkbox" id="setcb" ${state.settings.cb ? 'checked' : ''}><span></span></span></label>
-      <label class="toggle"><span>Sounds<div class="tiny faint">Short tones on trades, dividends and card packs</div></span>
+      <label class="toggle"><span>Sounds<div class="tiny faint">Short tones on trades, rewards and card packs</div></span>
       <span class="switch"><input type="checkbox" id="setsound" ${state.settings.sound !== false ? 'checked' : ''}><span></span></span></label>
+      ${state.settings.sound !== false ? SFX_KINDS.map(([k, n, sub]) => `<label class="toggle sub"><span>${n}<div class="tiny faint">${sub}</div></span>
+      <span class="switch"><input type="checkbox" data-sfxkind="${k}" ${state.settings.sfxOff?.[k] ? '' : 'checked'}><span></span></span></label>`).join('') : ''}
       <label class="toggle"><span>Haptics<div class="tiny faint">A light tap on your actions</div></span>
       <span class="switch"><input type="checkbox" id="sethaptic" ${state.settings.haptics !== false ? 'checked' : ''}><span></span></span></label>
+      ${state.settings.haptics !== false ? `<label class="toggle sub"><span>On swipes and tab changes<div class="tiny faint">Off keeps the tap for trades and bets only</div></span>
+      <span class="switch"><input type="checkbox" id="sethapnav" ${state.settings.hapNav === false ? '' : 'checked'}><span></span></span></label>` : ''}
       <button class="item" data-page="layout"><div class="grow"><div class="name">Customize the Portfolio page</div><div class="sub">Show, hide and reorder its sections</div></div><span class="muted">›</span></button></div>
 
     <h2>Move alerts</h2>
@@ -943,21 +967,27 @@ function gamesContests() {
       ${list.map((x) => `<div class="ctier"><div class="grow"><div class="name">${x.tier.name}</div><div class="tiny muted">Entry ${money(x.fee)} · 1st wins ${money(x.fee * 3)}</div></div>
         ${x.entered ? `<span class="pk">Entered</span>` : x.locked ? `<span class="pk">🔒 Lv ${x.tier.level}</span>` : `<button class="btn buy small" data-draft="${lg}|${x.tier.key}">Draft</button>`}</div>`).join('')}
     </div>`).join('') : emptyState('cal', 'No games coming up', 'A contest opens for each league on every day it has games.')}
-    ${past.length ? `<h2>Results</h2><div class="list">${past.map((c) => `<div class="item">${lgTag(c.league)}<div class="grow"><div class="name">${CONTEST_TIERS.find((t) => t.key === c.tier)?.name} · ${ordinal(c.place)} of 6</div>
+    ${past.length ? `<h2>Results <button class="tiny link" data-page="contests" style="float:right;color:var(--accent);font-weight:600">History ›</button></h2><div class="list">${past.map((c) => `<div class="item">${lgTag(c.league)}<div class="grow"><div class="name">${CONTEST_TIERS.find((t) => t.key === c.tier)?.name} · ${ordinal(c.place)} of 6</div>
       <div class="sub">${c.day ? fmtDate(c.day, { weekday: 'short', month: 'short', day: 'numeric' }) : `Week of ${fmtDate(c.entered)}`} · ${c.pts.toFixed(1)} pts</div></div><div class="price ${c.payout > c.fee ? 'up' : c.payout ? '' : 'down'}">${c.payout ? '+' + money(c.payout) : '−' + money(c.fee)}</div></div>`).join('')}</div>` : ''}`;
 }
 
 const slateDay = (day) => { const d0 = new Date().setHours(0, 0, 0, 0); return day === d0 ? 'Today' : day === d0 + DAY || new Date(d0 + 26 * HOUR).setHours(0, 0, 0, 0) === day ? 'Tomorrow' : new Date(day).toLocaleDateString([], { weekday: 'long' }); };
 function contestCard(c) {
-  const rows = standings(c);
+  const lv = liveStandings(state, c);
+  const rows = lv.rows;
   const place = rows.findIndex((r) => r.you) + 1;
   const tier = CONTEST_TIERS.find((t) => t.key === c.tier);
+  const mine = rows.find((r) => r.you).pts;
   return `<div class="card contest">
-    <div class="row between"><div class="row" style="gap:6px">${lgTag(c.league)}<b>${tier.name}</b></div><span class="tiny muted">${c.day ? (Date.now() < c.first ? `${slateDay(c.day)} · starts ${whenText(c.first)}` : Date.now() < c.end ? `${slateDay(c.day)} · in play · pays out tomorrow` : 'Paying out shortly') : daysLeft(c.end)}</span></div>
-    <div class="row between" style="margin-top:8px"><div><div class="big-pct">${ordinal(place)}</div><div class="tiny muted">of 6 · ${c.pts.toFixed(1)} pts</div></div>
+    <div class="row between"><div class="row" style="gap:6px">${lgTag(c.league)}<b>${tier.name}</b>${lv.any ? ' <span class="tag live">LIVE</span>' : ''}</div><span class="tiny muted">${c.day ? (Date.now() < c.first ? `${slateDay(c.day)} · starts ${whenText(c.first)}` : Date.now() < c.end ? `${slateDay(c.day)} · in play · pays out tomorrow` : 'Paying out shortly') : daysLeft(c.end)}</span></div>
+    <div class="row between" style="margin-top:8px"><div><div class="big-pct">${ordinal(place)}</div><div class="tiny muted">of 6 · ${mine.toFixed(1)} pts${lv.any ? ' so far' : ''}</div></div>
       <div class="tiny muted" style="text-align:right">If it ended now:<br><b class="${PAYOUT[place - 1] ? 'up' : 'down'}">${PAYOUT[place - 1] ? money(c.fee * PAYOUT[place - 1]) : 'no payout'}</b></div></div>
     <div class="stand">${rows.map((r, i) => `<div class="${r.you ? 'you' : ''}"><span>${i + 1}. ${esc(r.name)}</span><b>${r.pts.toFixed(1)}</b></div>`).join('')}</div>
-    <div class="lineup">${c.lineup.map((id) => { const a = state.assets[id]; return a ? `<button data-open="${id}">${avatar(a)}<span class="ellipsis">${esc(a.name.split(' ').slice(-1)[0])}</span><b>${(c.ppts[id] || 0).toFixed(1)}</b></button>` : ''; }).join('')}</div>
+    <div class="clist">${c.lineup.map((id) => { const a = state.assets[id]; if (!a) return ''; const live = a.live?.e && (!c.gameIds || c.gameIds.includes(a.live.e)) && !c.games[a.live.e];
+      const pts = (c.ppts[id] || 0) + lv.livePts(id); const done = c.gameIds ? c.gameIds.some((g) => c.games[g] && a.perf?.last?.some((x) => x.e === g)) : pts !== 0;
+      const fin = a.perf?.last?.find((x) => c.gameIds?.includes(x.e));
+      return `<button class="crow" data-open="${id}">${avatar(a)}<div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div>
+        <div class="tiny muted ellipsis">${live ? `<span class="tag live">LIVE</span> ${esc(a.live.text || '')}` : done && fin ? esc(fin.text.replace(/ vs [A-Z]+.*$/, '')) : (() => { const g = nextGame(a); return g && c.gameIds?.includes(g.id) ? `Starts ${whenText(g.date)}` : done ? 'Final' : 'Waiting'; })()}</div></div><b class="${live ? 'up' : ''}">${pts.toFixed(1)}</b></button>`; }).join('')}</div>
   </div>`;
 }
 
@@ -1007,7 +1037,7 @@ function renderDraft(keepList = false) {
   }
   function draftHead() {
     return `<div class="capbar"><i style="width:${clamp(used / cap, 0, 1) * 100}%" class="${left < 0 ? 'over' : ''}"></i></div>
-      <div class="row between small"><span><b>${d.picks.length}/${LINEUP}</b> picked</span><span class="${left < 0 ? 'down' : 'muted'}">$${left.toLocaleString()} left of $${cap.toLocaleString()}</span></div>
+      <div class="row between small"><span><b>${d.picks.length}/${LINEUP}</b> picked ${d.picks.length < LINEUP ? '<button class="chip on" data-act="autofill" style="margin-left:8px;padding:4px 10px;font-size:12px">⚡ Auto-fill</button>' : ''}</span><span class="${left < 0 ? 'down' : 'muted'}">$${left.toLocaleString()} left of $${cap.toLocaleString()}</span></div>
       <div class="picked">${d.picks.map((id) => { const a = state.assets[id]; return `<button data-dpick="${id}">${esc(a.name.split(' ').slice(-1)[0])} ✕</button>`; }).join('')}</div>`;
   }
   function draftFoot() {
@@ -1537,7 +1567,7 @@ function renderGame(force = false) {
     <div class="row between"><button class="icon-btn" data-act="gameback" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <div class="row" style="gap:6px">${lgTag(league)} ${status}</div><div style="width:38px"></div></div>
     <div class="gc-head">${col(away)}<div class="gc-at">@</div>${col(home)}</div>
-    ${league === 'nfl' ? fieldBar(g, league) : ''}
+    ${league === 'nfl' ? fieldBar(g, league) : league === 'mlb' ? basesCard(g, league) : ''}
     <div class="wp"><div class="tiny muted row between"><span>${esc(away.abbr)} ${Math.round(pAway * 100)}%</span><span>${wpHist.length ? 'Live win probability' : 'Win probability (from share prices)'}</span><span>${Math.round((1 - pAway) * 100)}% ${esc(home.abbr)}</span></div>
       <div class="wp-bar"><i style="width:${pAway * 100}%"></i></div>${wpLine}</div>
     <div class="gpin"><div class="gpin-score"><b>${esc(away.abbr)}</b>${g.status !== 'pre' ? `<span class="s">${away.score ?? ''}</span><span class="faint">–</span><span class="s">${home.score ?? ''}</span>` : '<span class="faint">@</span>'}<b>${esc(home.abbr)}</b><span class="tiny muted">${g.status === 'live' ? esc(g.detail || 'Live') : g.status === 'final' ? 'Final' : whenText(g.date, true)}</span></div>
@@ -1548,7 +1578,7 @@ function renderGame(force = false) {
     <div class="gsec" data-gsec="home" ${gview === 'home' ? '' : 'hidden'}>${teamTab(g, league, home)}</div>
     <div class="gsec" data-gsec="summary" ${gview === 'summary' ? '' : 'hidden'}>
     ${up ? `<h3>Your pick</h3>${pickGame(up)}` : pk ? `<div class="card small" style="margin-top:12px">Your pick: <b>${esc(pk.abbr)}</b> · ${pk.result ? { won: `won <b class="up">+${money(pk.paid || 0)}</b>`, lost: '<span class="down">missed</span>', push: 'push', void: 'voided' }[pk.result] : 'locked — game in progress'}</div>` : ''}
-    ${lineScore}${topPerformers(g, league)}${gameStake(g, league)}
+    ${lineScore}${teamCompare(g)}${topPerformers(g, league)}${gameStake(g, league)}
     <h3>${g.status === 'pre' ? 'Players to watch' : 'Player movers'}</h3>
     <div class="list">${players.map(({ a, text, live }) => {
       const h = state.holdings[a.id]; const c = change(a, now);
@@ -1615,6 +1645,7 @@ function unlockBody() {}
 // ---------- asset detail ----------
 
 function openDetail(id) {
+  setTimeout(renderLand, 0);
   if (!state.assets[id]) return;
   if (ui.order) closeOrder();
   if (ui.chain) closeChain(true);
@@ -1633,6 +1664,7 @@ function openDetail(id) {
 }
 
 function closeDetail({ animate = true } = {}) {
+  setTimeout(renderLand, 0);
   ui.detail = null;
   const sheet = $('#sheet'); const bar = $('#tradebar');
   const finish = () => {
@@ -1709,6 +1741,7 @@ function renderDetail({ keepScroll = true } = {}) {
       const p = me && opp ? winProb(state, a.league, me.id, opp.id, !!me.home, !!ng.preseason) : null;
       const tone = p == null ? null : p >= 0.58 ? ['up', 'Favourable matchup'] : p <= 0.42 ? ['down', 'Tough matchup'] : ['', 'Even matchup'];
       return `<button class="card next-game" data-game="${a.league}|${ng.id}" style="margin-top:14px;width:100%;text-align:left"><div><div class="tiny muted">NEXT GAME</div><b>${me?.home ? 'vs' : '@'} ${esc(opp?.abbr || ng.name)}</b>${tone ? `<div class="tiny ${tone[0]}">${tone[1]} · ${Math.round(p * 100)}% to win</div>` : ''}</div><div class="small muted" style="text-align:right">${whenText(ng.date, true)}<div class="tiny" style="color:var(--accent)">Open game ›</div></div></button>`; })() : ''}
+    ${upcomingGames(a)}
 
     ${a.kind === 'fund' ? fundSection(a) : ''}
 
@@ -1843,17 +1876,41 @@ function updateDetailHeader() {
   c.innerHTML = `${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(a.price - ref))} (${fmtPct(ch)}) <span class="muted">${rangeLabel(ui.range)}</span>`;
 }
 
+// The games after the next one: opponent, when, and how winnable it looks.
+function upcomingGames(a) {
+  if (a.kind === 'fund') return '';
+  const tm = a.kind === 'team' ? a.rid : a.teamId; const now = Date.now();
+  const list = (state.schedule?.[a.league] || []).filter((g) => g.date > now && g.teams.some((t) => t.id === tm)).sort((x, y) => x.date - y.date).slice(1, 5);
+  if (!list.length) return '';
+  return `<div class="card upc" style="margin-top:8px"><div class="tiny muted" style="margin-bottom:4px">COMING UP</div>${list.map((g) => { const me = g.teams.find((t) => t.id === tm); const opp = g.teams.find((t) => t.id !== tm);
+    const p = me && opp ? winProb(state, a.league, me.id, opp.id, !!me.home, !!g.preseason) : null;
+    return `<button class="upc-row" data-game="${a.league}|${g.id}"><span class="d">${fmtDate(g.date, { weekday: 'short', month: 'short', day: 'numeric' })}</span><b>${me?.home ? 'vs' : '@'} ${esc(opp?.abbr || '')}</b><span class="grow"></span>${p != null ? `<span class="pill2 ${p >= 0.58 ? 'up' : p <= 0.42 ? 'down' : ''}">${Math.round(p * 100)}%</span>` : ''}</button>`; }).join('')}</div>`;
+}
 function playerStats(a) {
   const totals = Object.keys(SPAN_LABEL).map((k) => [k, formRating(state, a, k)]);
   const rate = (g) => gameRating(state, a, g) ?? 0;
   const tone = formTone;
   const last = a.perf.last.slice(0, 5);
+  const now = Date.now();
+  // Rating trend: every rated game on record, oldest to newest.
+  const hist = ratedGames(state, a).slice(-20);
+  const trend = hist.length >= 3 ? (() => { const W = 100; const H = 34; const top = Math.max(8, ...hist.map((x) => x[1])); const lo = Math.min(0, ...hist.map((x) => x[1]));
+    const px = (i) => (i / (hist.length - 1)) * W; const py = (v) => H - 3 - ((v - lo) / (top - lo || 1)) * (H - 6);
+    const avg = hist.reduce((t, x) => t + x[1], 0) / hist.length;
+    return `<svg class="rtrend" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><line x1="0" x2="${W}" y1="${py(avg).toFixed(1)}" y2="${py(avg).toFixed(1)}"/><polyline points="${hist.map((x, i) => `${px(i).toFixed(1)},${py(x[1]).toFixed(1)}`).join(' ')}"/></svg>`; })() : '';
+  // What the price did across one game.
+  const gh = ((LEAGUES[a.league]?.gameHours || 3) + 1) * HOUR;
+  const move = (g) => { const p0 = priceAt(a, g.t - 10 * 60e3); const p1 = priceAt(a, Math.min(now, g.t + gh)); return p0 > 0 && p1 > 0 ? p1 / p0 - 1 : null; };
+  const log = a.perf.last.slice(0, ui.logAll === a.id ? 10 : 5);
   return `<h3>Performance</h3>
-    <div class="grid2">${totals.map(([k, f]) => `<div class="stat rstat"><div class="k">${SPAN_LABEL[k]}</div><div class="v">${f ? `<span class="formdot ${tone(f.rating)}">${f.rating.toFixed(1)}</span>` : '—'}</div><div class="tiny faint">${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</div></div>`).join('')}</div>
+    <div class="grid3">${totals.map(([k, f]) => `<div class="stat rstat"><div class="k">${SPAN_LABEL[k]}</div><div class="v">${f ? `<span class="formdot ${tone(f.rating)}">${f.rating.toFixed(1)}</span>` : '—'}</div><div class="tiny faint">${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</div></div>`).join('')}
+      <div class="stat rstat"><div class="k">Rating trend</div><div class="v">${trend || '<span class="small muted">—</span>'}</div><div class="tiny faint">${hist.length >= 3 ? `last ${hist.length} games` : 'needs 3 games'}</div></div></div>
     ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">game ratings · oldest → latest</span></div>
-      <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g).toFixed(1)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div>
-      <div class="list" style="margin:10px -14px -14px;border-radius:0 0 14px 14px">${last.map((g) => `<div class="driver"><div class="txt small">${esc(g.text)}<div class="tiny faint">${fmtDate(g.t)}</div></div>${rtgChip(rate(g))}</div>`).join('')}</div>
-    </div>` : '<div class="card small muted" style="margin-top:10px">Game ratings appear here after his next game.</div>'}`;
+      <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g).toFixed(1)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div></div>
+    <h3>Game log</h3><div class="boxwrap"><table class="box glog"><tr><th>Game</th><th>RTG</th><th>Price</th><th style="text-align:left">Stats</th></tr>
+      ${log.map((g) => { const m = move(g); return `<tr><td><b>${fmtDate(g.t)}</b> <span class="tiny faint">${esc(g.opp || '')}</span></td><td class="rtg">${rtgChip(rate(g))}</td><td class="chg ${m == null ? '' : cls(m)}">${m == null ? '—' : fmtPct(m)}</td><td class="gl-txt">${esc(g.text.replace(/ vs [A-Z]+( \(preseason\))?$/, ''))}</td></tr>`; }).join('')}</table></div>
+      ${a.perf.last.length > 5 && ui.logAll !== a.id ? `<button class="more" data-act="logall">Show all ${Math.min(10, a.perf.last.length)} games</button>` : ''}`
+    : '<div class="card small muted" style="margin-top:10px">Game ratings appear here after his next game.</div>'}`;
 }
 
 function teamStats(a) {
@@ -2467,7 +2524,9 @@ document.addEventListener('click', async (e) => {
   if (d.sleague) { ui.scoreLeague = d.sleague; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
   if (d.sday) { ui.scoreDay = +d.sday; const x = $('.daystrip')?.scrollLeft; const y = view().scrollTop; renderGames(); view().scrollTop = y; if ($('.daystrip')) $('.daystrip').scrollLeft = x; return; }
   if (d.mview) { ui.mview = d.mview; renderMarket(); return; }
-  if (d.league) { ui.league = d.league; ui.limit = 60; keepRows(renderMarket); return; }
+  if (d.league) { ui.league = d.league; ui.pos = 'all'; ui.limit = 60; keepRows(renderMarket); return; }
+  if (d.textsize) { state.settings.textSize = Number(d.textsize); state.settings.bigText = d.textsize !== '0'; dirty = true; save(); applyLook(); renderAccount(); return; }
+  if (d.pos) { ui.pos = d.pos; ui.limit = 60; keepRows(renderMarket); return; }
   if (d.kind) { ui.kind = d.kind; ui.limit = 60; if (d.kind === 'fund' && !['movers', 'losers', 'price', 'div'].includes(ui.sort)) ui.sort = 'price'; keepRows(renderMarket); return; }
   if (d.price) { ui.price = d.price; ui.limit = 60; keepRows(renderMarket); return; }
   if (d.sort) { ui.sort = d.sort; ui.limit = 60; if (d.sort === 'streak') ui.kind = 'team'; keepRows(renderMarket); return; }
@@ -2481,7 +2540,7 @@ document.addEventListener('click', async (e) => {
   if (d.nleague) { ui.newsLeague = d.nleague; renderNews(); return; }
   if (d.actf) { ui.actFilter = d.actf; renderAccount(); return; }
   if (d.startcash) { state.settings.startCash = Number(d.startcash); dirty = true; const y = view().scrollTop; renderAccount(); view().scrollTop = y; return; }
-  if (d.range) { ui.range = d.range; ui.chartAnim = true; renderDetail(); return; }
+  if (d.range) { ui.range = d.range; ui.chartAnim = true; renderDetail(); renderLand(); return; }
   if (d.hrange) { ui.homeRange = d.hrange; ui.nwAnim = true; renderHome(); return; }
   if (d.exp) { ui.chain.exp = Number(d.exp); renderChain(); return; }
   if (d.otype) { ui.chain.type = d.otype; renderChain(); return; }
@@ -2638,6 +2697,9 @@ document.addEventListener('click', async (e) => {
       } catch (err) { dr.err = err.message; renderDraft(true); }
       break;
     }
+    case 'logall': ui.logAll = ui.detail; renderDetail(); break;
+    case 'healthy': ui.healthy = !ui.healthy; ui.limit = 60; keepRows(renderMarket); break;
+    case 'autofill': if (ui.draft) { ui.draft.picks = autoLineup(state, ui.draft.league, ui.draft.picks); ui.draft.err = ''; buzz(); renderDraft(true); toast(ui.draft.picks.length === LINEUP ? 'Lineup filled. Swap anyone you like.' : 'Not enough players fit under the cap'); } break;
     case 'scoremine': { ui.scoreMine = !ui.scoreMine; const y = view().scrollTop; renderGames(); view().scrollTop = y; break; }
     case 'slipopen': ui.slipOpen = true; redrawSlip(); break;
     case 'slipclose': ui.slipOpen = false; redrawSlip(); break;
@@ -2738,8 +2800,10 @@ document.addEventListener('change', async (e) => {
   if (e.target.dataset.layhide) { const h = { ...(state.settings.home?.hide || {}) }; if (e.target.checked) delete h[e.target.dataset.layhide]; else h[e.target.dataset.layhide] = true;
     state.settings.home = { ...(state.settings.home || {}), hide: h }; dirty = true; save(); e.target.closest('.lay')?.classList.toggle('off', !e.target.checked); if (ui.tab === 'home') renderHome(); return; }
   if (e.target.id === 'setcb') { state.settings.cb = e.target.checked; dirty = true; save(); applyLook(); return; }
-  if (e.target.id === 'setsound') { state.settings.sound = e.target.checked; dirty = true; save(); if (e.target.checked) sfx('trade'); return; }
-  if (e.target.id === 'sethaptic') { state.settings.haptics = e.target.checked; dirty = true; save(); buzz(); return; }
+  if (e.target.id === 'setsound') { state.settings.sound = e.target.checked; dirty = true; save(); if (e.target.checked) sfx('trade'); renderAccount(); return; }
+  if (e.target.dataset.sfxkind) { (state.settings.sfxOff ||= {})[e.target.dataset.sfxkind] = !e.target.checked; dirty = true; save(); if (e.target.checked) sfx(e.target.dataset.sfxkind); return; }
+  if (e.target.id === 'sethapnav') { state.settings.hapNav = e.target.checked; dirty = true; save(); return; }
+  if (e.target.id === 'sethaptic') { state.settings.haptics = e.target.checked; dirty = true; save(); buzz(); renderAccount(); return; }
   if (e.target.id === 'setlight') { state.settings.light = e.target.checked; dirty = true; save(); applyLook(); applyTheme(); return; }
   if (e.target.id === 'setbig') { state.settings.bigText = e.target.checked; dirty = true; save(); applyLook(); return; }
   if (e.target.dataset.lgtoggle) {
@@ -2951,7 +3015,7 @@ function renderPage() {
   const p = ui.page; if (!p) return;
   const el = $('#page');
   const body = { search: pageSearch, compare: pageCompare, calendar: pageCalendar, journal: pageJournal, achievements: pageAchievements, short: pageShort, risk: pageRisk,
-    breakouts: pageBreakouts, recap: pageRecap, rival: pageRival, hof: pageHof, bets: pageBets, divcal: pageDivcal, futures: pageFutures, glance: pageGlance, layout: pageLayout }[p.type]?.(p) || '';
+    breakouts: pageBreakouts, recap: pageRecap, rival: pageRival, hof: pageHof, bets: pageBets, contests: pageContests, divcal: pageDivcal, futures: pageFutures, glance: pageGlance, layout: pageLayout }[p.type]?.(p) || '';
   el.innerHTML = `<div class="sheet-inner">${body}</div>`;
 }
 // Swipe right anywhere on a full-screen page to go back (the page itself only scrolls up and down).
@@ -3149,11 +3213,13 @@ function collectionsSection() {
     <div class="list">${sets.slice(0, 12).map((s) => `<div class="item"><span class="lg ${s.league}">${esc(s.team)}</span><div class="grow"><div class="name">${esc(s.team)} set ${s.done ? '<span class="pk won">Complete</span>' : ''}</div>
       <div class="setbar"><i style="width:${Math.min(100, (s.n / SET_SIZE) * 100)}%"></i></div></div><div class="small ${s.done ? 'up' : 'muted'}">${s.done ? `+${Math.round(SET_BONUS * 100)}% divs` : `${s.n}/${SET_SIZE}`}</div></div>`).join('')}</div>`;
 }
+const textSize = () => (state.settings.textSize != null ? Number(state.settings.textSize) : state.settings.bigText ? 1 : 0);
 function applyLook() {
   const s = state.settings;
   const root = document.documentElement;
   if (s.light) root.dataset.mode = 'light'; else delete root.dataset.mode;
-  root.classList.toggle('big-text', !!s.bigText);
+  root.classList.toggle('big-text', textSize() === 1);
+  root.classList.toggle('xl-text', textSize() === 2);
   root.classList.toggle('cb', !!s.cb);
 }
 
@@ -3387,8 +3453,9 @@ function cardExtras(b) {
 
 // ---------- sound ----------
 let actx = null;
+const SFX_KINDS = [['trade', 'Trades', 'Buying and selling'], ['coin', 'Rewards', 'Dividends, wins and sales'], ['pack', 'Card packs', 'Opening a pack']];
 function sfx(name) {
-  if (state?.settings?.sound === false) return;
+  if (state?.settings?.sound === false || state?.settings?.sfxOff?.[name === 'sell' ? 'trade' : name]) return;
   try {
     actx ||= new (window.AudioContext || window.webkitAudioContext)();
     if (actx.state === 'suspended') actx.resume();
@@ -3439,6 +3506,23 @@ function reportLine(a) {
     <div class="tiny faint" style="margin-top:6px">About every two weeks, graded on his games since the last one plus the analysts' own read. The price reacts when it lands.</div></div>`;
 }
 // ---------- hall of fame and friend challenge ----------
+function pageContests() {
+  const done = Object.values(state.contests || {}).filter((c) => c.done).sort((x, y) => (y.settled || y.end) - (x.settled || x.end));
+  const fees = done.reduce((t, c) => t + c.fee, 0); const won = done.reduce((t, c) => t + (c.payout || 0), 0);
+  const count = (n) => done.filter((c) => c.place === n).length;
+  const best = done.slice().sort((x, y) => x.place - y.place || y.payout - x.payout)[0];
+  return `${pageHead('Contest history')}
+    <div class="grid2" style="margin-top:12px">
+      <div class="stat"><div class="k">Entered</div><div class="v">${done.length}</div></div>
+      <div class="stat"><div class="k">Profit</div><div class="v ${cls(won - fees)}">${signMoney(won - fees)}</div></div>
+      <div class="stat"><div class="k">Podiums</div><div class="v">🥇 ${count(1)} · 🥈 ${count(2)} · 🥉 ${count(3)}</div></div>
+      <div class="stat"><div class="k">Best finish</div><div class="v">${best ? `${ordinal(best.place)} <span class="tiny muted">${money(best.payout || 0)}</span>` : '—'}</div></div>
+    </div>
+    ${done.length ? `<h3>Results</h3><div class="list">${done.map((c) => `<div class="item">${lgTag(c.league)}<div class="grow"><div class="name">${CONTEST_TIERS.find((t) => t.key === c.tier)?.name} · ${ordinal(c.place)} of 6</div>
+      <div class="sub">${c.day ? fmtDate(c.day, { weekday: 'short', month: 'short', day: 'numeric' }) : `Week of ${fmtDate(c.entered)}`} · ${c.pts.toFixed(1)} pts</div></div><div class="price ${c.payout > c.fee ? 'up' : c.payout ? '' : 'down'}">${c.payout ? '+' + money(c.payout) : '−' + money(c.fee)}</div></div>`).join('')}</div>`
+      : emptyState('slip', 'No finished contests yet', 'Results show up here the day after each contest.')}
+    <p class="tiny faint" style="margin:10px 2px">The app keeps about five weeks of contests.</p>`;
+}
 function pageBets() {
   const done = (state.props || []).filter((b) => b.status !== 'open');
   const real = done.filter((b) => b.status !== 'void');
@@ -3680,7 +3764,7 @@ function loadPlays(league, id, { force = false } = {}) {
   if (c.loading || (!force && c.t && (g.status !== 'live' || Date.now() - c.t < 20e3))) return;
   playsCache.set(id, { ...c, loading: true });
   api.summary(league, id).then((j) => {
-    playsCache.set(id, { box: lineups(league, j), plays: parsePlays(league, j), atBat: league === 'mlb' ? parseAtBat(j) : null, sit: league === 'nfl' ? parseSituation(j) : null, t: Date.now(), loading: false });
+    playsCache.set(id, { box: lineups(league, j), plays: parsePlays(league, j), atBat: league === 'mlb' ? parseAtBat(j) : null, sit: league === 'nfl' ? parseSituation(j) : null, drives: league === 'nfl' ? parseDrives(j) : null, bases: league === 'mlb' ? parseBases(j) : null, tstats: parseTeamStats(league, j), t: Date.now(), loading: false });
   }).catch(() => { playsCache.set(id, { ...c, loading: false, failed: !c.plays, t: Date.now() }); })
     .then(() => {
       // Show the new plays as soon as the screen is at rest (never swap content under a finger).
@@ -3712,6 +3796,29 @@ function fieldBar(g, league) {
       ${toGo != null ? `<span class="fd-go" style="left:${pc(Math.min(x, toGo))}%;width:${(Math.abs(toGo - x) * 0.92).toFixed(2)}%"></span><span class="fd-line" style="left:${pc(toGo)}%"></span>` : ''}
       <span class="fd-ball" style="left:${pc(x)}%">${ta?.img && !STATIC ? `<img src="${esc(ta.img)}" alt="" onerror="this.outerHTML='${dir > 0 ? '▶' : dir < 0 ? '◀' : '●'}'">` : dir > 0 ? '▶' : dir < 0 ? '◀' : '●'}</span></div>
     <div class="fd-lab"><span style="left:${pc(0)}%">${esc(away.abbr)}</span><span style="left:${pc(20)}%">20</span><span style="left:${pc(50)}%">50</span><span style="left:${pc(80)}%">20</span><span style="left:${pc(100)}%">${esc(home.abbr)}</span></div></div>`;
+}
+// Baseball, live: runners on base with the count and outs.
+function basesCard(g, league) {
+  const b = g.status === 'live' ? playsCache.get(g.id)?.bases : null;
+  if (!b) return '';
+  const base = (on, x, y) => `<rect x="${x - 9}" y="${y - 9}" width="18" height="18" rx="3" transform="rotate(45 ${x} ${y})" class="${on ? 'on' : ''}"/>`;
+  const dots = (n, max, c) => Array.from({ length: max }, (_, i) => `<i class="${i < n ? c : ''}"></i>`).join('');
+  const bat = b.batter ? state.assets[`${league}:p:${b.batter}`] : null; const pit = b.pitcher ? state.assets[`${league}:p:${b.pitcher}`] : null;
+  const on = [b.first && '1st', b.second && '2nd', b.third && '3rd'].filter(Boolean);
+  return `<div class="field bases"><svg viewBox="0 0 90 70" class="diamond" role="img" aria-label="${on.length ? `Runners on ${on.join(' and ')}` : 'Bases empty'}">${base(b.second, 45, 16)}${base(b.third, 19, 42)}${base(b.first, 71, 42)}</svg>
+    <div class="grow"><div class="fd-top"><span>${on.length ? `Runner${on.length > 1 ? 's' : ''} on <b>${on.join(', ')}</b>` : 'Bases empty'}</span><b>${b.balls}-${b.strikes}</b></div>
+      <div class="bso"><span>B<em>${dots(b.balls, 3, 'b')}</em></span><span>S<em>${dots(b.strikes, 2, 's')}</em></span><span>O<em>${dots(b.outs, 2, 'o')}</em></span></div>
+      ${bat || pit ? `<div class="tiny muted" style="margin-top:6px">${bat ? `At bat <b style="color:var(--text)">${esc(nameShort(bat.name))}</b>` : ''}${bat && pit ? ' · ' : ''}${pit ? `Pitching <b style="color:var(--text)">${esc(nameShort(pit.name))}</b>` : ''}</div>` : ''}</div></div>`;
+}
+// Team totals side by side. The longer bar has more; for turnovers and the like, fewer is better.
+function teamCompare(g) {
+  const rows = g.status !== 'pre' ? playsCache.get(g.id)?.tstats : null;
+  if (!rows) return '';
+  const away = g.teams.find((t) => !t.home) || g.teams[0]; const home = g.teams.find((t) => t !== away) || g.teams[1];
+  const n = (v) => { const m = String(v).match(/-?\d+(\.\d+)?/); const mm = String(v).match(/^(\d+):(\d+)$/); return mm ? Number(mm[1]) * 60 + Number(mm[2]) : m ? Number(m[0]) : 0; };
+  return `<h3>Team stats</h3><div class="card tcmp"><div class="tc-head"><b>${esc(away.abbr)}</b><b>${esc(home.abbr)}</b></div>
+    ${rows.map(([label, a, h, lowGood]) => { const x = n(a); const y = n(h); const tot = x + y || 1; const aWin = lowGood ? x < y : x > y; const hWin = lowGood ? y < x : y > x;
+      return `<div class="tc-row"><b class="${aWin ? 'win' : ''}">${esc(a)}</b><div class="tc-mid"><span>${label}</span><div class="tc-bar"><i class="${aWin ? 'win' : ''}" style="width:${(x / tot) * 100}%"></i><i class="${hWin ? 'win' : ''}" style="width:${(y / tot) * 100}%"></i></div></div><b class="${hWin ? 'win' : ''}">${esc(h)}</b></div>`; }).join('')}</div>`;
 }
 function atBatCard(ab, league) {
   const bat = ab.batter ? state.assets[`${league}:p:${ab.batter}`] : null; const pit = ab.pitcher ? state.assets[`${league}:p:${ab.pitcher}`] : null;
@@ -3762,11 +3869,17 @@ function playsSection(g, league) {
     return out.slice(0, 2);
   };
   const shortName = (a) => { const parts = a.name.split(/\s+/); return parts.length > 1 ? `${parts[0][0]}. ${parts.slice(1).join(' ')}` : a.name; };
-  return `${g.status === 'live' && c.atBat ? atBatCard(c.atBat, league) : ''}
+  // Basketball scores on most plays, so its summary keeps to the big ones.
+  const scoring = c.plays.filter((p) => p.scoring && p.value > 0 && (league !== 'nba' || p.big)).slice().reverse();
+  const summary = scoring.length ? `<h3>Scoring summary</h3><div class="card ssum">${scoring.map((p) => { const who = involved(p)[0];
+    return `<div class="ss-row"><span class="tiny muted">${esc(p.sit.split(' · ').slice(0, 2).join(' '))}</span><span class="grow ellipsis"><b>${esc(p.big || p.head || p.text)}</b>${who ? ` <span class="muted">${esc(shortName(who))}</span>` : ''}</span><b class="sc">${p.away != null ? `${p.away}–${p.home}` : `+${p.value}`}</b></div>`; }).join('')}</div>` : '';
+  const drives = league === 'nfl' && c.drives?.length ? `<h3>Drives</h3><div class="list drives">${c.drives.slice(0, ui.playsAll === g.id ? 99 : 8).map((d) => `<details class="drive ${d.scoring ? 'sc' : ''}"><summary><b>${esc(d.team)}</b><span class="grow ellipsis">${esc(d.desc)}</span><span class="res ${d.scoring ? 'up' : d.live ? '' : 'muted'}">${d.live ? '<span class="tag live">LIVE</span>' : esc(d.result)}</span></summary>
+    <div class="dplays">${d.plays.map((t) => `<span>${esc(t)}</span>`).join('')}</div></details>`).join('')}</div>` : '';
+  return `${g.status === 'live' && c.atBat ? atBatCard(c.atBat, league) : ''}${summary}${drives}
     <h3>Play by play ${g.status === 'live' ? '<span class="tag live" style="margin-left:6px">LIVE</span>' : ''}</h3>
     <div class="list pbp">${show.map((p) => {
       const who = involved(p); const a = who[0];
-      return `<${a ? `button data-open="${a.id}"` : 'div'} class="pb ${p.scoring ? 'sc' : ''} ${p.big ? 'big' : ''}">
+      return `<${a ? `button data-open="${a.id}"` : 'div'} class="pb ${p.scoring ? 'sc' : ''} ${p.big ? 'big' : ''} ${who.some((x) => state.holdings[x.id]) ? 'mine' : ''}">
         ${a ? avatar(a) : `<div class="avatar-fallback pb-dot">${p.scoring ? '★' : esc(p.team || '•')}</div>`}
         <div class="grow" style="min-width:0"><div class="pb-sit ellipsis">${p.away != null && p.home != null ? `<b>${esc(away.abbr)} ${p.away}-${p.home} ${esc(home.abbr)}</b> · ` : ''}${esc(p.sit)}${p.t ? ` · ${timeAgo(p.t)}` : ''}</div>
           <div class="pb-text">${p.big ? '<span class="bigtag">BIG PLAY</span>' : ''}${esc(p.big || p.head || p.text)}</div>
@@ -3918,7 +4031,7 @@ const formTone = (v) => (v >= 5 ? 'hi' : v >= 2 ? 'mid' : 'lo');
 const SPAN_LABEL = { '7d': '7 days', '30d': '30 days' };
 function formDot(a, size = '') {
   // His average game rating over the last 7 days; failing that the last 30, then the season.
-  const f = formRating(state, a, '7d') || formRating(state, a, '30d') || formRating(state, a, 'season');
+  const f = playerRating(a);
   if (!f) return '';
   return `<span class="formdot ${size} ${formTone(f.avg)}" aria-label="Average rating ${f.rating.toFixed(1)} over ${f.n} game${f.n > 1 ? 's' : ''}">${f.rating.toFixed(1)}</span>`;
 }
@@ -3958,10 +4071,10 @@ const nameShort = (n) => { const p = String(n).trim().split(/\s+/); return p.len
 function boxTable(league, rows, g) {
   const val = (l, k) => { const v = typeof k === 'function' ? k(l) : l[k]; return typeof v === 'number' ? Math.round(v * 10) / 10 : (v ?? ''); };
   return (BOX_COLS[league] || []).map(([title, has, cols]) => {
-    const xs = rows.filter((x) => has(x.p.line)).sort((x, y) => (y.st - x.st) || (gameScore(league, y.p.line) - gameScore(league, x.p.line)));
+    const xs = rows.filter((x) => has(x.p.line)).sort((x, y) => (!!state.holdings[y.a.id] - !!state.holdings[x.a.id]) || (y.st - x.st) || (gameScore(league, y.p.line) - gameScore(league, x.p.line)));
     if (!xs.length) return '';
     return `<h3>${title}</h3><div class="boxwrap"><table class="box"><tr><th>Player</th><th>RTG</th><th>Game</th>${cols.map(([h]) => `<th>${h}</th>`).join('')}<th>Price</th></tr>
-      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''}"><td><b>${esc(nameShort(a.name))}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td><td class="chg ${cls(gameChange(a, g))}">${fmtPct(gameChange(a, g))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="px">${money(a.price)}</td></tr>`).join('')}</table></div>`;
+      ${xs.map(({ p, a, st }) => `<tr data-open="${a.id}" class="${st ? 'st' : ''} ${state.holdings[a.id] ? 'mine' : ''}"><td><b>${esc(nameShort(a.name))}</b> <span class="tiny faint">${esc(a.pos || '')}</span>${state.holdings[a.id] ? ' <span class="tag own">✓</span>' : ''}</td><td class="rtg">${rtgChip(gameRating(state, a, { line: p.line }))}</td><td class="chg ${cls(gameChange(a, g))}">${fmtPct(gameChange(a, g))}</td>${cols.map(([, k]) => `<td>${val(p.line, k)}</td>`).join('')}<td class="px">${money(a.price)}</td></tr>`).join('')}</table></div>`;
   }).join('');
 }
 function teamTab(g, league, t) {
@@ -4025,6 +4138,55 @@ $('#game').addEventListener('scroll', () => {
   // Pinned only once the bar has actually reached the top of the screen and stuck there.
   el.classList.toggle('pinned', pin.getBoundingClientRect().top <= el.getBoundingClientRect().top + 1);
 }, { passive: true });
+// Swipe a player or team row: left adds it to (or drops it from) your watchlist, right opens Buy.
+(() => {
+  const el = view(); let row = null; let sx = 0; let sy = 0; let dx = 0; let on = null;
+  const reset = () => { if (row) { row.style.transition = 'transform .18s'; row.style.transform = ''; const r = row; setTimeout(() => { r.style.transition = ''; r.classList.remove('sw-l', 'sw-r'); }, 200); } row = null; on = null; dx = 0; };
+  el.addEventListener('touchstart', (e) => {
+    row = null; on = null; dx = 0;
+    if (e.touches.length !== 1 || overlayOpen() || (ui.tab === 'games' && ui.gtab === 'pickem')) return;
+    const r = e.target.closest('.list > .item[data-open]');
+    if (!r || e.target.closest('.hscroll, input') || e.touches[0].clientX < 28) return;
+    const a = state.assets[r.dataset.open]; if (!a) return;
+    row = r; sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    if (!row || on === false) return;
+    const t = e.touches[0]; dx = t.clientX - sx; const dy = t.clientY - sy;
+    if (on === null) { if (Math.abs(dx) > 12 && Math.abs(dx) > 1.6 * Math.abs(dy)) on = true; else if (Math.abs(dy) > 10) { on = false; return; } else return; }
+    row.style.transform = `translateX(${Math.max(-96, Math.min(96, dx))}px)`;
+    row.classList.toggle('sw-l', dx < -40); row.classList.toggle('sw-r', dx > 40);
+  }, { passive: true });
+  const end = () => {
+    if (!row || on !== true) { reset(); return; }
+    const id = row.dataset.open; const d = dx; reset();
+    if (Math.abs(d) < 72) return;
+    ui.swallowUntil = Date.now() + 350; // the lift after a swipe is not a tap
+    if (d < 0) {
+      const i = state.watch.indexOf(id);
+      if (i >= 0) state.watch.splice(i, 1); else state.watch.unshift(id);
+      dirty = true; save(); buzz(); toast(i >= 0 ? 'Removed from watchlist' : `${state.assets[id].ticker} added to watchlist`);
+    } else { buzz(); openDetail(id); setTimeout(() => { if (ui.detail === id) openOrder(stockOrderDefaults('buy')); }, 320); }
+  };
+  el.addEventListener('touchend', end, { passive: true }); el.addEventListener('touchcancel', reset, { passive: true });
+})();
+// Turn the phone sideways on a player page: the chart fills the screen.
+const landMq = window.matchMedia('(orientation: landscape) and (max-height: 520px)');
+function renderLand() {
+  const el = $('#land'); const a = ui.detail ? state.assets[ui.detail] : null;
+  const show = !!a && landMq.matches && !ui.order && !ui.page && !ui.article && !ui.chain;
+  el.hidden = !show;
+  if (!show) { el.innerHTML = ''; return; }
+  const now = Date.now(); const ch = change(a, now, RANGES[ui.range]);
+  el.innerHTML = `<div class="land-top"><b class="ellipsis">${esc(a.name)}</b><span class="lp" id="lprice">${money(a.price)}</span><span id="lchg" class="${cls(ch)}">${fmtPct(ch)} <span class="muted">${rangeLabel(ui.range)}</span></span><span class="grow"></span>
+    <div class="ranges">${Object.keys(RANGES).map((rg) => `<button data-range="${rg}" class="${rg === ui.range ? 'on' : ''}">${rg}</button>`).join('')}</div></div><div id="lchart"></div>`;
+  lineChart($('#lchart'), a.hist.concat([now, a.price]), now - RANGES[ui.range], { height: Math.max(140, window.innerHeight - 74),
+    onScrub: (pt) => { if (!pt) { $('#lprice').textContent = money(a.price); $('#lchg').className = cls(ch); $('#lchg').innerHTML = `${fmtPct(ch)} <span class="muted">${rangeLabel(ui.range)}</span>`; return; }
+      const c = pt.p / pt.first - 1; $('#lprice').textContent = money(pt.p); $('#lchg').className = cls(c);
+      $('#lchg').innerHTML = `${fmtPct(c)} <span class="muted">${new Date(pt.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>`; } });
+}
+landMq.addEventListener?.('change', renderLand);
+window.addEventListener('resize', () => { if (!$('#land').hidden || landMq.matches) renderLand(); });
 // Redraw a page without its sideways-scrolling rows (chips, strips) jumping back to the start.
 function keepRows(draw) {
   const sel = '#view .chips, #view .hscroll';

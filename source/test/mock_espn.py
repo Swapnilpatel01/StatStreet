@@ -105,6 +105,26 @@ def scoreboard(lg, qs):
 
 
 def summary(lg, eid):
+    out = _summary(lg, eid)
+    tm = TEAMS[lg]
+    stat = {'nfl': [('totalYards', '356', '298'), ('netPassingYards', '240', '181'), ('rushingYards', '116', '117'), ('firstDowns', '21', '17'), ('turnovers', '1', '2'), ('possessionTime', '31:10', '28:50')],
+            'nba': [('fieldGoalPct', '48.2', '44.1'), ('threePointFieldGoalPct', '38.5', '33.3'), ('totalRebounds', '44', '39'), ('assists', '27', '22'), ('turnovers', '12', '15')],
+            'mlb': [('hits', '9', '6'), ('runs', '5', '3'), ('homeRuns', '2', '1'), ('strikeouts', '8', '11'), ('errors', '0', '1')]}[lg]
+    out['boxscore']['teams'] = [{'homeAway': 'away', 'statistics': [{'name': k, 'displayValue': a} for k, a, h in stat]}, {'homeAway': 'home', 'statistics': [{'name': k, 'displayValue': h} for k, a, h in stat]}]
+    if lg == 'mlb': out['situation'] = {'balls': 2, 'strikes': 1, 'outs': 1, 'onFirst': {'playerId': 1}, 'onThird': {'playerId': 2}}
+    if lg == 'nfl':
+        out['drives'] = {'previous': [
+            {'id': 'd1', 'team': {'abbreviation': tm[3][1], 'id': tm[3][0]}, 'description': '8 plays, 75 yards, 4:12', 'displayResult': 'Touchdown', 'isScore': True, 'plays': [
+                {'id': 'p1', 'text': 'J.Gibbs left tackle for 6 yards.', 'awayScore': 0, 'homeScore': 0, 'period': {'number': 1}, 'clock': {'displayValue': '12:10'}, 'start': {'down': 1, 'distance': 10, 'shortDownDistanceText': '1st & 10'}},
+                {'id': 'p2', 'text': 'J.Goff pass deep right to A.St. Brown for 44 yards.', 'awayScore': 0, 'homeScore': 0, 'period': {'number': 1}, 'clock': {'displayValue': '11:02'}, 'start': {'down': 2, 'distance': 4}},
+                {'id': 'p3', 'text': 'J.Gibbs up the middle for 2 yards, TOUCHDOWN. J.Bates extra point is GOOD.', 'awayScore': 7, 'homeScore': 0, 'scoringPlay': True, 'period': {'number': 1}, 'clock': {'displayValue': '9:48'}, 'start': {'down': 1, 'distance': 2}}]},
+            {'id': 'd2', 'team': {'abbreviation': tm[2][1], 'id': tm[2][0]}, 'description': '3 plays, 4 yards, 1:30', 'displayResult': 'Punt', 'plays': [
+                {'id': 'p4', 'text': 'J.Allen pass incomplete short left.', 'awayScore': 7, 'homeScore': 0, 'period': {'number': 1}, 'clock': {'displayValue': '9:01'}, 'start': {'down': 1, 'distance': 10}},
+                {'id': 'p5', 'text': 'S.Martin punts 46 yards to DET 20.', 'awayScore': 7, 'homeScore': 0, 'period': {'number': 1}, 'clock': {'displayValue': '8:18'}, 'start': {'down': 4, 'distance': 6}}]}]}
+    return out
+
+
+def _summary(lg, eid):
     r = random.Random(eid)
     sides = {}
     for pid, name, pos, team, ppg in PLAYERS[lg]:

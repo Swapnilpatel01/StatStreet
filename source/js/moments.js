@@ -420,6 +420,46 @@ export function parseSituation(json) {
     poss: String(s.possession ?? s.team?.id ?? drive?.team?.id ?? '') || null, red: !!s.isRedZone,
   };
 }
+// Football drives, newest first: who had the ball, how it ended and the plays in it.
+export function parseDrives(json) {
+  const all = [...(json?.drives?.previous || []), ...(json?.drives?.current ? [{ ...json.drives.current, _live: true }] : [])];
+  const seen = new Set(); const out = [];
+  for (const d of all) {
+    if (d.id && seen.has(d.id)) continue; if (d.id) seen.add(d.id);
+    const plays = (d.plays || []).map((p) => clean(p.text || p.shortText || '')).filter((t) => t && !NOISE_PLAY.test(t));
+    if (!plays.length && !d.description) continue;
+    const result = String(d.displayResult || d.result || (d._live ? 'In progress' : '')).replace(/^TD$/i, 'Touchdown').replace(/^FG$/i, 'Field goal');
+    out.push({ id: String(d.id || out.length), team: d.team?.abbreviation || d.team?.shortDisplayName || '', teamId: d.team?.id != null ? String(d.team.id) : null,
+      desc: String(d.description || `${plays.length} play${plays.length === 1 ? '' : 's'}`), result, live: !!d._live,
+      scoring: !!d.isScore || /touchdown|field goal|safety/i.test(result) && !/missed|blocked/i.test(result),
+      plays: plays.map((t) => shortPlay('nfl', t, {})) });
+  }
+  return out.reverse();
+}
+// Baseball, live: the count, the outs and who is on base.
+export function parseBases(json) {
+  const s = json?.situation || json?.header?.competitions?.[0]?.situation;
+  if (!s || (s.balls == null && s.strikes == null && s.outs == null)) return null;
+  const on = (x) => !!(x && (x === true || x.athlete || x.playerId || Object.keys(x).length));
+  return { balls: Number(s.balls) || 0, strikes: Number(s.strikes) || 0, outs: Number(s.outs) || 0, first: on(s.onFirst), second: on(s.onSecond), third: on(s.onThird),
+    batter: s.batter?.athlete?.id != null ? String(s.batter.athlete.id) : s.batter?.playerId != null ? String(s.batter.playerId) : null,
+    pitcher: s.pitcher?.athlete?.id != null ? String(s.pitcher.athlete.id) : s.pitcher?.playerId != null ? String(s.pitcher.playerId) : null };
+}
+// Team totals from the box score, as [label, away value, home value] rows.
+const TEAM_STAT_PICK = {
+  nfl: [['totalYards', 'Total yards'], ['netPassingYards', 'Passing yards'], ['rushingYards', 'Rushing yards'], ['firstDowns', 'First downs'], ['thirdDownEff', '3rd down'], ['turnovers', 'Turnovers'], ['sacksYardsLost', 'Sacks allowed'], ['possessionTime', 'Possession']],
+  nba: [['fieldGoalPct', 'FG %'], ['threePointFieldGoalPct', '3PT %'], ['freeThrowPct', 'FT %'], ['totalRebounds', 'Rebounds'], ['assists', 'Assists'], ['turnovers', 'Turnovers'], ['steals', 'Steals'], ['blocks', 'Blocks']],
+  mlb: [['hits', 'Hits'], ['runs', 'Runs'], ['homeRuns', 'Home runs'], ['strikeouts', 'Strikeouts'], ['walks', 'Walks'], ['errors', 'Errors'], ['leftOnBase', 'Left on base']],
+};
+export function parseTeamStats(league, json) {
+  const teams = json?.boxscore?.teams || [];
+  if (teams.length < 2) return null;
+  const flat = (t) => { const out = new Map(); const walk = (list) => { for (const s of list || []) { if (s.stats) walk(s.stats); else if (s.name) out.set(s.name, String(s.displayValue ?? s.value ?? '')); } }; walk(t.statistics); return out; };
+  const away = teams.find((t) => t.homeAway === 'away') || teams[0]; const home = teams.find((t) => t !== away);
+  const a = flat(away); const h = flat(home);
+  const rows = (TEAM_STAT_PICK[league] || []).filter(([k]) => a.has(k) && h.has(k)).map(([k, label]) => [label, a.get(k), h.get(k), /turnover|error|sacks|left on/i.test(label)]);
+  return rows.length ? rows : null;
+}
 export function parseAtBat(json) {
   const plays = json?.plays || [];
   if (!plays.length) return null;

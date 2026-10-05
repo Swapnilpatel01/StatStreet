@@ -108,6 +108,38 @@ function botLineups(state, league, cap, now, seed) {
   return BOTS.map((b) => ({ name: b.name, style: b.style, lineup: draft(pool, cap, scorer[b.style]), pts: 0 }));
 }
 
+// Fill the open slots of a lineup with the best-form players that still fit under the cap.
+export function autoLineup(state, league, picks = [], now = Date.now()) {
+  const pool = draftPool(state, league, now);
+  const cap = salaryCap(state, league, now);
+  const kept = picks.filter((id) => pool.some((a) => a.id === id)).slice(0, LINEUP);
+  const used = kept.reduce((s, id) => s + salary(state.assets[id]), 0);
+  const rest = pool.filter((a) => !kept.includes(a.id));
+  const bySal = [...rest].sort((x, y) => salary(x) - salary(y));
+  const out = [...kept]; let left = cap - used;
+  // value first (form per dollar), then spend what is left on the best player that fits
+  const score = (a) => a.perf.ema * (0.55 + 0.45 * Math.min(1, a.perf.ema / Math.max(1, salary(a)) / 0.6));
+  for (const c of [...rest].sort((x, y) => score(y) - score(x))) {
+    if (out.length >= LINEUP) break;
+    const need = LINEUP - out.length - 1;
+    const cheapest = bySal.filter((x) => x !== c && !out.includes(x.id)).slice(0, need).reduce((s, x) => s + salary(x), 0);
+    if (salary(c) + cheapest <= left) { out.push(c.id); left -= salary(c); }
+  }
+  // upgrade pass: swap in a better player wherever the leftover cap allows
+  for (let i = kept.length; i < out.length; i++) {
+    const cur = state.assets[out[i]];
+    const better = rest.filter((a) => !out.includes(a.id) && a.perf.ema > cur.perf.ema && salary(a) - salary(cur) <= left).sort((x, y) => y.perf.ema - x.perf.ema)[0];
+    if (better) { left -= salary(better) - salary(cur); out[i] = better.id; }
+  }
+  return out;
+}
+// Standings with games still in progress counted at their score so far.
+export function liveStandings(state, c) {
+  const livePts = (id) => { const a = state.assets[id]; return a?.live?.line && (!c.gameIds || c.gameIds.includes(a.live.e)) && !c.games[a.live.e] ? Math.round(gameScore(c.league, { ...a.live.line }) * 10) / 10 : 0; };
+  const sum = (ids) => ids.reduce((s, id) => s + livePts(id), 0);
+  const rows = [{ name: 'You', you: true, pts: round2(c.pts + sum(c.lineup)) }, ...c.bots.map((b) => ({ name: b.name, style: b.style, pts: round2(b.pts + sum(b.lineup)) }))];
+  return { rows: rows.sort((x, y) => y.pts - x.pts || (y.you ? 1 : 0) - (x.you ? 1 : 0)), livePts, any: [...c.lineup, ...c.bots.flatMap((b) => b.lineup)].some((id) => livePts(id) !== 0 || state.assets[id]?.live?.e && (!c.gameIds || c.gameIds.includes(state.assets[id].live.e))) };
+}
 export function enterContest(state, { league, tier: tierKey, lineup }, now = Date.now()) {
   const tier = CONTEST_TIERS.find((t) => t.key === tierKey);
   if (!tier) throw new Error('Unknown contest');

@@ -143,6 +143,10 @@ with sync_playwright() as p:
     if page.locator('[data-draft]').count():
         page.click('[data-draft] >> nth=0'); page.wait_for_selector('#draft:not([hidden])'); page.wait_for_timeout(400)
         print('draft rows:', page.evaluate("[...document.querySelectorAll('#dlist .draft-row')].map(x => x.className + ' ' + x.querySelector('.sal').textContent).join(' | ')"), page.text_content('#dhead'))
+        page.click('#draft [data-act=autofill]'); page.wait_for_timeout(300); nauto = page.locator('#dlist .draft-row.on').count(); print('auto-filled:', nauto); assert nauto == 5
+        page.screenshot(path=f'{OUT}/86-autofill.png')
+        for x in range(5):
+            page.click('#dhead .picked button >> nth=0'); page.wait_for_timeout(60)
         for i in range(5):
             page.click('#dlist .draft-row:not(.nofit):not(.on) >> nth=-1'); page.wait_for_timeout(60)
         page.screenshot(path=f'{OUT}/0f-draft.png')
@@ -178,6 +182,17 @@ with sync_playwright() as p:
     yt = page.evaluate("document.querySelector('#view').scrollTop"); print('after top tap:', yt); assert yt < 20
     page.evaluate("document.documentElement.style.removeProperty('--safe-t')")
     page.evaluate("(() => { const b = document.querySelector('#view .chips [data-sort]'); b && b.click(); })()"); page.wait_for_timeout(200)
+    # v95: position chips, top rated, healthy only
+    page.evaluate("document.querySelector('[data-league=nba]').click()"); page.wait_for_timeout(250)
+    assert page.locator('#view .pos-chips [data-pos]').count() == 4
+    page.evaluate("document.querySelector('#view .pos-chips [data-pos=C]').click()"); page.wait_for_timeout(250)
+    npos = page.locator('#mlist .item').count(); print('centers listed:', npos); assert npos >= 1
+    page.evaluate("document.querySelector('#view .pos-chips [data-pos=all]').click()"); page.wait_for_timeout(200)
+    page.evaluate("document.querySelector('#view .chips [data-sort=rated]').click()"); page.wait_for_timeout(300)
+    rs = page.evaluate("[...document.querySelectorAll('#mlist .item .formdot')].slice(0, 5).map(x => parseFloat(x.textContent))"); print('top rated:', rs); assert rs == sorted(rs, reverse=True) and len(rs) >= 2
+    page.screenshot(path=f'{OUT}/85-rated.png')
+    page.evaluate("document.querySelector('[data-act=healthy]').click()"); page.wait_for_timeout(250); assert page.locator('#mlist .item .tag.inj').count() == 0
+    page.evaluate("document.querySelector('[data-act=healthy]').click(); document.querySelector('[data-league=all]').click(); document.querySelector('#view .chips [data-sort=movers]').click()"); page.wait_for_timeout(300)
     # heatmap
     page.click('#tabbar [data-tab=market]'); page.click('[data-mview=heat]'); page.wait_for_timeout(200)
     nt = page.locator('.heat .tile').count(); print('heat tiles:', nt); assert nt >= 5
@@ -531,6 +546,7 @@ with sync_playwright() as p:
     ab = page.text_content('#dinner'); assert 'About' in ab and 'Duke' in ab and '6 seasons' in ab, ab[-600:]
     page.evaluate("document.querySelector('#sheet').scrollTop = 99999"); page.wait_for_timeout(200); page.screenshot(path=f'{OUT}/53-about.png')
     print('form5 on page:', page.locator('#sheet .form5').count())
+    print('game log rows:', page.locator('#sheet .glog tr').count(), 'trend:', page.locator('#sheet .rtrend').count(), 'upcoming:', page.locator('#sheet .upc-row').count()); assert page.locator('#sheet .glog tr').count() >= 3
     for tabk in page.evaluate("[...document.querySelectorAll('#sheet .dtabs [data-dtab]')].map(b => b.dataset.dtab)"):
         page.click(f'#sheet .dtabs [data-dtab={tabk}]'); page.wait_for_timeout(150)
         if page.locator('#sheet .form5').count() and page.locator('#sheet .form5').is_visible():
@@ -546,6 +562,7 @@ with sync_playwright() as p:
         assert page.locator('#game .gsec[data-gsec=summary]').is_hidden()
         gt = page.text_content('#game'); assert 'Play by play' in gt, gt[:200]
         assert page.locator('#game .linescore td').count() >= 8, 'line score'
+        assert page.locator('#game .tcmp .tc-row').count() >= 3, 'team stats'
         page.evaluate("(() => { const g = document.querySelector('#game'); g.scrollTop = 40; g.dispatchEvent(new Event('scroll')); })()"); page.wait_for_timeout(150)
         st = page.evaluate("(() => { const g = document.querySelector('#game'); return [g.classList.contains('pinned'), getComputedStyle(g.querySelector('.gpin-score')).opacity, g.scrollHeight - g.clientHeight]; })()")
         print('pinned after a small scroll:', st); assert not st[0] or st[2] < 60, 'score bar must not pin over the win chart'
@@ -561,6 +578,8 @@ with sync_playwright() as p:
     nf = page.locator('#view .live-strip [data-game^="nfl|"]').first
     if nf.count():
         nf.click(); page.wait_for_timeout(1500)
+        page.click('#game [data-gview=plays]'); page.wait_for_timeout(500); print('drives:', page.locator('#game .drive').count(), 'scoring rows:', page.locator('#game .ss-row').count()); assert page.locator('#game .drive').count() == 2 and page.locator('#game .ss-row').count() >= 2
+        page.screenshot(path=f'{OUT}/87-drives.png'); page.click('#game [data-gview=summary]'); page.wait_for_timeout(200)
         ft = page.inner_text('#game .field'); print('field:', ft.replace(chr(10), ' | ')[:120]); assert '3rd & 7' in ft and ' 18' in ft
         assert page.locator('#game .fd-line').count() == 1
         page.screenshot(path=f'{OUT}/84-field.png'); page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
@@ -568,6 +587,8 @@ with sync_playwright() as p:
     ml = page.locator('#view .live-strip [data-game^="mlb|"]').first
     if ml.count():
         ml.click(); page.wait_for_timeout(600); page.click('#game [data-gview=plays]'); page.wait_for_timeout(1500)
+        bt = page.inner_text('#game .bases'); print('bases:', bt.replace(chr(10), ' | ')[:90]); assert '2-1' in bt and '1st, 3rd' in bt
+        page.screenshot(path=f'{OUT}/88-bases.png')
         t = page.text_content('#game .atbat'); assert 'Changeup' in t and '84.3 mph' in t and 'Strike Swinging' in t, t
         assert page.locator('#game .zone circle').count() == 4
         page.screenshot(path=f'{OUT}/62-atbat.png')
@@ -580,6 +601,16 @@ with sync_playwright() as p:
     page.click('#game [data-act=gameback]'); page.wait_for_timeout(400)
     print('props rows:', page.locator('#view .prop-row').count(), 'live section:', 'live props' in pt)
     page.screenshot(path=f'{OUT}/76-props.png', full_page=True)
+    # text size and the sideways chart
+    page.click('#tabbar [data-tab=account]'); page.wait_for_timeout(300); page.click('[data-textsize="2"]'); page.wait_for_timeout(200)
+    assert page.evaluate("document.documentElement.classList.contains('xl-text')"); page.click('[data-textsize="0"]'); page.wait_for_timeout(200)
+    assert page.locator('[data-sfxkind]').count() == 3
+    page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300); page.click('#mlist .item >> nth=0'); page.wait_for_selector('#sheet:not([hidden])'); page.wait_for_timeout(500)
+    page.set_viewport_size({'width': 844, 'height': 390}); page.wait_for_timeout(600)
+    assert not page.evaluate("document.querySelector('#land').hidden") and page.locator('#lchart svg').count() == 1, 'sideways chart'
+    page.screenshot(path=f'{OUT}/89-land.png')
+    page.set_viewport_size({'width': 390, 'height': 844}); page.wait_for_timeout(600); assert page.evaluate("document.querySelector('#land').hidden")
+    page.click('#sheet [data-act=back]'); page.wait_for_timeout(400)
     print('v43 features ok')
     print('v37 features ok')
     # Portfolio chart: holding on the graph shows the balance at that point
