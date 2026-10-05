@@ -1228,3 +1228,7 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 /* v91 */
 .box td:first-child, .box th:first-child { max-width: 170px; min-width: 118px; }
 .box th:first-child { text-align: left; }
+
+/* v93: tap the status bar area to go to the top */
+#toptap { position: absolute; left: 0; right: 0; top: 0; height: var(--safe-t); z-index: 60; }
+.sub .tag { flex: none; }

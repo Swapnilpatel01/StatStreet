@@ -167,6 +167,15 @@ with sync_playwright() as p:
     page.screenshot(path=f'{OUT}/0i-locker.png', full_page=True)
     assert page.locator('.pack').count() == 4 and page.locator('.theme').count() == 5
 
+    # chips keep their sideways scroll when one is tapped; the top strip scrolls to the top
+    page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300)
+    row = page.evaluate("(() => { const el = [...document.querySelectorAll('#view .chips')].find(e => e.scrollWidth > e.clientWidth + 40); if (!el) return null; el.scrollLeft = 120; const b = [...el.querySelectorAll('button')].pop(); b.click(); return [...document.querySelectorAll('#view .chips')].map(e => e.scrollLeft); })()")
+    print('chip rows after tap:', row); assert row is None or max(row) >= 100
+    page.evaluate("(() => { document.documentElement.style.setProperty('--safe-t', '44px'); document.querySelector('#view').scrollTop = 600; })()"); page.wait_for_timeout(100)
+    page.mouse.click(200, 10); page.wait_for_timeout(900)
+    yt = page.evaluate("document.querySelector('#view').scrollTop"); print('after top tap:', yt); assert yt < 20
+    page.evaluate("document.documentElement.style.removeProperty('--safe-t')")
+    page.evaluate("(() => { const b = document.querySelector('#view .chips [data-sort]'); b && b.click(); })()"); page.wait_for_timeout(200)
     # heatmap
     page.click('#tabbar [data-tab=market]'); page.click('[data-mview=heat]'); page.wait_for_timeout(200)
     nt = page.locator('.heat .tile').count(); print('heat tiles:', nt); assert nt >= 5

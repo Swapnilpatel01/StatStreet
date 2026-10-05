@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 92;
+const APP_VERSION = 93;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -120,8 +120,14 @@ function shortInj(s) {
   if (x.includes('question')) return 'Q';
   if (x.includes('doubt')) return 'D';
   if (x.includes('reserve')) return 'IR';
-  if (/-day/.test(x)) return s.replace(/-?Injured List/i, 'IL');
-  return s.length > 10 ? 'OUT' : s;
+  const il = x.match(/(\d+)[\s-]*day/); // "60-Day-IL", "15-Day Injured List" → "IL60", "IL15"
+  if (il) return `IL${il[1]}`;
+  if (/injured list|\bil\b/.test(x)) return 'IL';
+  if (x.includes('suspen')) return 'SUSP';
+  if (x.includes('probable')) return 'P';
+  if (x.includes('physically unable') || /\bpup\b/.test(x)) return 'PUP';
+  if (/^out\b/.test(x)) return 'Out';
+  return s.length > 6 ? 'OUT' : s;
 }
 
 function assetRow(a, { right = 'pill', range = '1D', note = '' } = {}) {
@@ -2461,10 +2467,10 @@ document.addEventListener('click', async (e) => {
   if (d.sleague) { ui.scoreLeague = d.sleague; const y = view().scrollTop; renderGames(); view().scrollTop = y; return; }
   if (d.sday) { ui.scoreDay = +d.sday; const x = $('.daystrip')?.scrollLeft; const y = view().scrollTop; renderGames(); view().scrollTop = y; if ($('.daystrip')) $('.daystrip').scrollLeft = x; return; }
   if (d.mview) { ui.mview = d.mview; renderMarket(); return; }
-  if (d.league) { ui.league = d.league; ui.limit = 60; renderMarket(); return; }
-  if (d.kind) { ui.kind = d.kind; ui.limit = 60; if (d.kind === 'fund' && !['movers', 'losers', 'price', 'div'].includes(ui.sort)) ui.sort = 'price'; renderMarket(); return; }
-  if (d.price) { ui.price = d.price; ui.limit = 60; renderMarket(); return; }
-  if (d.sort) { ui.sort = d.sort; ui.limit = 60; if (d.sort === 'streak') ui.kind = 'team'; renderMarket(); return; }
+  if (d.league) { ui.league = d.league; ui.limit = 60; keepRows(renderMarket); return; }
+  if (d.kind) { ui.kind = d.kind; ui.limit = 60; if (d.kind === 'fund' && !['movers', 'losers', 'price', 'div'].includes(ui.sort)) ui.sort = 'price'; keepRows(renderMarket); return; }
+  if (d.price) { ui.price = d.price; ui.limit = 60; keepRows(renderMarket); return; }
+  if (d.sort) { ui.sort = d.sort; ui.limit = 60; if (d.sort === 'streak') ui.kind = 'team'; keepRows(renderMarket); return; }
   if (d.coll) {
     ui.tab = 'market'; ui.q = ''; ui.league = 'all'; ui.limit = 60;
     if (d.coll === 'funds') { ui.kind = 'fund'; ui.sort = 'price'; } else { ui.sort = d.coll; ui.kind = d.coll === 'streak' ? 'team' : d.coll === 'mvp' || d.coll === 'hurt' ? 'player' : ui.kind === 'fund' ? 'player' : ui.kind; }
@@ -4019,6 +4025,21 @@ $('#game').addEventListener('scroll', () => {
   // Pinned only once the bar has actually reached the top of the screen and stuck there.
   el.classList.toggle('pinned', pin.getBoundingClientRect().top <= el.getBoundingClientRect().top + 1);
 }, { passive: true });
+// Redraw a page without its sideways-scrolling rows (chips, strips) jumping back to the start.
+function keepRows(draw) {
+  const sel = '#view .chips, #view .hscroll';
+  const xs = [...document.querySelectorAll(sel)].map((el) => el.scrollLeft);
+  const y = view().scrollTop;
+  draw();
+  document.querySelectorAll(sel).forEach((el, i) => { if (xs[i]) el.scrollLeft = xs[i]; });
+  view().scrollTop = y;
+}
+// Tap the very top of the screen (the status bar area) to jump back to the top of whatever is showing.
+$('#toptap')?.addEventListener('click', () => {
+  const top = ui.page ? $('#page') : ui.article ? $('#article') : ui.draft ? $('#draft') : ui.chain ? $('#chain')
+    : ui.game && (!ui.detail || $('#game').style.zIndex === '34') ? $('#game') : ui.detail ? $('#sheet') : view();
+  top?.scrollTo({ top: 0, behavior: 'smooth' });
+});
 // Two-tap confirmation (dialogs aren't available everywhere).
 function armed(el, prompt) {
   if (el.dataset.armed) return true;
