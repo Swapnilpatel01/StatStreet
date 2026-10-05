@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 98;
+const APP_VERSION = 99;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -1900,7 +1900,17 @@ function playerStats(a) {
     return `<svg class="rtrend" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><line x1="0" x2="${W}" y1="${py(avg).toFixed(1)}" y2="${py(avg).toFixed(1)}"/><polyline points="${hist.map((x, i) => `${px(i).toFixed(1)},${py(x[1]).toFixed(1)}`).join(' ')}"/></svg>`; })() : '';
   // What the price did across one game.
   const gh = ((LEAGUES[a.league]?.gameHours || 3) + 1) * HOUR;
-  const move = (g) => { const p0 = priceAt(a, g.t - 10 * 60e3); const p1 = priceAt(a, Math.min(now, g.t + gh)); return p0 > 0 && p1 > 0 ? p1 / p0 - 1 : null; };
+  // From an hour before the game to a couple of hours after it. If the chart has nothing from
+  // that far back (the game was before you started, or the detail has been thinned out), fall
+  // back to the move recorded when the result came in, and show a dash if there is none.
+  const move = (g) => {
+    const first = a.hist[0] ?? Infinity;
+    const p0 = priceAt(a, g.t - HOUR); const p1 = priceAt(a, Math.min(now, g.t + gh + 2 * HOUR));
+    const m = g.t - HOUR >= first && p0 > 0 && p1 > 0 ? p1 / p0 - 1 : 0;
+    if (Math.abs(m) >= 0.0005) return m;
+    const ev = (a.events || []).find((e) => e.kind === 'game' && e.t >= g.t - HOUR && e.t <= g.t + gh + 6 * HOUR);
+    return ev && Math.abs(ev.pct) >= 0.0005 ? ev.pct : null;
+  };
   const log = a.perf.last.slice(0, ui.logAll === a.id ? 10 : 5);
   return `<h3>Performance</h3>
     <div class="grid3">${totals.map(([k, f]) => `<div class="stat rstat"><div class="k">${SPAN_LABEL[k]}</div><div class="v">${f ? `<span class="formdot ${tone(f.rating)}">${f.rating.toFixed(1)}</span>` : '—'}</div><div class="tiny faint">${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</div></div>`).join('')}
