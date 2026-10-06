@@ -509,7 +509,7 @@ export function breakdown(state, a, now = Date.now()) {
     return { fair, inj: 1, senti: 0, mood: 0, imp, live: 0, target: Math.max(0.5, fair * (1 + imp)) };
   }
   const fair = fairOnly(state, a);
-  const inj = a.kind === 'player' ? (a.injury?.factor ?? 1) : teamInjuryDrag(state, a);
+  const inj = a.kind === 'player' ? (a.injury ? a.injury.factor : (a.rust ?? 1)) : teamInjuryDrag(state, a);
   const senti = sentiment(a, now);
   const mood = 0.02 * (state.mood[a.league] || 0);
   const imp = impact(a, now);
@@ -597,6 +597,8 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       a.perf.ema = before == null ? newcomerLevel(state, league, grp, gs)
         : capStep(state, league, grp, before, before + alpha * (gs - before), game.preseason ? 1 / 3 : 1);
       a.perf.init = MODEL_V;
+      // Back from injury: a game at or above his usual level wins back most of the discount, a poor one very little.
+      if (a.rust != null && !a.injury) { a.rust += (1 - a.rust) * (before == null || gs >= before ? 0.6 : 0.1); if (a.rust > 0.985) delete a.rust; }
       a.perf.n = Math.min(a.perf.n + 1, 20);
       a.perf.last.unshift({ e: game.id, t: game.date, gs: Math.round(gs * 10) / 10, text, opp, line: p.line });
       if (a.perf.last.length > 10) a.perf.last.length = 10;
@@ -852,6 +854,7 @@ export function applyInjuries(state, league, list, { now = Date.now() } = {}) {
       if (prev !== inj.status) {
         withEvent(state, a, now, now, 'injury', `${inj.status}${inj.detail ? ` — ${inj.detail}` : ''}`, () => {
           a.injury = { status: inj.status, detail: inj.detail, factor: injuryFactor(inj.status, inj.detail), since: now };
+          delete a.rust;
         }, { force: true });
       } else {
         // Same status, new report: the outlook may have changed ("could begin practicing").
@@ -863,7 +866,10 @@ export function applyInjuries(state, league, list, { now = Date.now() } = {}) {
         } else a.injury.detail = inj.detail;
       }
     } else if (prev && list.length) {
-      withEvent(state, a, now, now, 'injury', `Cleared: back from "${prev}"`, () => { a.injury = null; }, { force: true });
+      withEvent(state, a, now, now, 'injury', `Cleared: back from "${prev}"`, () => {
+        // No free bounce for being cleared: the discount stays until he earns it back on the field.
+        const f = a.injury.factor; a.injury = null; if (f < 0.985) a.rust = f; else delete a.rust;
+      }, { force: true });
     }
   }
   rebuildInjuryCache(state, league);

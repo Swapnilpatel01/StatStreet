@@ -127,7 +127,7 @@ t('a monster game moves the price up and logs a driver', () => {
   assert.equal(a.price, p);
 });
 
-t('injury and bad news push price down, recovery restores it', () => {
+t('injury and bad news push price down, being cleared alone does not', () => {
   const st = buildNBA();
   const a = st.assets['nba:p:10'];
   const base = a.price;
@@ -140,7 +140,8 @@ t('injury and bad news push price down, recovery restores it', () => {
   assert.ok(a.price < hurt);
   E.applyInjuries(st, 'nba', [{ athleteId: '99', status: 'Out' }], { now });
   assert.equal(a.injury, null);
-  assert.ok(a.price > hurt);
+  assert.ok(a.rust < 1, 'discount stays after he is cleared');
+  assert.ok(E.breakdown(st, a, now).inj < 0.9, 'no bounce just for being cleared');
 });
 
 t('news shocks decay over time', () => {
