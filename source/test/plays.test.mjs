@@ -78,4 +78,19 @@ import { parsePlays } from '../js/moments.js';
   const sc = all.filter((p) => p.scoring && p.value > 0).reverse();
   assert.deepEqual(sc.map((p) => [p.head, p.value, p.home]), [['4-yd TD run', 6, 6], ['Extra point', 1, 7], ['41-yd FG', 3, 10]]);
 }
+// the feed stamps a whole drive with its final score; plays before the score keep the old one
+{
+  const pl = (id, text, a, h, extra = {}) => ({ id, text, awayScore: a, homeScore: h, period: { number: 1 }, clock: { displayValue: '9:00' }, ...extra });
+  const json = { drives: { previous: [
+    { team: { abbreviation: 'ATL' }, plays: [pl('1', 'B.Robinson left end for 12 yards.', 0, 7), pl('2', 'M.Penix pass short left to D.London for 9 yards.', 0, 7),
+      pl('3', 'B.Robinson up the middle for 3 yards, TOUCHDOWN. N.Folk extra point is GOOD.', 0, 7, { scoringPlay: true })] },
+    { team: { abbreviation: 'NO' }, plays: [pl('4', 'A.Kamara right tackle for 2 yards.', 0, 7), pl('5', 'T.Shough sacked for -6 yards (K.Elliss).', 0, 7)] },
+    { team: { abbreviation: 'ATL' }, plays: [pl('6', 'T.Allgeier left guard for 5 yards.', 0, 14), pl('7', 'T.Allgeier up the middle for 4 yards, TOUCHDOWN. N.Folk extra point is GOOD.', 0, 14, { scoringPlay: true })] },
+    { team: { abbreviation: 'ATL' }, plays: [pl('8', 'M.Penix pass incomplete.', 0, 17), pl('9', 'N.Folk 41 yard field goal is GOOD.', 0, 17)] },
+  ] } };
+  const plays = parsePlays('nfl', json).reverse();
+  const sc = (x) => `${x.away}-${x.home}`;
+  assert.deepEqual(plays.map(sc), ['0-0', '0-0', '0-6', '0-7', '0-7', '0-7', '0-7', '0-13', '0-14', '0-14', '0-17'], 'score on each play');
+  assert.deepEqual(plays.filter((x) => x.scoring).map((x) => [x.head, x.value, sc(x)]), [['3-yd TD run', 6, '0-6'], ['Extra point', 1, '0-7'], ['4-yd TD run', 6, '0-13'], ['Extra point', 1, '0-14'], ['41-yd FG', 3, '0-17']], 'every score, with its points');
+}
 console.log('ok - play headlines');

@@ -361,7 +361,15 @@ export function parsePlays(league, json, limit = 800) {
   let a0 = 0; let h0 = 0; // the score before each play
   for (let i = 0; i < raw.length; i++) {
     const p = raw[i];
-    const a1 = num(p.awayScore); const h1 = num(p.homeScore);
+    let a1 = num(p.awayScore); let h1 = num(p.homeScore);
+    // Football: the feed stamps every play of a drive with the score the drive ended on, so a
+    // touchdown drive reads 14-0 from its first snap. The score only really changes on a scoring
+    // play, so every other play keeps the score that stood before it.
+    if (league === 'nfl') {
+      const tx = String(p.text || '');
+      const scores = !/NULLIFIED|REVERSED|No Play/i.test(tx) && (p.scoringPlay === true || /\bTOUCHDOWN\b|field goal is GOOD|extra point is GOOD|\bSAFETY\b|CONVERSION ATTEMPT[^.]*SUCCEEDS/.test(tx));
+      if (!scores) { a1 = a0; h1 = h0; }
+    }
     const ctx = { a0, h0, a1: a1 ?? a0, h1: h1 ?? h0, period: Number(p.period?.number) || 0, secs: playSecs(p), bottom: /bot/i.test(`${p.period?.type || ''} ${p.period?.displayValue || ''}`) };
     if (a1 != null) a0 = a1; if (h1 != null) h0 = h1;
     const pts = Math.max(0, (ctx.a1 - ctx.a0) + (ctx.h1 - ctx.h0));
@@ -388,11 +396,11 @@ export function parsePlays(league, json, limit = 800) {
       out.push({ ...base, id: String(p.id || `${i}`), text: tdText, head: shortPlay(league, tdText, p), big: bigPlay(league, tdText, p, { ...ctx, ...mid }),
         pids, pid, away: a1 != null ? mid.a1 : null, home: h1 != null ? mid.h1 : null, scoring: true, value: 6 });
       out.push({ ...base, id: `${p.id || i}x`, text: tryText, head: tryHead, big: bigPlay(league, tryText, {}, { ...ctx, a0: mid.a1, h0: mid.h1 }),
-        pids: [], pid: null, away: num(p.awayScore), home: num(p.homeScore), scoring: tryPts > 0, value: tryPts, sit: sit.text });
+        pids: [], pid: null, away: a1, home: h1, scoring: tryPts > 0, value: tryPts, sit: sit.text });
       continue;
     }
     out.push({ ...base, id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), head: shortPlay(league, text, p), big: bigPlay(league, text, p, ctx),
-      pids, pid, away: num(p.awayScore), home: num(p.homeScore),
+      pids, pid, away: a1, home: h1,
       // Points on the play: what the feed says, else how far the score moved (field goals often carry no value).
       scoring: !!p.scoringPlay || pts > 0, value: num(p.scoreValue) || pts });
   }
