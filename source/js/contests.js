@@ -191,6 +191,8 @@ function scoreContests(state, league, game) {
 
 function settleContests(state, now) {
   for (const c of Object.values(state.contests || {})) {
+    // Entries from the old week-long format end with today's games instead.
+    if (!c.done && !c.day && c.end > dayStartOf(now) + DAY) { c.day = dayStartOf(now); c.end = c.day + DAY; }
     if (c.done || now < c.end) continue; // never before the next day
     // Late games can finish after midnight: wait for every game, up to six hours into the next day.
     if (c.gameIds && c.gameIds.some((g) => !c.games[g]) && now < c.end + 6 * HOUR) continue;

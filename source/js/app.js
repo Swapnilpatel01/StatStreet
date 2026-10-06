@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 105;
+const APP_VERSION = 106;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -3879,6 +3879,16 @@ function playsSection(g, league) {
     for (const id of p.pids || []) add(state.assets[`${league}:p:${id}`]);
     if (out.length < 2) for (const m of p.text.matchAll(new RegExp(NAME, 'g'))) add(byName(m[1], m[2]));
     if (out.length < 2 && league !== 'nfl') for (const a of roster) if (p.text.includes(a.name)) add(a);
+    // Football scoring plays can come written out in full ("Bijan Robinson 59 Yd Run") or by last name only.
+    if (!out.length && league === 'nfl') {
+      const low = p.text.toLowerCase(); const found = [];
+      const bare = (a) => a.name.replace(/\s+(Jr|Sr|II|III|IV|V)\.?$/i, '').toLowerCase();
+      for (const a of roster) { const i = low.indexOf(bare(a)); if (i >= 0) found.push([i, a]); }
+      if (!found.length) for (const a of roster) { const ln = bare(a).split(/\s+/).pop(); if (ln.length < 4) continue;
+        const m = new RegExp(`\\b${ln.replace(/[^a-z'\-]/g, '')}\\b`).exec(low);
+        if (m && roster.filter((b) => bare(b).split(/\s+/).pop() === ln).length === 1) found.push([m.index, a]); }
+      found.sort((x, y) => x[0] - y[0]).forEach(([, a]) => add(a));
+    }
     // The man the headline is about comes first: the receiver on a catch, the tackler on a sack.
     const lead = /catch/.test(p.head) ? p.text.match(new RegExp('\\bto ' + NAME.slice(2))) : /sack/i.test(p.head) ? p.text.match(new RegExp('\\(' + NAME.slice(2))) : null;
     const first = lead ? byName(lead[1], lead[2]) : null;
