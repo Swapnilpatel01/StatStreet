@@ -69,4 +69,13 @@ import { parsePlays } from '../js/moments.js';
   assert.ok(pat.text.startsWith('S.Shrader extra point') && tdPlay.text.endsWith('TOUCHDOWN'));
   assert.deepEqual([td2.away, td2.value, try2.value, try2.scoring], [13, 6, 0, false]);
 }
+{
+  // every score of a long game stays in the list, and a field goal with no value from the feed still counts 3
+  const plays = [{ id: 'a', text: 'B.Robinson up the middle for 4 yards, TOUCHDOWN. Y.Koo extra point is GOOD.', awayScore: 0, homeScore: 7, scoringPlay: true, period: { number: 1 }, clock: { displayValue: '9:00' } }];
+  for (let i = 0; i < 150; i++) plays.push({ id: 'f' + i, text: 'T.Allgeier left guard for 3 yards.', awayScore: 0, homeScore: 7, period: { number: 2 }, clock: { displayValue: '5:00' } });
+  plays.push({ id: 'z', text: 'Y.Koo 41 yard field goal is GOOD, Center-L.McCullough.', awayScore: 0, homeScore: 10, scoringPlay: true, period: { number: 3 }, clock: { displayValue: '2:00' } });
+  const all = parsePlays('nfl', { drives: { previous: [{ team: { abbreviation: 'ATL' }, plays }] } });
+  const sc = all.filter((p) => p.scoring && p.value > 0).reverse();
+  assert.deepEqual(sc.map((p) => [p.head, p.value, p.home]), [['4-yd TD run', 6, 6], ['Extra point', 1, 7], ['41-yd FG', 3, 10]]);
+}
 console.log('ok - play headlines');

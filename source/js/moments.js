@@ -349,7 +349,7 @@ export function bigPlay(league, text, p = {}, ctx = {}) {
   return null;
 }
 const playSecs = (p) => { const c = String(p.clock?.displayValue || ''); const x = c.match(/^(\d+):(\d{2})/); return x ? Number(x[1]) * 60 + Number(x[2]) : /^\d+(\.\d+)?$/.test(c) ? Math.floor(Number(c)) : null; };
-export function parsePlays(league, json, limit = 60) {
+export function parsePlays(league, json, limit = 800) {
   let raw = [];
   if (league === 'nfl') {
     const drives = [...(json?.drives?.previous || []), ...(json?.drives?.current ? [json.drives.current] : [])];
@@ -364,6 +364,7 @@ export function parsePlays(league, json, limit = 60) {
     const a1 = num(p.awayScore); const h1 = num(p.homeScore);
     const ctx = { a0, h0, a1: a1 ?? a0, h1: h1 ?? h0, period: Number(p.period?.number) || 0, secs: playSecs(p), bottom: /bot/i.test(`${p.period?.type || ''} ${p.period?.displayValue || ''}`) };
     if (a1 != null) a0 = a1; if (h1 != null) h0 = h1;
+    const pts = Math.max(0, (ctx.a1 - ctx.a0) + (ctx.h1 - ctx.h0));
     const text = clean(p.text || p.shortText || p.alternativeText);
     if (!text || NOISE_PLAY.test(text)) continue;
     // Baseball lists every pitch; keep the result of each at-bat and anything that scores.
@@ -391,7 +392,9 @@ export function parsePlays(league, json, limit = 60) {
       continue;
     }
     out.push({ ...base, id: String(p.id || `${i}`), text: text.replace(/\.$/, ''), head: shortPlay(league, text, p), big: bigPlay(league, text, p, ctx),
-      pids, pid, away: num(p.awayScore), home: num(p.homeScore), scoring: !!p.scoringPlay, value: num(p.scoreValue) || 0 });
+      pids, pid, away: num(p.awayScore), home: num(p.homeScore),
+      // Points on the play: what the feed says, else how far the score moved (field goals often carry no value).
+      scoring: !!p.scoringPlay || pts > 0, value: num(p.scoreValue) || pts });
   }
   return out.slice(-limit).reverse();
 }
