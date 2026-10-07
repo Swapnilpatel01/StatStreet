@@ -1097,6 +1097,38 @@ export function repairNewcomers(state, now = Date.now()) {
 
 // One-time: re-read stored headlines with the current rules (who a story is about, and
 // "back from injury" counted as good news) and redo their effect on prices.
+// One-time: take back the bounce players already got for being cleared or upgraded while hurt.
+export function undoReturnBounce(state, now = Date.now()) {
+  if (state.rustV) return 0;
+  state.rustV = 1;
+  let n = 0;
+  for (const a of Object.values(state.assets)) {
+    if (a.kind !== 'player') continue;
+    const evs = (a.events || []).filter((e) => e.kind === 'injury').sort((x, y) => y.t - x.t); // newest first
+    if (!evs.length) continue;
+    const statusOf = (e) => injuryFactor(String(e.text).split(' — ')[0], '');
+    const cleared = (e) => /^Cleared: back from/.test(e.text);
+    let f = null;
+    if (a.injury) {
+      // Still hurt: the discount goes back to the worst it has been this spell.
+      let worst = Math.min(a.injury.factor, injuryFactor(a.injury.status, ''));
+      for (const e of evs) { if (cleared(e)) break; if (!/^Outlook/.test(e.text)) worst = Math.min(worst, statusOf(e)); }
+      if (worst < a.injury.factor - 0.004) f = worst;
+      if (f != null) { withEvent(state, a, now, now, 'injury', 'Still hurt: no lift until he plays', () => { a.injury.factor = f; }, { force: true }); n++; }
+    } else if (a.rust == null && cleared(evs[0]) && now - evs[0].t < 45 * DAY) {
+      let worst = 1;
+      for (const e of evs.slice(1)) { if (cleared(e)) break; if (!/^Outlook/.test(e.text)) worst = Math.min(worst, statusOf(e)); }
+      const m = evs[0].text.match(/"(.+)"/); if (m) worst = Math.min(worst, injuryFactor(m[1], ''));
+      // Games he has played since count toward winning it back.
+      const since = (a.perf?.last || []).filter((g) => g.t > evs[0].t).reverse();
+      for (const g of since) worst += (1 - worst) * (a.perf.ema == null || g.gs >= a.perf.ema ? 0.6 : 0.1);
+      if (worst < 0.985) { withEvent(state, a, now, now, 'injury', 'Back from injury: price waits on his games', () => { a.rust = worst; }, { force: true }); n++; }
+    }
+  }
+  for (const lg of Object.keys(LEAGUES)) rebuildInjuryCache(state, lg);
+  return n;
+}
+
 export const NEWS_V = 2;
 export function rescoreNews(state, now = Date.now()) {
   if ((state.newsV || 1) >= NEWS_V) return;

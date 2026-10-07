@@ -71,3 +71,13 @@ assert.ok(S.injuryFactor('Injured Reserve', good) > 0.85 && S.injuryFactor('Inju
   assert.ok(a.price < before, `named player drops: ${before} -> ${a.price}`);
 }
 console.log('ok - news tests');
+
+// Players who already bounced before the rule changed give the bounce back, once.
+{
+  const a = st.assets['nfl:p:s']; delete a.rust; a.injury = null;
+  a.events = [{ t: now - 86400e3, kind: 'injury', text: 'Cleared: back from "Injured Reserve"', pct: 0.3 }, { t: now - 5 * 86400e3, kind: 'injury', text: 'Injured Reserve — Knee', pct: -0.28 }];
+  const p0 = a.price; delete st.rustV;
+  assert.ok(E.undoReturnBounce(st, now + 5000) >= 1);
+  assert.ok(a.rust < 0.8 && E.breakdown(st, a, now + 5000).inj < 0.8 && a.events[0].pct < -0.15, `bounce taken back: ${p0} -> ${a.price}`);
+  assert.equal(E.undoReturnBounce(st, now + 6000), 0, 'only once');
+}

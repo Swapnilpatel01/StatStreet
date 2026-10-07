@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup, storyBlocks, parseScoreboard, parseBoxScore, lineText, gameScore } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
-  leagueIndex, rebuildInjuryCache, formRating, gameRating, ratedGames, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
+  leagueIndex, rebuildInjuryCache, formRating, gameRating, ratedGames, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, undoReturnBounce, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 108;
+const APP_VERSION = 109;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -4374,6 +4374,7 @@ function afterLoad() {
     upgradeModel(state, Date.now());
     repairNewcomers(state, Date.now());
     rescoreNews(state, Date.now());
+    if (undoReturnBounce(state, Date.now())) dirty = true;
     if ((state.histV || 1) < HIST_V) resetHistory(state, Date.now()); // charts from the old pricing model
     ensureFunds(state, Date.now());
   }
