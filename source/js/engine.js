@@ -831,6 +831,8 @@ export function applyNews(state, league, articles, { now = Date.now() } = {}) {
     if (age > 5 * DAY) continue;
     for (const [id, sc] of Object.entries(fx)) {
       const a = state.assets[id];
+      // Good news can't lift a player who is hurt or just back: only his games can.
+      if (sc > 0 && a.kind === 'player' && (a.injury || a.rust != null)) continue;
       withEvent(state, a, now, Math.min(art.published, now), 'news', art.headline, () => {
         a.shocks.push({ t: art.published, v: NEWS_W[a.kind] * sc, news: 1 });
       }, { force: true, histAt: now }); // chart moves when we learn the news
@@ -844,23 +846,30 @@ export function applyNews(state, league, articles, { now = Date.now() } = {}) {
   return added;
 }
 
+const statusOnlyFine = (st) => /^\s*(active|probable)?\s*$/i.test(String(st || ''));
 export function applyInjuries(state, league, list, { now = Date.now() } = {}) {
   const byId = new Map(list.map((i) => [pid(league, i.athleteId), i]));
   for (const a of Object.values(state.assets)) {
     if (a.league !== league || a.kind !== 'player') continue;
     const inj = byId.get(a.id);
     const prev = a.injury?.status;
+    // A listing that says he is fine ("Active", "Probable" with nothing wrong) is the same as being cleared.
+    if (inj && injuryFactor(inj.status, inj.detail) >= 0.985 && statusOnlyFine(inj.status)) {
+      if (prev) withEvent(state, a, now, now, 'injury', `Cleared: back from "${prev}"`, () => { const f = a.injury.factor; a.injury = null; if (f < 0.985) a.rust = f; else delete a.rust; }, { force: true });
+      continue;
+    }
     if (inj) {
       if (prev !== inj.status) {
         withEvent(state, a, now, now, 'injury', `${inj.status}${inj.detail ? ` — ${inj.detail}` : ''}`, () => {
-          a.injury = { status: inj.status, detail: inj.detail, factor: injuryFactor(inj.status, inj.detail), since: now };
+          const was = a.injury?.factor ?? a.rust ?? 1;
+          a.injury = { status: inj.status, detail: inj.detail, factor: Math.min(was, injuryFactor(inj.status, inj.detail)), since: now };
           delete a.rust;
         }, { force: true });
       } else {
         // Same status, new report: the outlook may have changed ("could begin practicing").
-        const f = injuryFactor(inj.status, inj.detail);
+        const f = Math.min(a.injury.factor, injuryFactor(inj.status, inj.detail));
         if (Math.abs(f - a.injury.factor) > 0.004) {
-          withEvent(state, a, now, now, 'injury', `${f > a.injury.factor ? 'Outlook improving' : 'Outlook worse'}${inj.detail ? ` — ${inj.detail}` : ''}`, () => {
+          withEvent(state, a, now, now, 'injury', `Outlook worse${inj.detail ? ` — ${inj.detail}` : ''}`, () => {
             a.injury.factor = f; a.injury.detail = inj.detail;
           }, { force: true });
         } else a.injury.detail = inj.detail;
