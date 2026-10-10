@@ -143,11 +143,17 @@ export function notify(state, kind, text, id = null, t = Date.now()) {
 const pid = (league, id) => `${league}:p:${id}`;
 const tid = (league, id) => `${league}:t:${id}`;
 
+// A roster sync adds thousands of players in one go; the set of taken tickers is built once
+// per burst instead of once per player (that was a multi-second pause on a first launch).
+const tickerSets = new WeakMap();
 function uniqueTicker(state, base) {
-  const taken = new Set(Object.values(state.assets).map((a) => a.ticker));
-  if (!taken.has(base)) return base;
-  for (let i = 2; i < 99; i++) if (!taken.has(`${base}${i}`)) return `${base}${i}`;
-  return base + Math.floor(Math.random() * 1000);
+  let c = tickerSets.get(state.assets);
+  if (!c || Date.now() - c.at > 2000) { c = { at: Date.now(), set: new Set(Object.values(state.assets).map((a) => a.ticker)) }; tickerSets.set(state.assets, c); }
+  const taken = c.set;
+  let pick = base;
+  if (taken.has(base)) { pick = null; for (let i = 2; i < 99 && !pick; i++) if (!taken.has(`${base}${i}`)) pick = `${base}${i}`; pick ||= base + Math.floor(Math.random() * 1000); }
+  taken.add(pick);
+  return pick;
 }
 
 function pushHist(a, t, p) {
@@ -913,15 +919,20 @@ export function tick(state, now = Date.now(), { record = true } = {}) {
   const liveTeams = new Set();
   for (const g of Object.values(state.liveGames)) for (const t of g.teams) liveTeams.add(tid(g.league, t.id));
   const all = Object.values(state.assets);
+  const ne = Math.sqrt(1 - e * e);
+  // Hype decay per kind, worked out once per tick rather than once per asset.
+  const hyp = {}; for (const [k, hy] of Object.entries(HYPE)) { const eh = Math.exp(-dt / hy.tau); hyp[k] = [eh, hy.sd * Math.sqrt(1 - eh * eh)]; }
+  const evOn = {}; for (const lg of Object.keys(LEAGUES)) evOn[lg] = state.events?.[lg]?.end > now;
+  const order = all.filter((x) => x.kind !== 'fund'); for (const x of all) if (x.kind === 'fund') order.push(x);
   // Funds last, so their NAV uses this tick's component prices.
-  for (const a of [...all.filter((x) => x.kind !== 'fund'), ...all.filter((x) => x.kind === 'fund')]) {
+  for (const a of order) {
     const live = !!a.live || liveTeams.has(a.id);
     // During a market event the whole league trades more wildly.
-    const ev = a.kind !== 'fund' && state.events?.[a.league]?.end > now;
+    const ev = a.kind !== 'fund' && evOn[a.league];
     const sigma = a.kind === 'fund' ? 0 : (a.kind === 'team' ? 0.004 : 0.008) * (live ? 2.5 : 1) * (ev ? 3 : 1);
-    a.n = sigma ? (a.n || 0) * e + sigma * Math.sqrt(1 - e * e) * gauss() : 0;
-    const hy = HYPE[a.kind];
-    if (hy) { const eh = Math.exp(-dt / hy.tau); a.h = (a.h || 0) * eh + hy.sd * Math.sqrt(1 - eh * eh) * gauss(); }
+    a.n = sigma ? (a.n || 0) * e + sigma * ne * gauss() : 0;
+    const hy = hyp[a.kind];
+    if (hy) a.h = (a.h || 0) * hy[0] + hy[1] * gauss();
     const t = targetPrice(state, a, now);
     a.target = t;
     const p = Math.round(t * Math.exp(a.n + (a.h || 0)) * 100) / 100;

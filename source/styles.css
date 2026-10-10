@@ -138,9 +138,6 @@ h3 { font-size: 13px; margin: 20px 0 8px; color: var(--muted); text-transform: u
 .stat .k { font-size: 11.5px; color: var(--muted); }
 .stat .v { font-size: 17px; font-weight: 700; margin-top: 2px; }
 
-.index-card { background: var(--card); border-radius: 12px; padding: 10px 12px; text-align: left; }
-.index-card .v { font-weight: 700; font-size: 16px; margin-top: 3px; }
-
 .live-strip { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; }
 .live-strip::-webkit-scrollbar { display: none; }
 .game { flex: none; background: var(--card); border-radius: 12px; padding: 9px 12px; min-width: 150px; font-size: 13px; }
@@ -179,7 +176,7 @@ h3 { font-size: 13px; margin: 20px 0 8px; color: var(--muted); text-transform: u
 .trade-bar .btn.opt { flex: none; width: 44px; height: 40px; padding: 0; display: grid; place-items: center; background: var(--card2); border-radius: 50%; }
 .trade-bar .btn.opt svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .btn { flex: 1; padding: 14px; border-radius: 12px; font-weight: 700; font-size: 16px; text-align: center; transition: transform .12s, opacity .12s; }
-.btn:active, .chip:active, .coll:active, .icon-btn:active, .quick button:active, .qty button:active, .type-chips button:active, .index-card:active { transform: scale(.96); opacity: .85; }
+.btn:active, .chip:active, .coll:active, .icon-btn:active, .quick button:active, .qty button:active, .type-chips button:active{ transform: scale(.96); opacity: .85; }
 .btn.buy { background: var(--up); color: #04210f; }
 .btn.sell { background: var(--card2); color: var(--text); }
 .btn.sell:disabled { opacity: .4; }
@@ -280,7 +277,6 @@ details .prose { padding: 12px 14px 4px; }
 .icon-btn.alerting svg { stroke: #ffd60a; }
 .badge-dot { position: relative; }
 .badge-dot[data-n]::after { content: attr(data-n); position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; border-radius: 9px; background: var(--down); color: #fff; font-size: 10.5px; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
-.sub-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .vs { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
 .vs b { font-weight: 700; }
 
@@ -298,7 +294,6 @@ details .prose { padding: 12px 14px 4px; }
 
 .rating { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 10px; gap: 2px; }
 .rating i { display: block; height: 100%; }
-.rating-legend { display: flex; justify-content: space-between; font-size: 12.5px; margin-top: 6px; }
 .big-pct { font-size: 28px; font-weight: 800; }
 
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
@@ -552,19 +547,10 @@ details .prose { padding: 12px 14px 4px; }
 .bbadge.legendary::after, .bbadge.iconic::after, .bbadge.epic::after { content: ''; position: absolute; inset: 0;
   background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.35) 50%, transparent 65%); background-size: 250% 100%; animation: shine 3s ease-in-out infinite; }
 .bbadge.iconic { border-color: transparent; background: linear-gradient(#12161c, #12161c) padding-box, linear-gradient(120deg, #ff4fa3, #ffb800, #4cc9ff, #b36bff) border-box; }
-.dots-c { display: inline-flex; gap: 2px; }
-.dots-c i { width: 6px; height: 6px; border-radius: 2px; background: var(--card2); }
-.dots-c i.on { background: var(--accent); }
-.brow.sold { opacity: .45; }
 .bslot { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 14px; }
 .bslot.on { background: linear-gradient(120deg, color-mix(in srgb, var(--rc) 16%, var(--card)), var(--card) 70%); }
-.bhero { display: flex; gap: 14px; align-items: center; }
 .bpick { margin: 0; padding-left: 0; padding-right: 0; flex-wrap: wrap; overflow: visible; }
 .fuse { margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
-.qs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.qs div { background: var(--card); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
-.qs i { width: 18px; height: 6px; border-radius: 3px; background: var(--rc); }
-.qs span { color: var(--rc); font-weight: 700; }
 .pack.bstarter { background: linear-gradient(150deg, #1d5f4a, #0b1f19); }
 .pack.bpremium { background: linear-gradient(150deg, #2b5be0, #101a40); }
 .pack.belite { background: linear-gradient(150deg, #c03fd6, #2a0d3a); }
@@ -585,25 +571,12 @@ details .prose { padding: 12px 14px 4px; }
 .mc-status { margin-bottom: 4px; }
 .mc-thumb { width: 38px; height: 50px; border-radius: 8px; flex: none; display: grid; place-items: center; font-size: 18px;
   background: linear-gradient(150deg, var(--rc), color-mix(in srgb, var(--rc) 35%, #000)); border: 1.5px solid color-mix(in srgb, var(--rc) 70%, #fff); }
-
-.mp-top h1 { font-size: 28px; }
-.icon-btn.on-acc { background: #7b5cff; color: #fff; }
-.mp-leagues { display: flex; gap: 18px; overflow-x: auto; margin: 4px -16px 0; padding: 6px 16px 10px; border-bottom: 1px solid var(--line); scrollbar-width: none; }
-.mp-leagues button { font-size: 22px; font-weight: 800; color: var(--text); flex: none; }
-.mp-leagues button.on { color: #8a6bff; }
-.mp-filters { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
-.mp-sel { position: relative; }
-.mp-sel select { appearance: none; -webkit-appearance: none; background: none; border: 0; color: #8a6bff; font-weight: 800; font-size: 16px; padding-right: 16px; }
-.mp-sel::after { content: '▾'; position: absolute; right: 0; top: 50%; transform: translateY(-50%); color: #8a6bff; font-size: 12px; pointer-events: none; }
 .mp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 12px; margin-top: 14px; }
 .mp-item { display: flex; flex-direction: column; }
 .mp-meta { display: flex; justify-content: center; gap: 22px; font-size: 14px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
-.mp-meta .acc { color: #8a6bff; }
 .mp-cardbtn { display: block; width: 100%; }
 .mp-price { text-align: center; font-size: 20px; font-weight: 800; margin-top: 8px; }
 .mp-actions { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; }
-.mp-bid { flex: none; width: 92px; padding: 9px 0; border-radius: 999px; background: #7b5cff; color: #fff; font-size: 16px; }
-.mp-more { font-size: 18px; color: var(--muted); letter-spacing: 2px; padding: 6px; }
 .pv-cards.moments { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
 .pv-card.mcard { width: 100%; aspect-ratio: auto; min-height: 330px; }
 .pv-card.mcard .pv-front { padding: 0; background: none; border: 0; box-shadow: none; display: block; }
@@ -891,9 +864,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .mkt { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; padding: 5px 10px; border-radius: 999px; background: var(--card); margin: 0 0 8px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mkt .muted { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
 .mkt .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
-.mkt.live .dot { background: var(--live); box-shadow: 0 0 0 0 var(--live); animation: mktpulse 1.6s infinite; }
+.mkt.live .dot { background: var(--live); position: relative; }
+/* The ring grows and fades with transform and opacity only, so it never repaints the page. */
+.mkt.live .dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--live); animation: mktpulse 1.6s infinite; will-change: transform, opacity; }
 .mkt.soon .dot { background: #ffb020; }
-@keyframes mktpulse { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes mktpulse { from { transform: scale(1); opacity: .7; } 70%, 100% { transform: scale(2.6); opacity: 0; } }
 .confirm { position: absolute; inset: 0; z-index: 62; background: var(--bg); animation: chartfade .18s both; overflow-y: auto; }
 .cf-in { min-height: 100%; max-width: 520px; margin: 0 auto; padding: calc(var(--safe-t) + 44px) 20px calc(var(--safe-b) + 20px); display: flex; flex-direction: column; align-items: center; text-align: center; }
 .cf-check svg { width: 76px; height: 76px; fill: none; stroke: var(--up); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
@@ -906,7 +881,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .cf-extras { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
 .cf-extras span { background: var(--card); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 700; }
 .cf-in .grow { flex: 1; min-height: 18px; }
-@media (prefers-reduced-motion: reduce) { .cf-check circle, .cf-check path { animation: none; stroke-dashoffset: 0; } .mkt.live .dot { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .cf-check circle, .cf-check path { animation: none; stroke-dashoffset: 0; } .mkt.live .dot::after { animation: none; display: none; } .tag.live, .livedot { animation: none; } }
 .cf-in .btn { flex: none; }
 
 /* ---------- v46: card art and rarity finishes ---------- */
@@ -960,7 +935,6 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 /* ---------- v53: bolder scores, play-by-play ---------- */
 .live-strip .game .t, .lu .t { font-weight: 800; }
 .live-strip .game .t span:last-child { font-weight: 900; font-size: 1.1em; font-variant-numeric: tabular-nums; }
-.score-line b { font-weight: 800; }
 .pbp .pb { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .pbp .pb:last-child { border-bottom: 0; }
 .pbp .avatar, .pbp .avatar-fallback { width: 40px; height: 40px; flex: none; margin-top: 2px; }
@@ -1158,13 +1132,6 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .stat .formdot { width: 34px; height: 34px; font-size: 12px; }
 
 /* v69: form rating breakdown */
-.fpart { display: grid; grid-template-columns: 84px 1fr 40px; align-items: center; gap: 4px 10px; margin-top: 12px; font-size: 13.5px; }
-.fpart b { text-align: right; font-variant-numeric: tabular-nums; }
-.fpart em { grid-column: 1 / -1; font-style: normal; font-size: 11.5px; color: var(--faint); margin-top: -2px; }
-.fbar { position: relative; height: 6px; border-radius: 3px; background: var(--card2); }
-.fbar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
-.fbar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
-.fbar i.pos { left: 50%; background: var(--up); } .fbar i.neg { right: 50%; background: var(--down); }
 
 /* v71: per-game ratings */
 .rtgc { display: inline-block; min-width: 34px; padding: 2px 5px; border-radius: 6px; font-size: 12px; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
@@ -1176,12 +1143,6 @@ html.tilt .mc.r-legendary .mc-fx, html.tilt .mc.r-iconic .mc-fx { animation: non
 .top .tr { position: absolute; right: 8px; top: 8px; }
 
 /* v75: rating totals by period */
-.seg3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
-.seg3 button { background: var(--card2); border-radius: 12px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; border: 1.5px solid transparent; }
-.seg3 button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card2)); }
-.seg3 span { font-size: 11.5px; color: var(--muted); font-weight: 600; }
-.seg3 b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.seg3 em { font-style: normal; font-size: 10.5px; color: var(--faint); }
 
 /* v77 */
 .rstat { text-align: center; } .rstat .v { display: flex; justify-content: center; margin: 4px 0 2px; }
@@ -1293,3 +1254,6 @@ html.xl-text { -webkit-text-size-adjust: 132%; text-size-adjust: 132%; }
 .swipe-bg span { opacity: .75; transition: opacity .12s, transform .12s; }
 .swipe-bg.armed span { opacity: 1; transform: scale(1.12); }
 .list > .item.swiping { position: relative; z-index: 1; background: var(--card); }
+
+/* ---------- v110: long lists draw only what is on screen ---------- */
+#mlist .list > *, .pbp > .pb { content-visibility: auto; contain-intrinsic-size: auto 66px; }

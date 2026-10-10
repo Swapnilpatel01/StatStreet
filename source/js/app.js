@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 109;
+const APP_VERSION = 110;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -94,7 +94,7 @@ function avatar(a) {
   if (a.kind === 'fund') return `<div class="avatar-fallback" style="font-size:10.5px;background:var(--card2);color:var(--up)">${esc(a.ticker)}</div>`;
   if (STATIC || !a.img) return `<div class="avatar-fallback">${ini}</div>`;
   const fallback = `<div class=&quot;avatar-fallback&quot;>${ini}</div>`;
-  return `<img class="avatar ${a.kind === 'team' ? 'team' : ''}" src="${esc(a.img)}" loading="lazy" alt="" onerror="this.outerHTML='${fallback}'">`;
+  return `<img class="avatar ${a.kind === 'team' ? 'team' : ''}" src="${esc(a.img)}" loading="lazy" decoding="async" alt="" onerror="this.outerHTML='${fallback}'">`;
 }
 
 const lgTag = (lg) => (LEAGUES[lg] ? `<span class="lg ${lg}">${LEAGUES[lg].name}</span>` : '<span class="lg" style="background:var(--text)">FUND</span>');
@@ -1717,6 +1717,8 @@ function renderDetail({ keepScroll = true } = {}) {
     <div class="dtabs">${[['overview', 'Overview'], ['research', 'Research'], ['news', `News${news.length ? ` <i>${news.length}</i>` : ''}`], ...(a.kind !== 'fund' ? [['cards', 'Cards']] : [])].map(([k, t]) => `<button data-dtab="${k}" class="${dtab === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="dsec" data-sec="overview">
     ${ipoCard(a)}
+    ${a.live ? `<div class="card" style="margin-top:14px"><span class="tag live">LIVE</span> <b style="margin-left:6px">${esc(a.live.text)}</b></div>` : ''}
+    ${a.injury ? `<div class="card" style="margin-top:14px"><span class="tag inj">${esc(a.injury.status)}</span> <span class="small" style="margin-left:6px">${esc(a.injury.detail || '')}</span></div>` : ''}
     ${watchEditor(a)}
     ${h ? `<h3>Your position</h3><div class="grid2">
       <div class="stat"><div class="k">Shares</div><div class="v">${fmtQty(h.qty)}</div></div>
@@ -1727,12 +1729,9 @@ function renderDetail({ keepScroll = true } = {}) {
       <div class="stat"><div class="k">Dividends earned</div><div class="v up">${money(divEarned)}</div></div>
     </div>` : ''}
     ${protectCard(a)}
-    ${shortCard(a)}
     ${myOpts.length ? `<h3>Your options</h3><div class="list">${myOpts.map(optPositionRow).join('')}</div>` : ''}
     ${myOrders.length ? `<h3>Open orders</h3><div class="list">${myOrders.map(orderRow).join('')}</div>` : ''}
 
-    ${a.live ? `<div class="card" style="margin-top:14px"><span class="tag live">LIVE</span> <b style="margin-left:6px">${esc(a.live.text)}</b></div>` : ''}
-    ${a.injury ? `<div class="card" style="margin-top:14px"><span class="tag inj">${esc(a.injury.status)}</span> <span class="small" style="margin-left:6px">${esc(a.injury.detail || '')}</span></div>` : ''}
     </div><div class="dsec" data-sec="cards">
     ${cardSection(a)}
     ${boosterSlotCard(a)}
@@ -1742,6 +1741,7 @@ function renderDetail({ keepScroll = true } = {}) {
       const tone = p == null ? null : p >= 0.58 ? ['up', 'Favourable matchup'] : p <= 0.42 ? ['down', 'Tough matchup'] : ['', 'Even matchup'];
       return `<button class="card next-game" data-game="${a.league}|${ng.id}" style="margin-top:14px;width:100%;text-align:left"><div><div class="tiny muted">NEXT GAME</div><b>${me?.home ? 'vs' : '@'} ${esc(opp?.abbr || ng.name)}</b>${tone ? `<div class="tiny ${tone[0]}">${tone[1]} · ${Math.round(p * 100)}% to win</div>` : ''}</div><div class="small muted" style="text-align:right">${whenText(ng.date, true)}<div class="tiny" style="color:var(--accent)">Open game ›</div></div></button>`; })() : ''}
     ${upcomingGames(a)}
+    ${shortCard(a)}
 
     ${a.kind === 'fund' ? fundSection(a) : ''}
 
@@ -1937,7 +1937,6 @@ function teamStats(a) {
     ${roster.length ? `<h3>Top players</h3><div class="list">${roster.map((p) => assetRow(p)).join('')}</div>` : ''}`;
 }
 
-const groupName = (a) => ({ ALL: 'league', P: 'pitchers', H: 'hitters', QB: 'QBs', RB: 'RBs', WR: 'pass catchers', K: 'kickers', OL: 'linemen', DEF: 'defenders' }[posGroup(a.league, a.pos)]);
 function normCdf(z) { const t = 1 / (1 + 0.2316419 * Math.abs(z)); const d = 0.3989423 * Math.exp(-z * z / 2); const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return z > 0 ? 1 - p : p; }
 
 // ---------- option chain ----------
@@ -2423,7 +2422,7 @@ document.addEventListener('click', async (e) => {
   if (el.disabled) return;
   if (d.tab) {
     if (d.tab === ui.tab && !overlayOpen()) { view().scrollTo({ top: 0, behavior: 'smooth' }); return; }
-    ui.tab = d.tab; ui.limit = 60;
+    ui.tab = d.tab; ui.limit = 60; buzzNav();
     closeOverlays();
     render(); view().scrollTop = 0; return;
   }
@@ -2895,7 +2894,7 @@ function topPage() {
   return null;
 }
 edgeSwipe($('#edge'), { target: topPage });
-setInterval(() => { const el = $('#edge'); const want = !topPage(); if (el.hidden !== want) el.hidden = want; }, 200);
+setInterval(() => { if (document.hidden) return; const el = $('#edge'); const want = !topPage(); if (el.hidden !== want) el.hidden = want; }, 200);
 pullToRefresh($('#view'), $('#ptr'), {
   enabled: () => !overlayOpen() && ui.tab !== 'account',
   onRefresh: async () => { if (STATIC) { toast('Prices use a data snapshot in this version'); return; } await runSync({ manual: true }); },
@@ -3481,6 +3480,8 @@ function sfx(name) {
   } catch { /* no audio available */ }
 }
 const buzz = () => { if (state?.settings?.haptics !== false) haptic(); };
+// Swipes and tab changes tap only when the "On swipes and tab changes" setting is on.
+const buzzNav = () => { if (state?.settings?.hapNav !== false) buzz(); };
 
 // ====================================================================================
 // v37: market events, IPOs, report cards, hall of fame, friend challenge, quick actions,
@@ -4139,7 +4140,7 @@ function setGview(k, dir = 0) {
 function shiftScoreDay(step) {
   const btns = [...document.querySelectorAll('.daystrip .dayb')]; const i = btns.findIndex((x) => x.classList.contains('on')) + step;
   if (i < 0 || i >= btns.length) return false;
-  ui.scoreDay = +btns[i].dataset.sday; buzz();
+  ui.scoreDay = +btns[i].dataset.sday; buzzNav();
   renderGames(); view().scrollTop = Math.min(view().scrollTop, $('.daystrip')?.offsetTop ?? 0);
   $('.dayb.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   const g = $('.sgames') || $('#view .card.empty'); if (g) g.classList.add(step > 0 ? 'from-r' : 'from-l');
@@ -4203,8 +4204,8 @@ $('#game').addEventListener('scroll', () => {
     if (d < 0) {
       const i = state.watch.indexOf(id);
       if (i >= 0) state.watch.splice(i, 1); else state.watch.unshift(id);
-      dirty = true; save(); buzz(); toast(i >= 0 ? 'Removed from watchlist' : `${state.assets[id].ticker} added to watchlist`);
-    } else { buzz(); openDetail(id); setTimeout(() => { if (ui.detail === id) openOrder(stockOrderDefaults('buy')); }, 320); }
+      dirty = true; save(); buzzNav(); toast(i >= 0 ? 'Removed from watchlist' : `${state.assets[id].ticker} added to watchlist`);
+    } else { buzzNav(); openDetail(id); setTimeout(() => { if (ui.detail === id) openOrder(stockOrderDefaults('buy')); }, 320); }
   };
   el.addEventListener('touchend', end, { passive: true }); el.addEventListener('touchcancel', reset, { passive: true });
 })();

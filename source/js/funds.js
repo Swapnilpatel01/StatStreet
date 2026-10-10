@@ -126,4 +126,3 @@ export function fundHoldings(state, f) {
   }).filter(Boolean).sort((x, y) => y.weight - x.weight);
 }
 
-export const fundYield = (state, f, now) => dividendYield(state, f, now);
