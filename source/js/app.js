@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 111;
+const APP_VERSION = 112;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -152,12 +152,45 @@ function syncBadge() {
   return `<button class="sync ${syncing ? 'busy' : syncError ? 'err' : ''}" data-act="refresh"><span class="dot"></span>${txt}</button>`;
 }
 
+// Laptop and desktop windows get their own layouts (tables, side columns, an inline trade panel).
+const deskMq = window.matchMedia('(min-width: 1100px)');
+const desk = () => deskMq.matches;
+deskMq.addEventListener?.('change', () => { render(); if (ui.detail) renderDetail(); });
+
 function topbar(title) {
+  if (desk()) return deskHead(title);
   const unseen = state.inbox.filter((n) => !n.seen).length;
   return `<div class="topbar">${title}<div class="row" style="gap:10px">${syncBadge()}
     <button class="icon-btn" data-page="search" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
     <button class="icon-btn badge-dot" data-act="inbox" aria-label="Notifications" ${unseen ? `data-n="${unseen > 9 ? '9+' : unseen}"` : ''}>
       <svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button></div></div>`;
+}
+
+// The desktop header: page title, a real search box, your money at a glance, notifications.
+function deskHead(title) {
+  const unseen = state.inbox.filter((n) => !n.seen).length;
+  const t = /class="brand"/.test(title) ? '<h1>Portfolio</h1>' : title;
+  return `<header class="dhead">${t}
+    ${ui.tab === 'market' && !ui.detail && !ui.page ? '<span class="grow"></span>' : `<button class="dsearch" data-page="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span>Search players, teams, news</span><kbd>/</kbd></button>`}
+    <div class="dmoney"><div><span>Net worth</span><b data-nwh>${money(netWorth(state))}</b></div><div><span>Buying power</span><b>${money(buyingPower(state))}</b></div></div>
+    ${syncBadge()}
+    <button class="icon-btn badge-dot" data-act="inbox" aria-label="Notifications" ${unseen ? `data-n="${unseen > 9 ? '9+' : unseen}"` : ''}>
+      <svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button></header>`;
+}
+
+// A sortable-looking table of players, teams or funds for wide screens. Cells keep the
+// data-p / data-c hooks so live prices keep ticking in place.
+function assetTable(list, { pos = null, note = null, rank = false } = {}) {
+  const now = Date.now();
+  if (!list.length) return '';
+  return `<table class="dtable"><thead><tr>${rank ? '<th class="n">#</th>' : ''}<th>Name</th><th class="c">Rating</th><th class="c">Today</th><th class="r">Price</th><th class="r">1D</th><th class="r">1W</th>${pos ? '<th class="r">Value</th><th class="r">Return</th>' : '<th class="r">1M</th>'}</tr></thead><tbody>
+    ${list.map((a, i) => { const h = pos?.[a.id]; const pl = h ? a.price * h.qty - h.cost : 0; const c1 = change(a, now, RANGES['1D']); const cw = change(a, now, RANGES['1W']); const cm = change(a, now, RANGES['1M']);
+      return `<tr data-open="${a.id}">${rank ? `<td class="n">${i + 1}</td>` : ''}<td><div class="dname">${avatar(a)}<div style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub ellipsis">${h ? `${fmtQty(h.qty)} sh · avg ${money(h.cost / h.qty)}` : (note && note(a)) || subLine(a)}</div></div></div></td>
+        <td class="c">${a.kind === 'fund' ? '' : formDot(a, 'sm')}</td><td class="c">${sparkline(a.hist, now - DAY, 84, 28)}</td>
+        <td class="r"><b data-p="${a.id}">${money(a.price)}</b></td>
+        <td class="r"><span class="${cls(c1)}" data-c="${a.id}" data-r="1D" data-plain="1">${fmtPct(c1)}</span></td><td class="r ${cls(cw)}">${fmtPct(cw)}</td>
+        ${h ? `<td class="r">${money(a.price * h.qty)}</td><td class="r ${cls(pl)}">${signMoney(pl)}</td>` : `<td class="r ${cls(cm)}">${fmtPct(cm)}</td>`}</tr>`; }).join('')}
+  </tbody></table>`;
 }
 
 function toast(msg) {
@@ -280,11 +313,11 @@ function renderHome() {
     orders: `${state.orders.length ? `<h2>Open orders</h2><div class="list">${state.orders.map(orderRow).join('')}</div>` : ''}
     ${opts.length ? `<h2>Options</h2><div class="list">${opts.map(optPositionRow).join('')}</div>` : ''}`,
     stocks: `<h2>Stocks</h2>
-    ${stocks.length ? `<div class="list">${stocks.map(({ a, h }) => positionRow(a, h)).join('')}</div>`
+    ${stocks.length ? (desk() ? `<div class="card dcard">${assetTable(stocks.map((x) => x.a), { pos: state.holdings })}</div>` : `<div class="list">${stocks.map(({ a, h }) => positionRow(a, h)).join('')}</div>`)
       : `<div class="card empty">You don't own any players or teams yet. You start with ${money(state.startCash)} of play money.
       <button class="more" data-tab="market">Browse the market →</button></div>`}`,
     shorts: shortsSection(now),
-    funds: `${funds.length ? `<h2>Index funds</h2><div class="list">${funds.map(({ a, h }) => positionRow(a, h)).join('')}</div>` : ''}`,
+    funds: `${funds.length ? `<h2>Index funds</h2>${desk() ? `<div class="card dcard">${assetTable(funds.map((x) => x.a), { pos: state.holdings })}</div>` : `<div class="list">${funds.map(({ a, h }) => positionRow(a, h)).join('')}</div>`}` : ''}`,
     watch: watchSection(watch),
     upcoming: `${games.length ? `<h2>${myGames.length ? 'Your upcoming games' : 'Upcoming games'}</h2><div class="list">${games.map((g) => `
       <button class="item" data-game="${g.lg}|${g.id}">${lgTag(g.lg)}<div class="grow"><div class="name">${esc(g.name)}</div><div class="sub">${fmtDateTime(g.date)}${g.preseason ? ' · preseason' : ''}</div></div>${state.picks[g.id] ? `<span class="pk">Picked ${esc(state.picks[g.id].abbr)}</span>` : '<span class="muted">›</span>'}</button>`).join('')}</div>` : ''}`,
@@ -292,8 +325,14 @@ function renderHome() {
     <div class="collections">${COLLECTIONS.map((c) => `<button class="coll" data-coll="${c.key}"><div class="e">${c.e}</div><div class="t">${c.t}</div><div class="d">${c.d}</div></button>`).join('')}
       <button class="coll" data-coll="funds"><div class="e">🧺</div><div class="t">Index funds</div><div class="d">Whole leagues in one tap</div></button></div>`,
   };
+  const order = homeOrder().filter((k) => !state.settings.home?.hide?.[k]);
+  // On a wide screen the money and holdings take the main column; everything else goes to the side.
+  const SIDE = new Set(['since', 'today', 'lineup', 'challenge', 'rival', 'season', 'live', 'movers', 'upcoming', 'alloc', 'recap']);
+  const mainKeys = desk() ? order.filter((k) => !SIDE.has(k)) : order;
+  const sideKeys = desk() ? order.filter((k) => SIDE.has(k)) : [];
   $('#view').innerHTML = `
     ${topbar('<div class="brand">Stat<b>Street</b></div>')}
+    ${desk() ? '<div class="dhome"><div class="dmain"><div class="card dhero">' : ''}
     ${marketPill()}
     <div class="row between"><div class="muted small">Net worth</div><button class="share-btn" data-act="sharepf" aria-label="Share"><svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>Share</button></div>
     <div class="big-value" data-nw>${money(nw)}</div>
@@ -306,7 +345,9 @@ function renderHome() {
       <div class="stat"><div class="k">Buying power</div><div class="v">${money(buyingPower(state))}</div></div>
       <div class="stat"><div class="k">Dividends earned</div><div class="v up">${money(state.divTotal || 0)}</div></div>
     </div>
-    ${homeOrder().filter((k) => !state.settings.home?.hide?.[k]).map((k) => SEC[k] || '').join('\n')}
+    ${desk() ? '</div>' : ''}
+    ${mainKeys.map((k) => SEC[k] || '').join('\n')}
+    ${desk() ? `</div><aside class="dside">${sideKeys.map((k) => SEC[k] || '').join('\n')}</aside></div>` : ''}
   `;
   drawNwChart();
 }
@@ -618,7 +659,7 @@ function renderMarket(keepFocus = false) {
     <div class="row between" style="margin-top:8px"><span class="tiny muted">${ui.mview === 'heat' ? 'Tile size = share price · color = today\'s move' : ''}</span>
       <div class="seg mini">${[['list', 'List'], ['heat', 'Heatmap']].map(([k, n]) => `<button data-mview="${k}" class="${ui.mview === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
     <div id="mlist" style="margin-top:8px">${ui.mview === 'heat' && items.length ? heatmapHTML(items) : `<div class="list">
-      ${items.slice(0, ui.limit).map((a) => assetRow(a, { note: marketNote(a) })).join('') || `<div class="empty">${emptyMarketText()}</div>`}
+      ${(desk() ? assetTable(items.slice(0, ui.limit), { note: marketNote, rank: true }) : items.slice(0, ui.limit).map((a) => assetRow(a, { note: marketNote(a) })).join('')) || `<div class="empty">${emptyMarketText()}</div>`}
       ${items.length > ui.limit ? `<button class="more" data-act="more">Show more (${items.length - ui.limit} left)</button>` : ''}
     </div>`}</div>
     <p class="tiny faint" style="text-align:center;margin-top:12px">${items.length} listed · prices move with real games, injuries and news</p>`;
@@ -1781,8 +1822,20 @@ function renderDetail({ keepScroll = true } = {}) {
     ${news.length ? `<h3>News</h3><div class="list">${news.map((n) => `<a class="news" href="${esc(n.url)}" data-article="${esc(n.id)}">
       <div class="h">${esc(n.headline)}</div><div class="meta"><span class="senti ${(n.fx?.[a.id] || 0) > 0.12 ? 'up' : (n.fx?.[a.id] || 0) < -0.12 ? 'down' : 'flat'}">${(n.fx?.[a.id] || 0) > 0.12 ? 'Bullish' : (n.fx?.[a.id] || 0) < -0.12 ? 'Bearish' : 'Mention'}</span><span class="tiny faint">${timeAgo(n.published)}</span></div></a>`).join('')}</div>` : ''}
   </div>`;
+  if (desk()) {
+    const pl = h ? a.price * h.qty - h.cost : 0;
+    $('#dinner').insertAdjacentHTML('beforeend', `<aside class="dtrade card ${ch < 0 ? 'acc-down' : ''}" style="--acc:var(--${ch < 0 ? 'down' : 'up'})">
+      <div class="tiny muted">TRADE ${esc(a.ticker)}</div><div class="dt-price" data-p="${a.id}">${money(a.price)}</div>
+      <div class="btn-row"><button class="btn sell" data-act="sell" ${h ? '' : 'disabled'}>Sell</button><button class="btn buy" data-act="buy">Buy</button></div>
+      ${a.kind !== 'fund' ? '<button class="btn ghost" data-act="chain" style="width:100%;margin-top:8px">Options chain</button>' : ''}
+      <div class="dt-rows">
+        ${h ? `<div><span>You own</span><b>${fmtQty(h.qty)} sh</b></div><div><span>Value</span><b>${money(a.price * h.qty)}</b></div><div><span>Return</span><b class="${cls(pl)}">${signMoney(pl)}</b></div>` : '<div><span>You own</span><b>None yet</b></div>'}
+        <div><span>Buying power</span><b>${money(buyingPower(state))}</b></div>
+        ${ng ? `<div><span>Next game</span><b>${fmtDate(ng.date, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</b></div>` : ''}
+      </div></aside>`);
+  }
   const bar = $('#tradebar');
-  bar.hidden = !!ui.chain;
+  bar.hidden = !!ui.chain || desk();
   bar.className = `trade-bar ${ch < 0 ? 'acc-down' : ''}`;
   bar.style.setProperty('--acc', `var(--${ch < 0 ? 'down' : 'up'})`);
   bar.innerHTML = `<button class="btn opt" data-act="chain" aria-label="Options"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16"/><path d="M7 15l4-5 3 3 5-6"/><circle cx="19" cy="7" r="1.5"/></svg></button>
@@ -2332,6 +2385,7 @@ function closeOverlays() {
 
 function render() {
   document.querySelectorAll('#tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === ui.tab));
+  $('#view').dataset.tab = ui.tab;
   if (ui.tab === 'home') renderHome();
   else if (ui.tab === 'market') renderMarket();
   else if (ui.tab === 'news') renderNews();

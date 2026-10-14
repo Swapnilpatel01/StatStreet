@@ -1259,10 +1259,10 @@ html.xl-text { -webkit-text-size-adjust: 132%; text-size-adjust: 132%; }
 #mlist .list > *, .pbp > .pb { content-visibility: auto; contain-intrinsic-size: auto 66px; }
 
 /* ---------- v111: web app layout for laptops and desktops ----------
-   Phones and tablets in portrait keep the bottom tab bar. From 1000px wide the tabs become a
+   Phones and tablets keep the bottom tab bar. From 1100px wide the tabs become a
    side rail, the page shifts right of it, and the content column grows to 760px. */
-@media (min-width: 1000px) {
-  :root { --rail: 228px; --col: 760px; }
+@media (min-width: 1100px) {
+  :root { --rail: 232px; --col: 1180px; }
   html { background: var(--bg); }
   body { margin-left: var(--rail); }
   .tabbar {
@@ -1295,4 +1295,83 @@ html.xl-text { -webkit-text-size-adjust: 132%; text-size-adjust: 132%; }
   .view, .sheet { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
   .view::-webkit-scrollbar, .sheet::-webkit-scrollbar { display: block; width: 8px; }
   .view::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+}
+
+/* ---------- v112: desktop pages built for a big screen ---------- */
+@media (min-width: 1100px) {
+  .view { padding-top: 0; }
+  .dhead { position: sticky; top: 0; z-index: 8; display: flex; align-items: center; gap: 16px; margin: 0 -4px 18px; padding: 18px 4px 14px;
+    background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .dhead h1 { margin: 0; font-size: 26px; min-width: 170px; }
+  .dsearch { flex: 1; max-width: 460px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 10px; background: var(--card); color: var(--faint); font-size: 14px; border: 1px solid var(--line); }
+  .dsearch svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
+  .dsearch span { flex: 1; text-align: left; }
+  .dsearch kbd { font: 600 11px/1 inherit; padding: 4px 7px; border-radius: 5px; background: var(--card2); color: var(--muted); }
+  .dmoney { margin-left: auto; display: flex; gap: 22px; }
+  .dmoney div { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+  .dmoney span { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
+  .dmoney b { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+  /* tables */
+  .dtable { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .dtable th { font-size: 11px; font-weight: 700; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .dtable td { padding: 9px 12px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); white-space: nowrap; }
+  .dtable tbody tr { cursor: pointer; }
+  .dtable tbody tr:hover { background: var(--card2); }
+  .dtable tbody tr:last-child td { border-bottom: 0; }
+  .dtable .r { text-align: right; } .dtable .c { text-align: center; } .dtable .n { width: 36px; color: var(--faint); text-align: right; }
+  .dtable td:nth-child(2), .dtable td:first-child:not(.n) { width: 40%; max-width: 0; }
+  .dname { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .dname .avatar, .dname .avatar-fallback { width: 36px; height: 36px; flex: none; }
+  .dname .name { font-weight: 700; } .dname .sub { font-size: 12.5px; color: var(--muted); }
+  .dtable .spark, .dtable svg { display: inline-block; vertical-align: middle; }
+  #mlist > .list { background: var(--card); border-radius: 16px; padding: 4px 6px; }
+  #mlist > .list > .more { margin: 8px auto; }
+  .dcard { padding: 4px 6px; }
+
+  /* portfolio: main column and a side column */
+  .dhome { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
+  .dside { position: sticky; top: 92px; display: flex; flex-direction: column; gap: 4px; }
+  .dside > h2:first-child, .dside > h3:first-child { margin-top: 0; }
+  .dhero { padding: 18px 20px 16px; }
+  .dhero .chart-wrap { margin: 10px 0 0; min-height: 260px; }
+  .dhero .big-value { font-size: 44px; }
+  .dside .tools, .dside .movers { flex-wrap: wrap; overflow: visible; }
+
+  /* player page: content on the left, a trade panel that stays in view on the right */
+  #dinner { display: grid; grid-template-columns: minmax(0, 1fr) 320px; column-gap: 28px; align-items: start; }
+  #dinner > * { grid-column: 1; }
+  #dinner > .dtrade { grid-column: 2; grid-row: 1 / span 40; position: sticky; top: 12px; padding: 18px; }
+  .dtrade .dt-price { font-size: 30px; font-weight: 800; margin: 2px 0 14px; font-variant-numeric: tabular-nums; }
+  .dtrade .btn-row { display: flex; gap: 8px; }
+  .dtrade .btn-row .btn { flex: 1; padding: 12px 0; }
+  .dt-rows { margin-top: 14px; border-top: 1px solid var(--line); }
+  .dt-rows div { display: flex; justify-content: space-between; padding: 9px 0; font-size: 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+  .dt-rows span { color: var(--muted); }
+  #dinner .chart-wrap { min-height: 300px; margin: 10px 0 0; }
+  .sheet { padding-bottom: 40px; }
+
+  /* games, news and account use the width */
+  .sgames { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+  .sgames > * { margin: 0 !important; }
+  #view > .list:has(> .news) { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; background: none; }
+  #view > .list > .news { background: var(--card); border-radius: 14px; padding: 14px 16px; border: 0; }
+  .live-strip { flex-wrap: wrap; }
+}
+@media (min-width: 1100px) {
+  .sgames > .lgh { grid-column: 1 / -1; margin: 10px 0 0 !important; }
+  .sgames > .lgh:first-child { margin-top: 0 !important; }
+  .dtrade .btn.ghost { background: var(--card2); color: var(--text); padding: 11px 0; border-radius: 12px; font-size: 14px; }
+  .dmain > .hscroll.tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; overflow: visible; margin-left: 0; margin-right: 0; padding: 0; }
+  .dmain > .hscroll.tools > button { width: auto; }
+  .dside > .hscroll.mv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; overflow: visible; margin-left: 0; margin-right: 0; padding: 0; }
+  .dside > .hscroll.mv > .mvc { width: auto; }
+  .dside .live-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; overflow: visible; margin-left: 0; margin-right: 0; padding: 0; }
+  .dside .live-strip > .game { width: auto; }
+  .dhead .grow { flex: 1; }
+}
+@media (min-width: 1100px) {
+  /* settings read best as a single column of normal width */
+  #view[data-tab="account"] > :not(.dhead) { max-width: 780px; margin-left: auto; margin-right: auto; }
+  #view[data-tab="account"] > h2 { padding-left: 0; }
 }
