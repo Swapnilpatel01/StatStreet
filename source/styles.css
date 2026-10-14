@@ -1257,3 +1257,42 @@ html.xl-text { -webkit-text-size-adjust: 132%; text-size-adjust: 132%; }
 
 /* ---------- v110: long lists draw only what is on screen ---------- */
 #mlist .list > *, .pbp > .pb { content-visibility: auto; contain-intrinsic-size: auto 66px; }
+
+/* ---------- v111: web app layout for laptops and desktops ----------
+   Phones and tablets in portrait keep the bottom tab bar. From 1000px wide the tabs become a
+   side rail, the page shifts right of it, and the content column grows to 760px. */
+@media (min-width: 1000px) {
+  :root { --rail: 228px; --col: 760px; }
+  html { background: var(--bg); }
+  body { margin-left: var(--rail); }
+  .tabbar {
+    position: fixed; left: 0; top: 0; bottom: 0; right: auto; width: var(--rail);
+    flex-direction: column; justify-content: flex-start; gap: 4px; padding: 22px 14px;
+    border-top: 0; border-right: 1px solid var(--line); background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+  .tabbar::before { content: 'StatStreet'; display: block; font-weight: 900; font-size: 21px; letter-spacing: -.02em; padding: 0 12px 18px;
+    background: linear-gradient(90deg, var(--text) 0 46%, var(--accent) 46%); -webkit-background-clip: text; background-clip: text; color: transparent; width: max-content; }
+  .view .topbar .brand { visibility: hidden; } /* the rail shows the name */
+  .tabbar button { flex: none; flex-direction: row; justify-content: flex-start; gap: 14px; font-size: 15px; font-weight: 600; padding: 11px 12px; border-radius: 12px; color: var(--muted); }
+  .tabbar button.active { background: var(--card); color: var(--text); }
+  .tabbar button:active { transform: none; }
+  .tabbar svg { width: 22px; height: 22px; }
+  .view { padding: 22px max(28px, calc((100% - var(--col)) / 2)) 40px; }
+  .sheet { padding: 18px max(28px, calc((100% - var(--col)) / 2)) 90px; box-shadow: none; }
+  .sheet-inner, .draft-foot .btn, .ep-panel { max-width: var(--col); }
+  .trade-bar { padding: 10px max(28px, calc((100% - var(--col)) / 2)); }
+  .trade-panel { max-width: 520px; border-radius: 20px; margin: auto; }
+  .trade-sheet { align-items: center; }
+  .chart-wrap { margin-left: 0; margin-right: 0; }
+  #edge, #toptap { display: none !important; }
+  #ptr { display: none; }
+  .toast { left: calc(50% + var(--rail) / 2); }
+}
+/* A mouse: rows and buttons light up under the pointer, and scrollbars show where a list scrolls. */
+@media (hover: hover) and (pointer: fine) {
+  .item:hover, .list > button:hover, .card[data-open]:hover, button.card:hover, .pb:hover, .upc-row:hover { background: var(--card2); }
+  .chip:hover, .seg button:hover, .icon-btn:hover, .tabbar button:hover { filter: brightness(1.25); }
+  .view, .sheet { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .view::-webkit-scrollbar, .sheet::-webkit-scrollbar { display: block; width: 8px; }
+  .view::-webkit-scrollbar-thumb, .sheet::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+}

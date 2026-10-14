@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 110;
+const APP_VERSION = 111;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -2894,6 +2894,30 @@ function topPage() {
   return null;
 }
 edgeSwipe($('#edge'), { target: topPage });
+// Keyboard on a computer: Esc goes back one screen, / opens search.
+document.addEventListener('keydown', (e) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
+  if (e.key === 'Escape') {
+    if (typing) { document.activeElement.blur(); return; }
+    if (ui.order) { closeOrder(); return; }
+    const t = topPage(); if (t) { e.preventDefault(); t.onDismiss(); }
+    return;
+  }
+  if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (ui.page?.type !== 'search') openPage('search'); }
+});
+// A mouse wheel scrolls sideways rows (chips, tiles, movers) when the pointer is over them.
+document.addEventListener('wheel', (e) => {
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.ctrlKey) return;
+  for (let el = e.target; el && el !== document.body; el = el.parentElement) {
+    const cs = el.scrollWidth > el.clientWidth + 2 && getComputedStyle(el).overflowX;
+    if (cs === 'auto' || cs === 'scroll') {
+      const atEnd = e.deltaY > 0 ? el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 : el.scrollLeft <= 0;
+      if (atEnd) return;
+      el.scrollLeft += e.deltaY; e.preventDefault(); return;
+    }
+    if (el.scrollHeight > el.clientHeight + 2 && /auto|scroll/.test(getComputedStyle(el).overflowY)) return;
+  }
+}, { passive: false });
 setInterval(() => { if (document.hidden) return; const el = $('#edge'); const want = !topPage(); if (el.hidden !== want) el.hidden = want; }, 200);
 pullToRefresh($('#view'), $('#ptr'), {
   enabled: () => !overlayOpen() && ui.tab !== 'account',
