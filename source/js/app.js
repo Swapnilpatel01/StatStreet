@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 112;
+const APP_VERSION = 113;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -802,7 +802,7 @@ function renderAccount() {
         <p>A game only moves a price by how much it <b>beat or missed that player's usual level</b>. A star playing like a star stays put; a role player's breakout game jumps. <b>Teams</b> start from last season's record (regressed toward .500) and shift as this season's wins, losses and point differential come in.</p>
         <p><b>Market hype</b> is a slow random drift on top of everything, like a real market's mood, so nothing is a sure thing.</p>
         <p><b>Star premium:</b> the top 10% of players in each league (ranked at the start of the season) carry up to a 4× premium, so household names are the expensive ones in every sport. <b>Teams</b> are the blue chips: a .500 team is about $1,000 a share.</p>
-        <p><b>Injuries</b> cut a player's price (Day-to-day −4%, Questionable −5%, Out −20%, IR −28%) and weigh on their team. <b>News</b> is scored for sentiment and nudges price for a few days. <b>Your trades</b> move the price too, and you pay a 0.35% spread.</p>
+        <p><b>Injuries</b> cut a player's price (Day-to-day −4%, Questionable −5%, Out −20%, IR −28%) and weigh on their team. <b>News</b> is scored for sentiment and nudges price for a few days. <b>Your trades</b> work like a real exchange: you buy at the ask and sell at the bid, 0.05% either side of the price, and big orders only nudge it a little.</p>
       </div></details>
       <details><summary>Dividends</summary><div class="prose">
         <p><b>Teams</b> pay after every win, more for upsets: a coin-flip win pays NBA 0.25%, NFL 1.5%, MLB 0.12% of the share price; a heavy favorite's win pays less and an underdog's more. <b>Players</b> pay after games that beat their own usual level, so stars and role players yield about the same. Milestone games (40 points, 3 homers, 5 TD passes…) pay a 0.4% special dividend.</p>

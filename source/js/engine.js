@@ -11,7 +11,7 @@ export const START_OPTIONS = [5, 100, 1000, 10000];
 // Rewards, fees and minimums are sized to your bankroll: 1.0 at a $100 season, 0.05 at $5.
 export const bankrollScale = (state) => (state.season?.bal || state.startCash || 100) / 100;
 export const minOrder = (state) => clamp(Math.round(bankrollScale(state) * 100) / 100, 0.05, 1);
-export const SPREAD = 0.0035;           // half-spread charged on each trade
+export const SPREAD = 0.0005;           // half-spread: you buy at the ask and sell at the bid, 0.05% either side of the price
 // ---------- pricing model (v2) ----------
 // Prices are a market's best guess of how good someone is, not a scoreboard:
 // - Value comes from a blend of this season, last season and the position average, so
@@ -44,7 +44,8 @@ const PRIOR_REGRESS = { nba: 0.55, nfl: 0.32, mlb: 0.45 }; // how much of last s
 const WINP_C = { nba: 0.8, nfl: 0.9, mlb: 0.36 };   // converts a team price gap into a win probability
 const HYPE = { player: { sd: 0.07, tau: 20 * DAY }, team: { sd: 0.05, tau: 25 * DAY } };
 const NEWS_HALF_LIFE = 72 * HOUR;
-const IMPACT_HALF_LIFE = 4 * HOUR;
+const IMPACT_HALF_LIFE = 1 * HOUR;
+const IMPACT_CAP = 0.015;               // your own trades can never push a price more than 1.5% off
 const NOISE_TAU = 3 * HOUR;
 const HIST_CAP = 420;
 
@@ -477,7 +478,7 @@ function sentiment(a, now) {
 }
 
 function impact(a, now) {
-  return a.imp ? clamp(decay(a.imp.v, now - a.imp.t, IMPACT_HALF_LIFE), -0.12, 0.12) : 0;
+  return a.imp ? clamp(decay(a.imp.v, now - a.imp.t, IMPACT_HALF_LIFE), -IMPACT_CAP, IMPACT_CAP) : 0;
 }
 
 function teamInjuryDrag(state, a) {
@@ -1179,7 +1180,7 @@ export function quote(state, id, now = Date.now()) {
 }
 
 const round2 = (x) => Math.round(x * 100) / 100;
-const IMPACT_PER_DOLLAR = 0.003 / 1000; // $1,000 of flow moves the price 0.3%
+const IMPACT_PER_DOLLAR = 0.0002 / 1000; // $1,000 of flow moves the price 0.02%, like a liquid real stock
 
 // What a market order would fill at. Your own flow walks the price (linear
 // impact) and you fill at the average of the before/after price plus the spread,
@@ -1188,7 +1189,7 @@ export function previewTrade(state, id, side, qty, now = Date.now()) {
   const a = state.assets[id];
   const dir = side === 'buy' ? 1 : -1;
   const cur = impact(a, now);
-  const next = clamp(cur + dir * IMPACT_PER_DOLLAR * a.price * qty, -0.12, 0.12);
+  const next = clamp(cur + dir * IMPACT_PER_DOLLAR * a.price * qty, -IMPACT_CAP, IMPACT_CAP);
   const pre = a.price;
   const post = pre * (1 + next) / (1 + cur);
   const mid = (pre + post) / 2;

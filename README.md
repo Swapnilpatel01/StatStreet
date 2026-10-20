@@ -48,7 +48,7 @@ The proxy only forwards to ESPN's API hosts, so it can't be abused as an open pr
 | **Milestones** | 40-point games, triple-doubles, 400-yard passing, 3-HR games, no-hitters etc. get an extra bump. |
 | **Live games** | While a game is on, players move with their pace and teams with the score; refreshes every minute while the app is open. |
 | **Market mood** | Each league has a mood from its news tone and overall price moves, which lifts or weighs on everything in that league a little. |
-| **Your trades** | Buying pushes the price up, selling pushes it down (the effect fades over hours), and there's a 0.35% spread — so pump-and-dump and churning lose money. |
+| **Your trades** | Like a real exchange: you buy at the ask and sell at the bid, 0.05% either side of the market price. Big orders nudge the price slightly (at most 1.5%), and that fades within about an hour. |
 
 Between updates, prices wiggle around their fair value like a real ticker.
 Every asset page has a **"Why it's moving"** log and a **price breakdown** so you can see exactly what's driving it.
