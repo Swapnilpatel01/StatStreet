@@ -63,7 +63,7 @@ const ui = {
   detail: null, chain: null, order: null, game: null, scrub: false, lastScroll: 0, seenInbox: 0,
   mview: 'list',
 };
-const APP_VERSION = 113;
+const APP_VERSION = 114;
 const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hosted snapshot version
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
@@ -357,7 +357,7 @@ function positionRow(a, h) {
   return `<button class="item" data-open="${a.id}">${avatar(a)}
     <div class="grow"><div class="name ellipsis">${esc(a.name)}</div><div class="sub">${fmtQty(h.qty)} sh · avg ${money(h.cost / h.qty)}</div></div>
     ${formDot(a, 'sm')}${sparkline(a.hist, Date.now() - DAY)}
-    <div class="price-col"><div class="price">${money(a.price * h.qty)}</div><div class="small ${cls(pl)}">${signMoney(pl)}</div></div>
+    <div class="price-col"><div class="price">${money(a.price)}</div><div class="small ${cls(pl)}">${signMoney(pl)}</div></div>
   </button>`;
 }
 
