@@ -235,6 +235,23 @@ t('a star priced at his level does not drift up by playing to it', () => {
   assert.equal(st.divs.filter((d) => d.id === a.id).length, 0, 'no dividends for an ordinary game');
 });
 
+t('each game log row keeps the move its result caused, with the sign of the surprise', () => {
+  const st = buildNBA();
+  const a = st.assets['nba:p:12'];
+  const line = (pts) => ({ min: 30, pts, fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 });
+  const game = (id, i, pts, preseason) => ({ id, date: now + i * DAY, preseason, teams: [{ id: '1', abbr: 'BOS', score: 100, home: true }, { id: '2', abbr: 'WAS', score: 90 }],
+    players: [{ id: '12', name: 'Role Player', pos: 'G', teamId: '2', line: line(pts) }] });
+  const lvl = a.perf.ema;
+  E.applyFinalGame(st, 'nba', game('p1', 0, Math.max(0, lvl - 8), true), { now: now + 3 * HOUR });
+  const pre = a.perf.last[0];
+  assert.equal(pre.e, 'p1'); assert.ok(pre.pct < 0, `poor preseason game ${pre.pct}`);
+  assert.ok(pre.pct > -0.08, `preseason counts for a third: ${pre.pct}`);
+  E.applyFinalGame(st, 'nba', game('r1', 1, lvl + 12, false), { now: now + DAY + 3 * HOUR });
+  const reg = a.perf.last[0];
+  assert.equal(reg.e, 'r1'); assert.ok(reg.pct > 0.03, `big regular-season game ${reg.pct}`);
+  assert.equal(a.perf.last[1].pct, pre.pct, 'older rows keep their move');
+});
+
 t('model upgrade converts holdings at equal value', () => {
   const st = buildNBA();
   E.trade(st, 'nba:p:10', 'buy', 2, now);
