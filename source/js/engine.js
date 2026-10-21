@@ -614,6 +614,11 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       if (!a.perf.rt.some((x) => x[0] === game.date)) { a.perf.rt.push([game.date, perfRating(league, { ...emptyLine(league), ...p.line })]); a.perf.rt.sort((x, y) => x[0] - y[0]); if (a.perf.rt.length > 200) a.perf.rt.splice(0, a.perf.rt.length - 200); }
       a.live = null;
     }, { force: gs !== 0 });
+    // Keep the move this result caused on the game's log row. The chart around the game also
+    // carries market noise (and, for hours the app was closed, filled-in wiggle), so reading the
+    // move off the chart can show a big gain for a poor game; this is what the game itself did.
+    const logRow = a.perf.last[0]?.e === game.id ? a.perf.last[0] : null;
+    if (logRow) logRow.pct = Math.round(playerPct * 10000) / 10000;
     if (!game.preseason && !backfill) boostAfterGame(state, a, playerPct, playerBefore, at, game.date);
     // Dividends reward beating your own usual level, so stars and role players yield about the same.
     if (!game.preseason && surprise > 0.3) {
@@ -622,9 +627,10 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
     const m = game.preseason ? null : milestone(league, p.line);
     if (m) payDividend(state, a, a.price * MILESTONE_DIV, `Special dividend: ${m}`, at, game.date);
     if (m) {
-      withEvent(state, a, now, at, 'milestone', m, () => {
+      const mPct = withEvent(state, a, now, at, 'milestone', m, () => {
         a.shocks.push({ t: at, v: 0.05 });
       }, { force: true });
+      if (logRow) logRow.pct = Math.round(((1 + playerPct) * (1 + mPct) - 1) * 10000) / 10000;
     }
   }
   state.games[game.id] = { final: true, t: game.date, league };

@@ -1857,7 +1857,7 @@ function drawDetailChart() {
   // start to just after the final), not only the last step when the result was booked: a game
   // followed live has already moved the price by the time it ends.
   const gh = ((LEAGUES[a.league]?.gameHours || 3) + 0.75) * HOUR;
-  const gameMove = (e) => { const p0 = priceAt(a, e.t - gh); const p1 = priceAt(a, Math.min(now, e.t + 10 * 60e3)); const m = p0 > 0 && p1 > 0 ? p1 / p0 - 1 : 0; return Math.abs(m) >= 0.0005 ? m : e.pct || 0; };
+  const gameMove = (e) => (Number.isFinite(e.pct) ? e.pct : 0); // the move the result itself caused, not the chart's noise around it
   const marks = (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: gameMove(e), text: e.text }));
   lineChart(el, a.hist.concat([now, a.price]), now - RANGES[ui.range], {
     animate, marks,
@@ -1951,19 +1951,7 @@ function playerStats(a) {
     const px = (i) => (i / (hist.length - 1)) * W; const py = (v) => H - 3 - ((v - lo) / (top - lo || 1)) * (H - 6);
     const avg = hist.reduce((t, x) => t + x[1], 0) / hist.length;
     return `<svg class="rtrend" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><line x1="0" x2="${W}" y1="${py(avg).toFixed(1)}" y2="${py(avg).toFixed(1)}"/><polyline points="${hist.map((x, i) => `${px(i).toFixed(1)},${py(x[1]).toFixed(1)}`).join(' ')}"/></svg>`; })() : '';
-  // What the price did across one game.
-  const gh = ((LEAGUES[a.league]?.gameHours || 3) + 1) * HOUR;
-  // From an hour before the game to a couple of hours after it. If the chart has nothing from
-  // that far back (the game was before you started, or the detail has been thinned out), fall
-  // back to the move recorded when the result came in, and show a dash if there is none.
-  const move = (g) => {
-    const first = a.hist[0] ?? Infinity;
-    const p0 = priceAt(a, g.t - HOUR); const p1 = priceAt(a, Math.min(now, g.t + gh + 2 * HOUR));
-    const m = g.t - HOUR >= first && p0 > 0 && p1 > 0 ? p1 / p0 - 1 : 0;
-    if (Math.abs(m) >= 0.0005) return m;
-    const ev = (a.events || []).find((e) => e.kind === 'game' && e.t >= g.t - HOUR && e.t <= g.t + gh + 6 * HOUR);
-    return ev && Math.abs(ev.pct) >= 0.0005 ? ev.pct : null;
-  };
+  const move = (g) => gameImpact(a, g);
   const log = a.perf.last.slice(0, ui.logAll === a.id ? 10 : 5);
   return `<h3>Performance</h3>
     <div class="grid3">${totals.map(([k, f]) => `<div class="stat rstat"><div class="k">${SPAN_LABEL[k]}</div><div class="v">${f ? `<span class="formdot ${tone(f.rating)}">${f.rating.toFixed(1)}</span>` : '—'}</div><div class="tiny faint">${f ? `${f.n} game${f.n > 1 ? 's' : ''}` : 'no games'}</div></div>`).join('')}
@@ -1971,7 +1959,7 @@ function playerStats(a) {
     ${last.length ? `<div class="card" style="margin-top:10px"><div class="row between"><b>Last ${last.length} game${last.length > 1 ? 's' : ''}</b><span class="tiny muted">game ratings · oldest → latest</span></div>
       <div class="form5">${last.slice().reverse().map((g) => `<div><span class="formdot ${tone(rate(g))}">${rate(g).toFixed(1)}</span><span class="tiny muted">${esc(g.opp || '')}</span></div>`).join('')}</div></div>
     <h3>Game log</h3><div class="boxwrap"><table class="box glog"><tr><th>Game</th><th>RTG</th><th>Price</th><th style="text-align:left">Stats</th></tr>
-      ${log.map((g) => { const m = move(g); return `<tr><td><b>${fmtDate(g.t)}</b> <span class="tiny faint">${esc(g.opp || '')}</span></td><td class="rtg">${rtgChip(rate(g))}</td><td class="chg ${m == null ? '' : cls(m)}">${m == null ? '—' : fmtPct(m)}</td><td class="gl-txt">${esc(g.text.replace(/ vs [A-Z]+( \(preseason\))?$/, ''))}</td></tr>`; }).join('')}</table></div>
+      ${log.map((g) => { const m = move(g); return `<tr><td><b>${fmtDate(g.t)}</b> <span class="tiny faint">${esc(g.opp || '')}${/\(preseason\)$/.test(g.text) ? ' · PRE' : ''}</span></td><td class="rtg">${rtgChip(rate(g))}</td><td class="chg ${m == null ? '' : cls(m)}">${m == null ? '—' : fmtPct(m)}</td><td class="gl-txt">${esc(g.text.replace(/ vs [A-Z]+( \(preseason\))?$/, ''))}</td></tr>`; }).join('')}</table></div>
       ${a.perf.last.length > 5 && ui.logAll !== a.id ? `<button class="more" data-act="logall">Show all ${Math.min(10, a.perf.last.length)} games</button>` : ''}`
     : '<div class="card small muted" style="margin-top:10px">Game ratings appear here after his next game.</div>'}`;
 }
@@ -4165,7 +4153,26 @@ const BOX_COLS = {
 const rtgChip = (v) => `<span class="rtgc ${formTone(v)}">${v.toFixed(1)}</span>`;
 // What a player's price has done over this one game: from just before it started to now
 // (or to just after it ended).
+// The price move one game's result caused: the move recorded when the result came in, so market
+// noise and the chart's filled-in wiggle for hours the app was closed don't land on the game.
+// Games logged before moves were kept fall back to the result's price event, then to the chart
+// from an hour before the game to a couple of hours after it. null when there is nothing to show.
+function gameImpact(a, g) {
+  if (Number.isFinite(g.pct)) return g.pct;
+  const now = Date.now();
+  const gh = ((LEAGUES[a.league]?.gameHours || 3) + 1) * HOUR;
+  const ev = (a.events || []).find((e) => e.kind === 'game' && e.t >= g.t - HOUR && e.t <= g.t + gh + 6 * HOUR);
+  if (ev && Number.isFinite(ev.pct)) return Math.abs(ev.pct) >= 0.0005 ? ev.pct : null;
+  const first = a.hist[0] ?? Infinity;
+  const p0 = priceAt(a, g.t - HOUR); const p1 = priceAt(a, Math.min(now, g.t + gh + 2 * HOUR));
+  const m = g.t - HOUR >= first && p0 > 0 && p1 > 0 ? p1 / p0 - 1 : 0;
+  return Math.abs(m) >= 0.0005 ? m : null;
+}
 function gameChange(a, g) {
+  if (g.status !== 'live') {
+    const row = (a.perf?.last || []).find((x) => x.e === g.id);
+    if (row) return gameImpact(a, row) ?? 0;
+  }
   const now = Date.now();
   const start = g.date || now - 3 * HOUR;
   const p0 = priceAt(a, start - 10 * 60e3);
