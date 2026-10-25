@@ -129,9 +129,32 @@ t('an account wiped by the old season reset is put back once', () => {
   assert.equal(st.season.bal, 5); assert.equal(st.startCash, 5);
   assert.ok(Math.abs(S.dailyAmount(st, 7) - 0.25) < 1e-9, 'daily reward back to 25 cents');
   assert.ok(!st.txns.some((x) => x.t >= T), 'trades made with the reset money removed');
+  assert.equal(st.nw.length, 0, 'net-worth history from the reset money dropped');
   const again = JSON.stringify(st.holdings) + st.cash;
   C.runCareer(st, T + 4 * HOUR);
   assert.equal(JSON.stringify(st.holdings) + st.cash, again, 'runs once');
+});
+
+t('a device repaired by v1 drops the net-worth points recorded with the reset money', () => {
+  const st = build(5);
+  C.runCareer(st, now);
+  const R = now + 5 * HOUR;
+  st.nw = [now + HOUR, 14000, now + 2 * HOUR, 14700, R + 60e3, 126.9, R + 20 * 60e3, 127.1];
+  E.notify(st, 'info', 'Season reset undone: your $19.99 cash are back.', null, R);
+  st.seasonFixV = 1;
+  C.runCareer(st, R + HOUR);
+  assert.deepEqual(st.nw.slice(0, 4), [R + 60e3, 126.9, R + 20 * 60e3, 127.1]);
+  assert.equal(st.seasonFixV, C.SEASON_FIX_V);
+});
+
+t('today\'s change starts from 0 at midnight; longer spans are rolling', () => {
+  const st = build();
+  const a = st.assets['nba:p:10'];
+  const mid = E.dayOpen(now);
+  a.hist = [mid - 20 * HOUR, 8, mid - 2 * HOUR, 10, mid + 60e3, 12]; a.price = 13.2;
+  assert.ok(Math.abs(E.change(a, mid + 2 * HOUR) - 0.32) < 1e-9, 'vs the price at midnight, not 24h ago');
+  a.price = 10; assert.equal(E.change(a, mid + 60e3), 0, 'a new day starts at 0');
+  assert.equal(E.spanFrom(mid + 5 * HOUR, 7 * DAY), mid + 5 * HOUR - 7 * DAY);
 });
 
 t('card packs: coins, guaranteed rarity, duplicates level cards and boost dividends', () => {

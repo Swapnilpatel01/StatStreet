@@ -194,8 +194,12 @@ export function priceAt(a, t) {
   return h[1];
 }
 
+// Local midnight: "today" moves start from 0 each day, like a stock's change since the open.
+export const dayOpen = (now) => new Date(now).setHours(0, 0, 0, 0);
+// When a period starts: a one-day span means "today" (since midnight), anything else is rolling.
+export const spanFrom = (now, span = DAY) => (span === DAY ? dayOpen(now) : now - span);
 export const change = (a, now, span = DAY) => {
-  const ref = priceAt(a, now - span);
+  const ref = priceAt(a, spanFrom(now, span));
   return ref ? a.price / ref - 1 : 0;
 };
 
@@ -901,7 +905,7 @@ function updateMood(state, league, now) {
   const recent = state.news.filter((n) => n.league === league && now - n.published < 2 * DAY);
   const newsAvg = recent.length ? mean(recent.map((n) => n.score)) : 0;
   const assets = Object.values(state.assets).filter((a) => a.league === league && a.hist.length > 2);
-  const moves = assets.map((a) => change(a, now));
+  const moves = assets.map((a) => { const r = priceAt(a, now - DAY); return r ? a.price / r - 1 : 0; }); // rolling 24h, so mood doesn't jump at midnight
   const tape = moves.length ? Math.tanh(mean(moves) * 20) : 0;
   state.mood[league] = clamp(0.7 * newsAvg * 2 + 0.3 * tape, -1, 1);
 }

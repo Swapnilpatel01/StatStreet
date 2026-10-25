@@ -160,10 +160,18 @@ function scanActivity(state, now) {
 // trade history (plus reinvested dividends), puts back the cash you had, adds the season prize,
 // and returns rewards to your old bankroll size. Anything bought, entered or bet with the
 // wiped-and-refilled money is dropped, since that money never should have existed.
-export const SEASON_FIX_V = 1;
+export const SEASON_FIX_V = 2;
 export function repairSeasonReset(state, now = Date.now()) {
-  if ((state.seasonFixV || 0) >= SEASON_FIX_V) return null;
+  const v = state.seasonFixV || 0;
+  if (v >= SEASON_FIX_V) return null;
   state.seasonFixV = SEASON_FIX_V;
+  if (v === 1) {
+    // v1 put the money back but left the net-worth history recorded while the reset money was
+    // there, so "today" compared $127 with $14,000. Keep only points from after the repair.
+    const fixed = (state.inbox || []).find((n) => /^Season reset undone/.test(n.text || ''));
+    if (fixed) state.nw = (state.nw || []).filter((x, i, h) => (i % 2 ? h[i - 1] : x) >= fixed.t);
+    return null;
+  }
   const c = career(state); const s = state.season; const rec = c.seasons?.[0];
   if (!s || !rec || s.n !== rec.n + 1 || now - s.start > 45 * DAY) return null;
   // Only a reset season looks like this: it started exactly at its bankroll, nothing carried over.
@@ -197,7 +205,7 @@ export function repairSeasonReset(state, now = Date.now()) {
   const cash = round2(Math.max(0, rec.nw - held) + (rec.coins || 0) / 100);
   const firstStart = c.seasons[c.seasons.length - 1]?.start;
   Object.assign(state, {
-    cash, holdings, startCash: oldBal, options: {}, shorts: {}, orders: [], recurring: [],
+    cash, holdings, startCash: oldBal, options: {}, shorts: {}, orders: [], recurring: [], nw: [], // the history since the reset tracked the reset money
     startedAt: Math.min(state.startedAt || now, firstStart || now),
     txns: (state.txns || []).filter((t) => t.t < T),
     props: (state.props || []).filter((b) => !(b.t >= T)),

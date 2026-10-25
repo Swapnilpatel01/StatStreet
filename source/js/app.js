@@ -1,7 +1,7 @@
 // StatStreet — UI layer.
 import { LEAGUES, posGroup, storyBlocks, parseScoreboard, parseBoxScore, lineText, gameScore } from './scoring.js';
 import {
-  newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown,
+  newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown, spanFrom,
   leagueIndex, rebuildInjuryCache, formRating, gameRating, ratedGames, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, undoReturnBounce, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
@@ -132,7 +132,7 @@ function shortInj(s) {
 
 function assetRow(a, { right = 'pill', range = '1D', note = '' } = {}) {
   const ch = change(a, Date.now(), RANGES[range]);
-  const from = Date.now() - RANGES[range];
+  const from = spanFrom(Date.now(), RANGES[range]);
   return `<button class="item" data-open="${a.id}">
     ${avatar(a)}
     <div class="grow" style="min-width:0"><div class="name ellipsis">${esc(a.name)}</div><div class="sub ellipsis">${note || subLine(a)}</div></div>
@@ -264,7 +264,7 @@ const COLLECTIONS = [
 function renderHome() {
   const now = Date.now();
   const nw = netWorth(state, now);
-  const ref = nwAt(now - RANGES[ui.homeRange]) ?? state.startCash;
+  const ref = nwAt(spanFrom(now, RANGES[ui.homeRange])) ?? state.startCash;
   const ch = nw - ref;
   const bench = state.assets['fund:SS500'];
   const benchCh = bench ? change(bench, now, RANGES[ui.homeRange]) : null;
@@ -383,7 +383,7 @@ function drawNwChart() {
   const el = $('#nwchart'); if (!el) return;
   const flat = state.nw.concat([Date.now(), netWorth(state)]);
   const animate = !!ui.nwAnim; ui.nwAnim = false;
-  lineChart(el, flat, Date.now() - RANGES[ui.homeRange], {
+  lineChart(el, flat, spanFrom(Date.now(), RANGES[ui.homeRange]), {
     animate,
     // Hold or drag on the chart: the big number shows your balance at that moment.
     onScrub: (pt) => {
@@ -411,7 +411,7 @@ function roll(el, v, key) {
 function updateNwHeader(now = Date.now()) {
   const nwEl = $('[data-nw]');
   if (!nwEl || ui.nwScrub) return;
-  const nw = netWorth(state, now); const ref = nwAt(now - RANGES[ui.homeRange]) ?? state.startCash; const ch = nw - ref;
+  const nw = netWorth(state, now); const ref = nwAt(spanFrom(now, RANGES[ui.homeRange])) ?? state.startCash; const ch = nw - ref;
   roll(nwEl, nw, 'nw');
   const c = $('[data-nwc]');
   c.className = `change-line ${cls(ch)}`;
@@ -1722,7 +1722,7 @@ function renderDetail({ keepScroll = true } = {}) {
   const sheet = $('#sheet');
   const top = sheet.scrollTop;
   const now = Date.now();
-  const from = now - RANGES[ui.range];
+  const from = spanFrom(now, RANGES[ui.range]);
   const ch = change(a, now, RANGES[ui.range]);
   const ref = priceAt(a, from);
   const h = state.holdings[a.id];
@@ -1765,7 +1765,7 @@ function renderDetail({ keepScroll = true } = {}) {
       <div class="stat"><div class="k">Market value</div><div class="v">${money(a.price * h.qty)}</div></div>
       <div class="stat"><div class="k">Average cost</div><div class="v">${money(h.cost / h.qty)}</div></div>
       <div class="stat"><div class="k">Total return</div><div class="v ${cls(a.price * h.qty - h.cost)}">${signMoney(a.price * h.qty - h.cost)}</div></div>
-      <div class="stat"><div class="k">Today's return</div><div class="v ${cls(change(a, now))}">${signMoney((a.price - priceAt(a, now - DAY)) * h.qty)}</div></div>
+      <div class="stat"><div class="k">Today's return</div><div class="v ${cls(change(a, now))}">${signMoney((a.price - priceAt(a, spanFrom(now))) * h.qty)}</div></div>
       <div class="stat"><div class="k">Dividends earned</div><div class="v up">${money(divEarned)}</div></div>
     </div>` : ''}
     ${protectCard(a)}
@@ -1858,7 +1858,7 @@ function drawDetailChart() {
   const gh = ((LEAGUES[a.league]?.gameHours || 3) + 0.75) * HOUR;
   const gameMove = (e) => (Number.isFinite(e.pct) ? e.pct : 0); // the move the result itself caused, not the chart's noise around it
   const marks = (a.events || []).filter((e) => e.kind === 'game').map((e) => ({ t: e.t, v: gameMove(e), text: e.text }));
-  lineChart(el, a.hist.concat([now, a.price]), now - RANGES[ui.range], {
+  lineChart(el, a.hist.concat([now, a.price]), spanFrom(now, RANGES[ui.range]), {
     animate, marks,
     onScrub: (pt) => {
       ui.scrub = !!pt;
@@ -1920,7 +1920,7 @@ function updateDetailHeader() {
   const a = state.assets[ui.detail];
   if (!a || ui.scrub) return;
   const ch = change(a, Date.now(), RANGES[ui.range]);
-  const ref = priceAt(a, Date.now() - RANGES[ui.range]);
+  const ref = priceAt(a, spanFrom(Date.now(), RANGES[ui.range]));
   const p = $('#dprice'); const c = $('#dchg');
   if (!p) return;
   roll(p, a.price, `d:${a.id}`);
@@ -3271,10 +3271,10 @@ function gameStake(g, league) {
     .filter(({ a }) => a && a.kind !== 'fund' && a.league === league && ids.has(a.kind === 'team' ? a.rid : a.teamId));
   if (!mine.length) return '';
   const tot = mine.reduce((s, { a, h }) => s + a.price * h.qty, 0);
-  const day = mine.reduce((s, { a, h }) => s + (a.price - priceAt(a, now - DAY)) * h.qty, 0);
+  const day = mine.reduce((s, { a, h }) => s + (a.price - priceAt(a, spanFrom(now))) * h.qty, 0);
   return `<h3>Your stake in this game</h3><div class="card stake"><div class="row between"><div><div class="tiny muted">AT STAKE</div><b style="font-size:20px">${money(tot)}</b></div>
     <div style="text-align:right"><div class="tiny muted">TODAY</div><b class="${cls(day)}" style="font-size:20px">${signMoney(day)}</b></div></div></div>
-    <div class="list" style="margin-top:8px">${mine.sort((x, y) => y.a.price * y.h.qty - x.a.price * x.h.qty).map(({ a, h }) => { const d = (a.price - priceAt(a, now - DAY)) * h.qty; return `<button class="item" data-open="${a.id}">${avatar(a)}
+    <div class="list" style="margin-top:8px">${mine.sort((x, y) => y.a.price * y.h.qty - x.a.price * x.h.qty).map(({ a, h }) => { const d = (a.price - priceAt(a, spanFrom(now))) * h.qty; return `<button class="item" data-open="${a.id}">${avatar(a)}
       <div class="grow"><div class="name ellipsis">${esc(a.name)}</div><div class="sub ellipsis">${a.live?.text ? `<span class="tag live">LIVE</span> ${esc(a.live.text)}` : `${fmtQty(h.qty)} sh`}</div></div>
       <div class="price-col"><div class="price">${money(a.price * h.qty)}</div><div class="small ${cls(d)}">${signMoney(d)}</div></div></button>`; }).join('')}</div>`;
 }
@@ -3320,7 +3320,7 @@ const TOOLS = [['glance', '👀', 'Glance'], ['calendar', '📅', 'Calendar'], [
 
 function homeParts(now, holdings, movers) {
   const since = ui.since;
-  const today = holdings.map(({ a, h }) => ({ a, d: (a.price - priceAt(a, now - DAY)) * h.qty, c: change(a, now) })).sort((x, y) => y.d - x.d);
+  const today = holdings.map(({ a, h }) => ({ a, d: (a.price - priceAt(a, spanFrom(now))) * h.qty, c: change(a, now) })).sort((x, y) => y.d - x.d);
   const win = today[0] && today[0].d > 0.004 ? today[0] : null; const lose = today.length > 1 && today[today.length - 1].d < -0.004 ? today[today.length - 1] : (today.length === 1 && today[0].d < -0.004 ? today[0] : null);
   const lineup = lineupToday(state, now);
   const wl = (x, label) => `<button class="stat wl" data-open="${x.a.id}"><div class="k">${label}</div><div class="v ${cls(x.d)}">${signMoney(x.d)}</div><div class="tiny muted ellipsis">${esc(x.a.name)} · ${fmtPct(x.c, 1)}</div></button>`;
@@ -3474,8 +3474,8 @@ function pageFutures(p) {
 }
 function pageGlance() {
   const now = Date.now();
-  const nw = netWorth(state, now); const ref = nwAt(now - DAY) ?? state.startCash; const ch = nw - ref;
-  const hold = Object.entries(state.holdings).map(([id, h]) => ({ a: state.assets[id], d: 0, h })).filter((x) => x.a).map((x) => ({ ...x, d: (x.a.price - priceAt(x.a, now - DAY)) * x.h.qty })).sort((x, y) => Math.abs(y.d) - Math.abs(x.d))[0];
+  const nw = netWorth(state, now); const ref = nwAt(spanFrom(now)) ?? state.startCash; const ch = nw - ref;
+  const hold = Object.entries(state.holdings).map(([id, h]) => ({ a: state.assets[id], d: 0, h })).filter((x) => x.a).map((x) => ({ ...x, d: (x.a.price - priceAt(x.a, spanFrom(now))) * x.h.qty })).sort((x, y) => Math.abs(y.d) - Math.abs(x.d))[0];
   const lu = lineupToday(state, now)[0];
   const next = lu || enabledLeagues().flatMap((lg) => (state.schedule?.[lg] || []).map((g) => ({ ...g, league: lg }))).filter((g) => g.date > now).sort((x, y) => x.date - y.date)[0];
   return `${pageHead('Glance')}
@@ -4011,7 +4011,8 @@ const sbCache = new Map();   // "league:dayStart" -> { t, events, loading }
 const sbGames = new Map();   // game id -> { league, ev } for games opened from the Scores page
 
 // One league's games on one local day, straight from the scoreboard. A local day can span
-// two US dates, so both are asked for and the games filtered to the day.
+// two US dates, so both are asked for and the games filtered to the day. Today also keeps any
+// game still being played: in India a US afternoon game starts "yesterday" and runs past midnight.
 function loadScores(league, day) {
   if (STATIC) return;
   const key = `${league}:${day}`;
@@ -4023,7 +4024,7 @@ function loadScores(league, day) {
   Promise.all(dates.map((d) => api.scoreboard(league, d).then((j) => parseScoreboard(league, j)).catch(() => null))).then((res) => {
     if (res.every((x) => !x)) { sbCache.set(key, { ...c, loading: false, t: Date.now() - (today ? 30e3 : 9 * 60e3) }); return; }
     const seen = new Set(); const events = [];
-    for (const ev of res.flat().filter(Boolean)) { if (seen.has(ev.id) || dayStart(ev.date) !== day) continue; seen.add(ev.id); events.push(ev); sbGames.set(ev.id, { league, ev }); }
+    for (const ev of res.flat().filter(Boolean)) { if (seen.has(ev.id) || (dayStart(ev.date) !== day && !(today && ev.state === 'in'))) continue; seen.add(ev.id); events.push(ev); sbGames.set(ev.id, { league, ev }); }
     events.sort((x, y) => x.date - y.date);
     sbCache.set(key, { t: Date.now(), events, loading: false });
     const show = (tries = 0) => { if (ui.tab !== 'games' || ui.gtab !== 'pickem' || overlayOpen()) return; if (busyScrolling(500) && tries < 10) { setTimeout(() => show(tries + 1), 400); return; } const y = view().scrollTop; const x = $('.daystrip')?.scrollLeft; renderGames(); view().scrollTop = y; if ($('.daystrip') && x != null) $('.daystrip').scrollLeft = x; };
@@ -4303,7 +4304,7 @@ function renderLand() {
   const now = Date.now(); const ch = change(a, now, RANGES[ui.range]);
   el.innerHTML = `<div class="land-top"><b class="ellipsis">${esc(a.name)}</b><span class="lp" id="lprice">${money(a.price)}</span><span id="lchg" class="${cls(ch)}">${fmtPct(ch)} <span class="muted">${rangeLabel(ui.range)}</span></span><span class="grow"></span>
     <div class="ranges">${Object.keys(RANGES).map((rg) => `<button data-range="${rg}" class="${rg === ui.range ? 'on' : ''}">${rg}</button>`).join('')}</div></div><div id="lchart"></div>`;
-  lineChart($('#lchart'), a.hist.concat([now, a.price]), now - RANGES[ui.range], { height: Math.max(140, window.innerHeight - 74),
+  lineChart($('#lchart'), a.hist.concat([now, a.price]), spanFrom(now, RANGES[ui.range]), { height: Math.max(140, window.innerHeight - 74),
     onScrub: (pt) => { if (!pt) { $('#lprice').textContent = money(a.price); $('#lchg').className = cls(ch); $('#lchg').innerHTML = `${fmtPct(ch)} <span class="muted">${rangeLabel(ui.range)}</span>`; return; }
       const c = pt.p / pt.first - 1; $('#lprice').textContent = money(pt.p); $('#lchg').className = cls(c);
       $('#lchg').innerHTML = `${fmtPct(c)} <span class="muted">${new Date(pt.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>`; } });
