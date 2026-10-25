@@ -964,7 +964,7 @@ function gamesSeason() {
       <div class="tierbar"><i style="width:${frac * 100}%"></i></div>
       <div class="tiny muted">${next ? `${pctTxt(next.min - ret).replace('+', '')} more to reach <b style="color:${next.color}">${next.name}</b> (${cm(next.coins)} at season end)` : 'Top tier! Hold it to the end of the season.'}</div>
       <div class="tiers">${TIERS.map((t) => `<div class="${t.key === tier.key ? 'on' : ''}" style="--tc:${t.color}"><i></i><span>${t.name}</span><small>${Number.isFinite(t.min) ? pctTxt(t.min).replace('.0', '') : '<0%'}</small></div>`).join('')}</div>
-      <div class="tiny faint" style="margin-top:8px">When the season ends you get cash and XP for your tier (+$1.00 more if you top the leaderboard), then everyone restarts with a fresh bankroll: ${money(seasonBalance(state))} at your level.</div>
+      <div class="tiny faint" style="margin-top:8px">When the season ends you get cash and XP for your tier (+$1.00 more if you top the leaderboard). Your cash and holdings carry into the next season.</div>
     </div>
 
     ${dailyCard()}
@@ -1261,7 +1261,6 @@ function showRecap(rec) {
       <div><span>Prize</span><b>${cm(rec.coins)}</b></div>
       <div><span>Final value</span><b>${money(rec.nw)}</b></div>
       ${rec.best ? `<div><span>Best holding</span><b>${esc(rec.best.name)} ${pctTxt(rec.best.ret)}</b></div>` : ''}
-      <div><span>New bankroll</span><b>${money(state.season.bal)}</b></div>
     </div>
     <button class="btn buy" data-act="recapdone">Start Season ${rec.n + 1}</button>
   </div>`;

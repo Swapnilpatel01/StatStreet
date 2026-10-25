@@ -75,25 +75,63 @@ t('weekly goals: three per week, paid once when met', () => {
   assert.notEqual(st.week.id, new Date(weekStart(now)).toLocaleDateString('en-CA'));
 });
 
-t('season ends: tier, rewards, recap and a fresh bankroll', () => {
-  const st = build(1000);
+t('season ends: tier, rewards and recap; money, holdings and reward size carry over', () => {
+  const st = build(5);
+  st.settings.startCash = 10000; // the Account reset setting must not leak into seasons
   C.runCareer(st, now);
   const s1 = st.season;
   assert.equal(s1.n, 1);
   assert.ok(s1.end - now >= 21 * DAY && new Date(s1.end).getDay() === 1 && new Date(s1.end).getHours() === 0);
-  E.trade(st, 'nba:p:b4', 'buy', 2, now);
-  st.cash += 300; // pretend the season went well: +30%
+  E.trade(st, 'nba:p:b4', 'buy', 0.1, now);
+  st.cash += 1.5; // pretend the season went well: +30%
   X.addXP(st, X.LEVEL_XP(3), now);
+  const qty = st.holdings['nba:p:b4'].qty; const daily0 = S.dailyAmount(st, 7);
+  const cash0 = st.cash; const flow0 = st.flow || 0;
   C.runCareer(st, s1.end + HOUR);
   const rec = X.career(st).seasons[0];
   assert.equal(rec.n, 1);
   assert.equal(rec.tier, 'platinum');
   assert.ok(X.career(st).recap);
   assert.equal(st.season.n, 2);
-  assert.deepEqual(st.holdings, {});
-  assert.ok(st.cash > C.seasonBalance(st) && st.cash < C.seasonBalance(st) + 30, 'new bankroll plus the prize'); assert.ok(st.cash > 1000, 'higher level → bigger bankroll');
+  assert.equal(st.holdings['nba:p:b4'].qty, qty, 'holdings kept');
+  assert.ok(st.flow - flow0 >= rec.coins / 100 - 1e-9, 'prize paid');
+  assert.ok(Math.abs(st.cash - cash0 - (st.flow - flow0)) < 0.011, `cash kept, only rewards added: ${cash0} -> ${st.cash}`);
+  assert.equal(st.season.bal, 5); assert.equal(S.dailyAmount(st, 7), daily0, 'daily reward unchanged');
+  assert.ok(Math.abs(C.seasonReturn(st, s1.end + 2 * HOUR)) < 0.05, 'new season return starts near 0');
   assert.equal(C.tierFor(-0.05).key, 'bronze');
   assert.equal(C.tierFor(1.2).key, 'legend');
+});
+
+t('an account wiped by the old season reset is put back once', () => {
+  const st = build(5);
+  C.runCareer(st, now);
+  const s1 = st.season;
+  E.trade(st, 'nba:p:b4', 'buy', 0.04, now + 1000);
+  E.trade(st, 'nba:p:b6', 'buy', 0.04, now + 2000);
+  E.trade(st, 'nba:p:b6', 'sell', 0.01, now + 3000);
+  st.cash += 120; // grew to about $127
+  st.seasonFixV = 1; C.runCareer(st, s1.end + HOUR); delete st.seasonFixV; // finish season 1 with current code
+  const T = st.season.start; const rec = X.career(st).seasons[0];
+  const wantQty = { ...Object.fromEntries(Object.entries(st.holdings).map(([k, h]) => [k, h.qty])) };
+  // What the old code did on top: wipe everything and refill from the $10,000 setting at level 9.
+  const bal = 14000;
+  Object.assign(st, { cash: bal, startCash: bal, holdings: {}, options: {}, orders: [], recurring: [], nw: [], startedAt: T, shorts: {} });
+  st.season = { n: 2, start: T, end: T + 28 * DAY, nw0: bal, bal, flow0: st.flow };
+  assert.equal(S.dailyAmount(st, 7), 700);
+  st.cash += 700; st.flow += 700; // claimed the inflated daily reward
+  E.trade(st, 'nba:p:b8', 'buy', 50, T + 2 * HOUR); // and spent some of the fake money
+  C.runCareer(st, T + 3 * HOUR);
+  assert.deepEqual(Object.keys(st.holdings).sort(), Object.keys(wantQty).sort(), 'old players back, new buy dropped');
+  for (const [k, q] of Object.entries(wantQty)) assert.ok(Math.abs(st.holdings[k].qty - q) < 1e-6);
+  const nwEnd = st.cash - rec.coins / 100 + Object.entries(st.holdings).reduce((v, [k, h]) => v + h.qty * E.priceAt(st.assets[k], T), 0);
+  assert.ok(Math.abs(nwEnd - rec.nw) < 0.02, `net worth at season end ${nwEnd} vs ${rec.nw}`);
+  assert.ok(st.cash > 100 && st.cash < 140, `cash ${st.cash}`);
+  assert.equal(st.season.bal, 5); assert.equal(st.startCash, 5);
+  assert.ok(Math.abs(S.dailyAmount(st, 7) - 0.25) < 1e-9, 'daily reward back to 25 cents');
+  assert.ok(!st.txns.some((x) => x.t >= T), 'trades made with the reset money removed');
+  const again = JSON.stringify(st.holdings) + st.cash;
+  C.runCareer(st, T + 4 * HOUR);
+  assert.equal(JSON.stringify(st.holdings) + st.cash, again, 'runs once');
 });
 
 t('card packs: coins, guaranteed rarity, duplicates level cards and boost dividends', () => {

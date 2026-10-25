@@ -1,12 +1,13 @@
 // Seasons, weekly goals and the shop: the reasons to keep playing.
 // - Seasons last about 4 weeks. Your return decides your tier (Bronze → Legend), which pays
-//   cash and XP. Then everyone starts fresh, with a bigger bankroll the higher your level.
+//   cash and XP. Your money and holdings carry over; the next season's return is measured
+//   from where you finished.
 // - Three weekly goals pay cash and XP the moment you hit them.
 // - Coins buy card packs (duplicates level cards up, which boosts their dividends),
 //   app themes and titles.
 
 import { DAY, weekStart, weekId, addDays, seeded } from './util.js';
-import { netWorth, priceAt, notify, cardLevel } from './engine.js';
+import { netWorth, priceAt, notify, cardLevel, START_CASH } from './engine.js';
 import { career, addXP, addCoins, spendCoins, level, hasLevel, centsFmt, convertCoins } from './xp.js';
 import { leaderboard, rarity, RARITY, TROPHIES } from './social.js';
 import { runContests } from './contests.js';
@@ -60,25 +61,22 @@ export function endSeason(state, now = Date.now()) {
   const beatAll = rank === 1;
   const c = career(state);
   const coins = tier.coins + (beatAll ? 100 : 0);
-  const f0 = state.flow || 0;
   addXP(state, tier.xp + (beatAll ? 100 : 0), now); // levels first: they set the next bankroll
-  const lvlBonus = Math.round(((state.flow || 0) - f0) * 100);
   const best = Object.entries(state.holdings).map(([id, h]) => ({ a: state.assets[id], h }))
     .filter((x) => x.a && x.h.cost > 0).sort((x, y) => (y.a.price * y.h.qty / y.h.cost) - (x.a.price * x.h.qty / x.h.cost))[0];
   const rec = {
     n: s.n, start: s.start, end: s.end, ret: Math.round(ret * 10000) / 10000, tier: tier.key, rank, of: board.length,
-    coins, nw: round2(netWorth(state, now)), best: best ? { name: best.a.name, ret: best.a.price * best.h.qty / best.h.cost - 1 } : null,
+    coins, nw: round2(netWorth(state, now)), bal: s.bal, best: best ? { name: best.a.name, ret: best.a.price * best.h.qty / best.h.cost - 1 } : null,
   };
   c.seasons.unshift(rec);
   c.recap = rec;
   notify(state, 'season', `Season ${s.n} over: ${tier.name} (${(ret >= 0 ? '+' : '') + (ret * 100).toFixed(1)}%) · +${centsFmt(coins)}`, null, now);
-  // Fresh start for the new season.
-  const bal = seasonBalance(state);
-  Object.assign(state, { cash: bal, startCash: bal, holdings: {}, options: {}, orders: [], recurring: [], nw: [], startedAt: now, shorts: {} });
-  state.season = { n: s.n + 1, start: now, end: seasonEnd(now), nw0: bal, bal, flow0: state.flow || 0 };
-  state.week = null; // new week goals measured from the new bankroll
-  // The tier prize (and any level-up bonus it triggered) lands on top of the fresh bankroll.
-  addCoins(state, coins + lvlBonus);
+  // The tier prize lands in your cash (any level-up bonus it triggered was paid by addXP).
+  addCoins(state, coins);
+  // Your cash and holdings carry over. The new season's return is measured from here, and
+  // rewards stay sized to the same bankroll (a season change must not inflate them).
+  state.season = { n: s.n + 1, start: now, end: seasonEnd(now), nw0: round2(netWorth(state, now)), bal: s.bal, flow0: state.flow || 0 };
+  state.week = null; // new week goals measured from here
   return rec;
 }
 
@@ -156,11 +154,69 @@ function scanActivity(state, now) {
   c.cursor = now;
 }
 
+// Seasons used to end by wiping your cash and holdings and handing you a new bankroll sized
+// from the Account start-cash setting (which could be $10,000, so rewards jumped 2,800x).
+// This undoes that once: it rebuilds the holdings you had when the season ended from your
+// trade history (plus reinvested dividends), puts back the cash you had, adds the season prize,
+// and returns rewards to your old bankroll size. Anything bought, entered or bet with the
+// wiped-and-refilled money is dropped, since that money never should have existed.
+export const SEASON_FIX_V = 1;
+export function repairSeasonReset(state, now = Date.now()) {
+  if ((state.seasonFixV || 0) >= SEASON_FIX_V) return null;
+  state.seasonFixV = SEASON_FIX_V;
+  const c = career(state); const s = state.season; const rec = c.seasons?.[0];
+  if (!s || !rec || s.n !== rec.n + 1 || now - s.start > 45 * DAY) return null;
+  // Only a reset season looks like this: it started exactly at its bankroll, nothing carried over.
+  if (Math.abs((s.nw0 || 0) - (s.bal || 0)) > 0.005 || Math.abs((state.startCash || 0) - s.bal) > 0.005) return null;
+  const T = s.start;
+  const oldBal = rec.bal ?? c.seasons[1]?.bal ?? START_CASH;
+  // Holdings at the moment of the reset: stock trades and reinvested dividends before it.
+  const steps = [
+    ...(state.txns || []).filter((t) => t.t < T && t.kind === 'stock' && (t.side === 'buy' || t.side === 'sell')).map((t) => ({ t: t.t, id: t.id, side: t.side, qty: t.qty, total: t.total })),
+    ...(state.divs || []).filter((d) => d.t < T && d.drip && d.amt > 0).map((d) => {
+      const a = state.assets[d.id]; const px = a ? priceAt(a, d.t) : 0;
+      return px > 0 ? { t: d.t, id: d.id, side: 'buy', qty: d.amt / px, total: d.amt } : null;
+    }).filter(Boolean),
+  ].sort((x, y) => x.t - y.t);
+  const pos = {};
+  for (const x of steps) {
+    const p = pos[x.id] ||= { qty: 0, cost: 0, since: x.t };
+    if (x.side === 'buy') { if (p.qty < 1e-6) p.since = x.t; p.qty += x.qty; p.cost += x.total; }
+    else { const avg = p.qty > 1e-9 ? p.cost / p.qty : 0; const q = Math.min(p.qty, x.qty); p.qty -= q; p.cost = Math.max(0, p.cost - avg * q); }
+  }
+  const holdings = {}; let held = 0;
+  for (const [id, p] of Object.entries(pos)) {
+    const a = state.assets[id];
+    if (!a || p.qty < 1e-6) continue;
+    const qty = Math.round(p.qty * 1e6) / 1e6;
+    holdings[id] = { qty, cost: round2(p.cost), since: p.since };
+    held += qty * priceAt(a, T);
+  }
+  // Your net worth when the season ended is on record; whatever wasn't in shares was cash
+  // (options and shorts open at the time come back as their cash value then).
+  const cash = round2(Math.max(0, rec.nw - held) + (rec.coins || 0) / 100);
+  const firstStart = c.seasons[c.seasons.length - 1]?.start;
+  Object.assign(state, {
+    cash, holdings, startCash: oldBal, options: {}, shorts: {}, orders: [], recurring: [],
+    startedAt: Math.min(state.startedAt || now, firstStart || now),
+    txns: (state.txns || []).filter((t) => t.t < T),
+    props: (state.props || []).filter((b) => !(b.t >= T)),
+  });
+  for (const [id, k] of Object.entries(state.contests || {})) if (k?.entered >= T) delete state.contests[id];
+  rec.bal = oldBal;
+  state.season = { n: s.n, start: s.start, end: s.end, nw0: round2(netWorth(state, now)), bal: oldBal, flow0: state.flow || 0 };
+  state.week = null;
+  const names = Object.keys(holdings).map((id) => state.assets[id]?.ticker).filter(Boolean);
+  notify(state, 'info', `Season reset undone: your ${centsFmt(Math.round(cash * 100))} cash${names.length ? ` and ${names.join(', ')}` : ''} are back. Seasons no longer reset your money.`, null, now);
+  return { cash, holdings };
+}
+
 // Called on every tick.
 export function runCareer(state, now = Date.now()) {
   convertCoins(state, now);
   career(state);
   ensureSeason(state, now);
+  repairSeasonReset(state, now);
   runContests(state, now);
   if (!state.cardsV) { migrateBoosters(state, now); state.cardsV = 2; }
   runMarket(state, now);
