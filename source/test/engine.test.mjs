@@ -144,6 +144,42 @@ t('injury and bad news push price down, being cleared alone does not', () => {
   assert.ok(E.breakdown(st, a, now).inj < 0.9, 'no bounce just for being cleared');
 });
 
+t('back from injury: an ordinary first game earns back a little of the discount, a big one most of it', () => {
+  const run = (pts) => {
+    const st = buildNBA(); const a = st.assets['nba:p:12'];
+    a.rust = 0.72; // back from injured reserve
+    const lvl = a.perf.ema; const p0 = E.targetPrice(st, a, now);
+    E.applyFinalGame(st, 'nba', { id: `r${pts}`, date: now, preseason: false, teams: [{ id: '1', abbr: 'BOS', score: 100, home: true }, { id: '2', abbr: 'WAS', score: 90 }],
+      players: [{ id: '12', name: 'Role Player', pos: 'G', teamId: '2', line: { min: 30, pts: Math.max(0, lvl + pts), fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 } }] }, { now: now + 3 * HOUR });
+    return { move: E.targetPrice(st, a, now + 3 * HOUR) / p0 - 1, rust: a.rust ?? 1 };
+  };
+  const usual = run(0); const poor = run(-6); const great = run(15);
+  assert.ok(usual.move > 0.04 && usual.move < 0.13, `ordinary game: ${usual.move}`);
+  assert.ok(usual.rust < 0.85, 'most of the discount is still there after an ordinary game');
+  assert.ok(poor.move < 0.03, `poor game: ${poor.move}`);
+  assert.ok(great.move > 0.25 && great.rust > 0.85, `standout game: ${great.move} ${great.rust}`);
+});
+
+t('one-time fix: a return bounce from an ordinary game is scaled back, once', () => {
+  const st = buildNBA(); const a = st.assets['nba:p:12'];
+  const tc = now - 2 * DAY;
+  a.events = [{ t: tc, kind: 'injury', text: 'Cleared: back from "Injured Reserve"', pct: 0 }, { t: tc - 20 * DAY, kind: 'injury', text: 'Injured Reserve — Knee', pct: -0.28 }];
+  a.perf.last.unshift({ e: 'x', t: tc + DAY, gs: a.perf.ema, text: '20 PTS', line: null });
+  a.rust = 0.72 + 0.28 * 0.6; // what the old rule gave for an ordinary game
+  const p0 = E.targetPrice(st, a, now);
+  st.rustV = 1;
+  assert.ok(E.undoReturnBounce(st, now) === 1);
+  assert.ok(Math.abs(a.rust - (0.72 + 0.28 * 0.25)) < 0.02, `rust ${a.rust}`);
+  const drop = E.targetPrice(st, a, now) / p0 - 1;
+  assert.ok(drop < -0.08 && drop > -0.15, `price ${drop}`);
+  assert.equal(E.undoReturnBounce(st, now + 1000), 0, 'only once');
+  // Someone whose bounce was earned by a big game keeps it.
+  const st2 = buildNBA(); const b = st2.assets['nba:p:12'];
+  b.events = a.events.map((e) => ({ ...e })); b.perf.last.unshift({ e: 'y', t: tc + DAY, gs: b.perf.ema + 20, text: '40 PTS', line: null }); b.rust = 0.888; st2.rustV = 1;
+  assert.equal(E.undoReturnBounce(st2, now), 0);
+  assert.equal(b.rust, 0.888);
+});
+
 t('news shocks decay over time', () => {
   const st = buildNBA();
   const a = st.assets['nba:p:12'];

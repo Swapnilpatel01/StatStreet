@@ -608,8 +608,14 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       a.perf.ema = before == null ? newcomerLevel(state, league, grp, gs)
         : capStep(state, league, grp, before, before + alpha * (gs - before), game.preseason ? 1 / 3 : 1);
       a.perf.init = MODEL_V;
-      // Back from injury: a game at or above his usual level wins back most of the discount, a poor one very little.
-      if (a.rust != null && !a.injury) { a.rust += (1 - a.rust) * (before == null || gs >= before ? 0.6 : 0.1); if (a.rust > 0.985) delete a.rust; }
+      // Back from injury: each game wins back part of the discount, scaled by how well he played.
+      // An ordinary game earns a quarter of it (so a long absence takes a few games to shake off);
+      // only a standout game earns most of it, and a poor one almost nothing. (It used to be 60% for
+      // any game at his usual level, which for low-volume positions meant a quiet game jumped ~25%.)
+      if (a.rust != null && !a.injury) {
+        const share = before == null ? 0.25 : rustShare(surprise);
+        a.rust += (1 - a.rust) * share; if (a.rust > 0.985) delete a.rust;
+      }
       a.perf.n = Math.min(a.perf.n + 1, 20);
       a.perf.last.unshift({ e: game.id, t: game.date, gs: Math.round(gs * 10) / 10, text, opp, line: p.line });
       if (a.perf.last.length > 10) a.perf.last.length = 10;
@@ -1131,9 +1137,16 @@ export function repairNewcomers(state, now = Date.now()) {
 // One-time: re-read stored headlines with the current rules (who a story is about, and
 // "back from injury" counted as good news) and redo their effect on prices.
 // One-time: take back the bounce players already got for being cleared or upgraded while hurt.
+// How much of a back-from-injury discount one game wins back, from how far it beat his usual level
+// (in his own game-to-game standard deviations): a quarter for an ordinary game.
+export const rustShare = (surprise) => clamp(0.25 + 0.25 * surprise, 0.03, 0.6);
+
+export const RUST_V = 2;
 export function undoReturnBounce(state, now = Date.now()) {
-  if (state.rustV) return 0;
-  state.rustV = 1;
+  if ((state.rustV || 0) >= RUST_V) return 0;
+  const v = state.rustV || 0;
+  state.rustV = RUST_V;
+  if (v === 1) return rescaleReturnBounce(state, now);
   let n = 0;
   for (const a of Object.values(state.assets)) {
     if (a.kind !== 'player') continue;
@@ -1154,8 +1167,38 @@ export function undoReturnBounce(state, now = Date.now()) {
       const m = evs[0].text.match(/"(.+)"/); if (m) worst = Math.min(worst, injuryFactor(m[1], ''));
       // Games he has played since count toward winning it back.
       const since = (a.perf?.last || []).filter((g) => g.t > evs[0].t).reverse();
-      for (const g of since) worst += (1 - worst) * (a.perf.ema == null || g.gs >= a.perf.ema ? 0.6 : 0.1);
+      for (const g of since) worst += (1 - worst) * rustShare(gameSurprise(state, a, g));
       if (worst < 0.985) { withEvent(state, a, now, now, 'injury', 'Back from injury: price waits on his games', () => { a.rust = worst; }, { force: true }); n++; }
+    }
+  }
+  for (const lg of Object.keys(LEAGUES)) rebuildInjuryCache(state, lg);
+  return n;
+}
+// A past game's surprise, judged against his current level (close enough a few games later).
+function gameSurprise(state, a, g) {
+  if (a.perf?.ema == null || !Number.isFinite(g.gs)) return 0;
+  const own = a.perf.gn ?? gameNoise(state, a.league, posGroup(a.league, a.pos));
+  return (g.gs - a.perf.ema) / (own || 1);
+}
+// v2: players back from injury in the last month had won back 60% of the discount from any game
+// at their usual level. Work the discount out again with the new rule; prices only come down.
+function rescaleReturnBounce(state, now) {
+  let n = 0;
+  for (const a of Object.values(state.assets)) {
+    if (a.kind !== 'player' || a.injury) continue;
+    const evs = (a.events || []).filter((e) => e.kind === 'injury').sort((x, y) => y.t - x.t);
+    const ci = evs.findIndex((e) => /^Cleared: back from/.test(e.text));
+    if (ci < 0 || now - evs[ci].t > 30 * DAY) continue;
+    let worst = 1;
+    const m = evs[ci].text.match(/"(.+)"/); if (m) worst = Math.min(worst, injuryFactor(m[1], ''));
+    for (const e of evs.slice(ci + 1)) { if (/^Cleared: back from/.test(e.text)) break; if (!/^Outlook/.test(e.text)) worst = Math.min(worst, injuryFactor(String(e.text).split(' — ')[0], '')); }
+    if (worst >= 0.985) continue;
+    const since = (a.perf?.last || []).filter((g) => g.t > evs[ci].t - 6 * HOUR && !/\(preseason\)$/.test(g.text || '')).reverse();
+    for (const g of since) worst += (1 - worst) * rustShare(gameSurprise(state, a, g));
+    const cur = a.rust ?? 1;
+    if (worst < cur - 0.01) {
+      withEvent(state, a, now, now, 'injury', 'Return bounce scaled to how he has played', () => { if (worst < 0.985) a.rust = worst; else delete a.rust; }, { force: true });
+      n++;
     }
   }
   for (const lg of Object.keys(LEAGUES)) rebuildInjuryCache(state, lg);
