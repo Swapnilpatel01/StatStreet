@@ -3729,8 +3729,7 @@ function marketPill() {
   return `<button class="mkt ${m.state}" data-tab="games" aria-label="Market status: ${esc(m.text)}"><span class="dot"></span>${label} ${long ? '<span class="muted">·</span>' : ''}${txt}</button>`;
 }
 // ---------- season stats ----------
-// A player's stats for last season, this season and a projection for next season, with his
-// full career table under it. Loaded from ESPN when the page opens and kept for the session.
+// A player's stats for last season and this season, with his full career table under it. Loaded from ESPN when the page opens and kept for the session.
 const careerStats = new Map(); // asset id -> { t, cats, err, loading }
 function loadCareerStats(a, force = false) {
   if (!a || a.kind !== 'player' || STATIC) return;
@@ -3743,7 +3742,6 @@ function loadCareerStats(a, force = false) {
   }).catch((e) => careerStats.set(a.id, { ...(careerStats.get(a.id) || {}), t: Date.now(), err: e?.message || 'failed', loading: false }))
     .then(() => { const x = careerStats.get(a.id); if (x) x.loading = false; if (ui.detail === a.id) { const sec = $('#dinner .dsec[data-sec="stats"]'); if (sec) sec.innerHTML = statsTab(a, Date.now()); } });
 }
-const ageOf = (a) => { const f = (a.bio?.facts || []).find(([k]) => k === 'Age'); const n = f ? parseInt(f[1], 10) : NaN; return Number.isFinite(n) ? n : null; };
 function statsTab(a, now) {
   if (STATIC) return '<div class="card small muted" style="margin-top:14px">Season stats need a live data connection, which this snapshot version doesn\'t have.</div>';
   const c = careerStats.get(a.id);
@@ -3752,28 +3750,22 @@ function statsTab(a, now) {
     return `<div class="card" style="margin-top:14px"><b>${c.err === 'none' ? 'No season stats yet' : 'Couldn\'t load season stats'}</b><div class="small muted" style="margin-top:4px">${c.err === 'none' ? `ESPN has no season-by-season stats for ${esc(a.name)} yet, which is usual for a rookie before his first games.` : 'ESPN didn\'t answer. If this keeps happening, set up the data proxy in Account.'}</div>${c.err === 'none' ? '' : '<button class="btn ghost" data-act="retrystats" style="margin-top:10px">Try again</button>'}</div>`;
   }
   const cat = c.cats.find((x) => x.key === ui.scat) || c.cats[0];
-  const v = statsView(a.league, cat, { now, age: ageOf(a) });
-  const col = (r) => (r ? r.values : null);
-  const cols = [[v.lastName, 'Last', col(v.last)], [v.nowName, 'This', col(v.now)], [v.nextName, 'Next', col(v.next)]];
+  const v = statsView(a.league, cat, { now });
+  // Last season and this one. Next season only appears here once it has started (it becomes "this").
+  const cols = [[v.lastName, 'Last', v.last?.values], [v.nowName, 'This', v.now?.values]];
   const rows = cat.labels.map((lab, j) => [lab, cat.full?.[j] || lab, cols.map(([, , vals]) => (vals ? vals[j] : ''))])
     .filter(([, , vals]) => vals.some((x) => x != null && x !== ''));
-  // Arrow on the projection: where next season is heading compared with this one (or last).
-  // Next season against last season (both full seasons; this one may have only a few games).
-  // Green when the change is good for him: up for points, down for turnovers or ERA.
-  const cmp = (j, nx, inv) => { const base = num(v.last?.values[j]) ?? num(v.now?.values[j]); const p = num(nx); if (base == null || p == null || base === 0) return ''; const d = p / base - 1; if (Math.abs(d) < 0.03) return ''; return ` <span class="${(d > 0) !== inv ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'}</span>`; };
-  const inverse = (lab) => /^(TO|PF|INT|ERA|WHIP|BB|L|FUM|LOST|CS|ER|SO)$/i.test(lab) && cat.key !== 'batting'; // lower is better
   const yr = seasonYear(a.league, now);
   const career = cat.rows.slice().reverse();
   return `
     ${c.cats.length > 1 ? `<div class="chips tight" style="margin-top:12px">${c.cats.map((x) => `<button class="chip ${x.key === cat.key ? 'on' : ''}" data-scat="${esc(x.key)}">${esc(x.name.replace(/^Regular Season /, ''))}</button>`).join('')}</div>` : ''}
     <h3>Season by season</h3>
-    <div class="boxwrap"><table class="box sstat"><tr><th>Stat</th>${cols.map(([name, k], i) => `<th class="${i === 2 ? 'proj' : ''}">${k}<br><span class="faint">${esc(name)}${i === 2 ? ' P' : ''}</span></th>`).join('')}</tr>
-      ${rows.map(([lab, full, vals]) => { const j = cat.labels.indexOf(lab); return `<tr><td><b>${esc(lab)}</b>${full && full !== lab ? `<div class="tiny faint ellipsis">${esc(full)}</div>` : ''}</td>${vals.map((x, i) => `<td class="${i === 1 ? 'cur' : i === 2 ? 'proj' : ''}">${x === '' || x == null ? '<span class="faint">—</span>' : esc(x)}${i === 2 && x ? cmp(j, x, inverse(lab)) : ''}</td>`).join('')}</tr>`; }).join('')}
+    <div class="boxwrap"><table class="box sstat"><tr><th>Stat</th>${cols.map(([name, k]) => `<th>${k}<br><span class="faint">${esc(name)}</span></th>`).join('')}</tr>
+      ${rows.map(([lab, full, vals]) => `<tr><td><b>${esc(lab)}</b>${full && full !== lab ? `<div class="tiny faint ellipsis">${esc(full)}</div>` : ''}</td>${vals.map((x, i) => `<td class="${i === 1 ? 'cur' : ''}">${x === '' || x == null ? '<span class="faint">—</span>' : esc(x)}</td>`).join('')}</tr>`).join('')}
     </table></div>
-    <p class="tiny faint" style="margin:8px 2px 0">${v.now ? `This season is to date${v.now.gp != null ? ` (${v.now.gp} games)` : ''}. ` : `No ${esc(v.nowName)} games yet. `}<b>P</b> = StatStreet projection: his last three seasons weighted 5-4-3 (this season by how much of it is played)${ageOf(a) != null ? `, adjusted for age (${ageOf(a)})` : ''}. It's a guide, not a forecast.</p>
+    <p class="tiny faint" style="margin:8px 2px 0">${v.now ? `This season is to date${v.now.gp != null ? ` (${v.now.gp} game${v.now.gp === 1 ? '' : 's'})` : ''}.` : `No ${esc(v.nowName)} games yet.`}</p>
     <h3>Career</h3>
     <div class="boxwrap"><table class="box sstat career"><tr><th>Season</th>${cat.labels.map((l) => `<th>${esc(l)}</th>`).join('')}</tr>
-      ${v.next ? `<tr class="proj"><td><b>${esc(v.nextName)}</b> <span class="tiny faint">proj</span></td>${v.next.values.map((x) => `<td>${x ? esc(x) : '<span class="faint">—</span>'}</td>`).join('')}</tr>` : ''}
       ${career.map((r) => `<tr class="${r.year === yr ? 'cur' : ''}"><td><b>${esc(r.season)}</b>${r.abbr ? ` <span class="tiny faint">${esc(r.abbr)}</span>` : ''}</td>${r.values.map((x) => `<td>${esc(x)}</td>`).join('')}</tr>`).join('')}
       ${cat.totals?.length === cat.labels.length ? `<tr class="tot"><td><b>Career</b></td>${cat.totals.map((x) => `<td>${esc(x)}</td>`).join('')}</tr>` : ''}
     </table></div>`;

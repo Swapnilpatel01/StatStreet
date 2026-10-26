@@ -1,4 +1,5 @@
-// Player stats by season: last season, this season and a projection for next season.
+// Player stats by season: last season and this season, plus the full career table.
+// (projectNext() is kept for possible later use; the app doesn't show projections.)
 // Data is ESPN's per-athlete stats page (one row per season, per category such as
 // "Averages", "Passing" or "Batting"). Pure functions, so it can be tested in Node.
 
@@ -158,8 +159,8 @@ export function seasonShare(league, now = Date.now()) {
 export function statsView(league, cat, opts = {}) {
   const cur = seasonYear(league, opts.now);
   return {
-    last: seasonRow(cat, cur - 1), now: seasonRow(cat, cur), next: projectNext(league, cat, opts),
-    lastName: seasonName(league, cur - 1), nowName: seasonName(league, cur), nextName: seasonName(league, cur + 1),
+    last: seasonRow(cat, cur - 1), now: seasonRow(cat, cur),
+    lastName: seasonName(league, cur - 1), nowName: seasonName(league, cur),
   };
 }
 

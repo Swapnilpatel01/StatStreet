@@ -445,8 +445,8 @@ with sync_playwright() as p:
     page.screenshot(path=f'{OUT}/23b-tab-stats.png')
     assert page.locator('#dinner .dsec[data-sec=stats]').first.is_visible() and page.locator('#dinner .dsec[data-sec=research]').first.is_hidden()
     hdr = page.locator('#dinner .sstat >> nth=0').locator('th').all_inner_texts()
-    print('stats header:', [h.replace(chr(10), ' ') for h in hdr]); assert len(hdr) == 4 and 'Next' in hdr[3]
-    assert page.locator('#dinner .sstat.career tr.proj').count() == 1 and page.locator('#dinner .sstat.career tr').count() >= 6
+    print('stats header:', [h.replace(chr(10), ' ') for h in hdr]); assert len(hdr) == 3 and 'This' in hdr[2] and not any('Next' in h for h in hdr)
+    assert page.locator('#dinner .sstat.career tr.proj').count() == 0 and page.locator('#dinner .sstat.career tr').count() >= 5
     page.click('#dinner [data-scat=totals]'); page.wait_for_timeout(150)
     assert page.locator('#dinner .chip.on[data-scat=totals]').count() == 1 and page.locator('#dinner .dsec[data-sec=stats]').first.is_visible()
     page.click('.dtabs [data-dtab=overview]'); page.wait_for_timeout(100)

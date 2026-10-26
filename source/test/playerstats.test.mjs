@@ -41,11 +41,12 @@ t('a traded season uses the combined row', () => {
   assert.equal(P.seasonRow(avg, 2020), null);
 });
 
-t('last, this and next season; the projection leans on full seasons early in a new one', () => {
+t('last and this season; no next-season column; projection helper still sane', () => {
   const avg = P.parseCareerStats('nba', nbaJson)[0];
-  const v = P.statsView('nba', avg, { now, age: 27 });
-  assert.equal(v.lastName, '2025-26'); assert.equal(v.nowName, '2026-27'); assert.equal(v.nextName, '2027-28');
+  const v = P.statsView('nba', avg, { now });
+  assert.equal(v.lastName, '2025-26'); assert.equal(v.nowName, '2026-27'); assert.equal(v.next, undefined);
   assert.equal(v.last.values[17], '24.1'); assert.equal(v.now.values[17], '30.0');
+  v.next = P.projectNext('nba', avg, { now, age: 27 });
   const pts = Number(v.next.values[17]);
   assert.ok(pts > 22 && pts < 25.5, `3 hot games barely move it: ${pts}`);
   assert.match(v.next.values[3], /^\d+\.\d-\d+\.\d$/, 'made-attempted keeps its shape');
@@ -59,7 +60,7 @@ t('totals tables project a per-game rate times projected games (NFL)', () => {
   const labels = ['GP', 'CMP', 'ATT', 'CMP%', 'YDS', 'AVG', 'TD', 'INT', 'LNG', 'RTG'];
   const r = (year, gp, yds, td) => ({ season: { year }, stats: [String(gp), '300', '450', '66.7', yds, '7.5', td, '10', '75', '98.1'] });
   const cats = P.parseCareerStats('nfl', { categories: [{ name: 'passing', displayName: 'Passing', labels, names: labels, statistics: [r(2024, 17, '4,250', '30'), r(2025, 16, '4000', '28'), r(2026, 7, '1,900', '15')] }] });
-  const v = P.statsView('nfl', cats[0], { now });
+  const v = { next: P.projectNext('nfl', cats[0], { now }) };
   const g = Number(v.next.values[0]); assert.ok(g >= 15 && g <= 17, `games ${g}`);
   const yds = Number(v.next.values[4]); assert.ok(yds > 3900 && yds < 4700, `yards ${yds}`);
   assert.equal(v.next.values[3], '66.7'); assert.equal(v.next.values[9], '98.1');
@@ -70,7 +71,7 @@ t('MLB rates keep their format and age never pushes a rate', () => {
   const labels = ['GP', 'AB', 'H', 'HR', 'RBI', 'AVG', 'OBP', 'ERA'];
   const r = (year, gp, hr, avg) => ({ season: { year }, stats: [String(gp), '550', '160', hr, '90', avg, '.360', '-'] });
   const cats = P.parseCareerStats('mlb', { categories: [{ name: 'batting', labels, statistics: [r(2024, 150, '30', '.290'), r(2025, 155, '35', '.300'), r(2026, 160, '40', '.310')] }] });
-  const young = P.statsView('mlb', cats[0], { now, age: 23 }).next; const old = P.statsView('mlb', cats[0], { now, age: 36 }).next;
+  const young = P.projectNext('mlb', cats[0], { now, age: 23 }); const old = P.projectNext('mlb', cats[0], { now, age: 36 });
   assert.match(young.values[5], /^\.\d{3}$/); assert.equal(young.values[5], old.values[5]);
   assert.ok(Number(young.values[3]) > Number(old.values[3]), 'age moves volume');
   assert.equal(young.values[7], '', 'non-numbers left blank');
