@@ -436,11 +436,19 @@ with sync_playwright() as p:
     # player page: tabs, compare
     page.click('#tabbar [data-tab=market]'); page.wait_for_timeout(300)
     page.locator('#view .item[data-open^="nba:p:"]').first.click(); page.wait_for_timeout(600)
-    assert page.locator('.dtabs button').count() == 4
+    assert page.locator('.dtabs button').count() == 5
     assert page.locator('#dinner .research, #dinner .rs-tiles').first.is_hidden() if page.locator('#dinner .rs-tiles').count() else True
     page.click('.dtabs [data-dtab=research]'); page.wait_for_timeout(150)
     page.screenshot(path=f'{OUT}/23-tab-research.png')
     assert page.locator('#dinner .dsec[data-sec=overview]').first.is_hidden() and page.locator('#dinner .dsec[data-sec=research]').first.is_visible()
+    page.click('.dtabs [data-dtab=stats]'); page.wait_for_timeout(500)
+    page.screenshot(path=f'{OUT}/23b-tab-stats.png')
+    assert page.locator('#dinner .dsec[data-sec=stats]').first.is_visible() and page.locator('#dinner .dsec[data-sec=research]').first.is_hidden()
+    hdr = page.locator('#dinner .sstat >> nth=0').locator('th').all_inner_texts()
+    print('stats header:', [h.replace(chr(10), ' ') for h in hdr]); assert len(hdr) == 4 and 'Next' in hdr[3]
+    assert page.locator('#dinner .sstat.career tr.proj').count() == 1 and page.locator('#dinner .sstat.career tr').count() >= 6
+    page.click('#dinner [data-scat=totals]'); page.wait_for_timeout(150)
+    assert page.locator('#dinner .chip.on[data-scat=totals]').count() == 1 and page.locator('#dinner .dsec[data-sec=stats]').first.is_visible()
     page.click('.dtabs [data-dtab=overview]'); page.wait_for_timeout(100)
     page.click('#sheet [data-act=watch]'); page.wait_for_timeout(300)
     if page.locator('#wnote').count() == 0: page.click('#sheet [data-act=watch]'); page.wait_for_timeout(300)

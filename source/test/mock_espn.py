@@ -225,6 +225,16 @@ def handle(url):
     if 'byathlete' in u.path: return season_stats(lg, qs)
     if u.path.endswith('/scoreboard'): return scoreboard(lg, qs)
     if u.path.endswith('/summary'): return summary(lg, qs['event'][0])
+    if '/athletes/' in u.path and u.path.endswith('/stats'):
+        labels = ['GP', 'GS', 'MIN', 'FG', 'FG%', '3PT', '3P%', 'FT', 'FT%', 'REB', 'AST', 'BLK', 'STL', 'PF', 'TO', 'PTS']
+        def row(y, gp, pts, team='bos'):
+            return {'teamId': '1', 'teamSlug': team, 'season': {'year': y, 'displayName': f'{y-1}-{str(y)[2:]}'},
+                    'stats': [str(gp), str(gp), '33.5', '8.9-18.4', '48.3', '2.4-6.6', '36.4', '4.1-4.9', '83.7', '7.1', '5.2', '0.6', '1.1', '2.1', '2.8', pts]}
+        return {'categories': [
+            {'name': 'averages', 'displayName': 'Regular Season Averages', 'labels': labels, 'names': labels, 'displayNames': ['Games Played'] + labels[1:],
+             'statistics': [row(2024, 71, '21.2'), row(2025, 76, '23.9'), row(2026, 74, '25.4'), row(2027, 3, '28.0')], 'totals': [str(i) for i in range(len(labels))]},
+            {'name': 'totals', 'displayName': 'Regular Season Totals', 'labels': ['GP', 'PTS'], 'names': ['gamesPlayed', 'points'],
+             'statistics': [{'season': {'year': 2026}, 'stats': ['74', '1880']}]}]}
     if '/athletes/' in u.path and 'byathlete' not in u.path:
         return {'athlete': {'age': 27, 'displayHeight': "6' 6\"", 'displayWeight': '216 lbs', 'college': {'name': 'Duke'}, 'experience': {'years': 6}, 'displayDraft': '2020: Rd 1, Pk 3',
                             'statsSummary': {'displayName': 'Season', 'statistics': [{'shortDisplayName': 'PTS', 'displayValue': '27.1', 'rankDisplayValue': '5th'}, {'shortDisplayName': 'REB', 'displayValue': '8.0'}, {'shortDisplayName': 'AST', 'displayValue': '6.2'}]}}}

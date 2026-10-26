@@ -77,6 +77,8 @@ export const api = {
   injuries: (lg) => fetchJSON(`${SITE}/${P(lg)}/injuries`),
   // A player's profile (age, height, college, draft, experience). Optional: the page works without it.
   athlete: (lg, id) => get(`${WEB}/${P(lg)}/athletes/${id}`, 8000).catch((e) => { if (!proxyUrl) throw e; return get(`${proxyUrl}/?u=${encodeURIComponent(`${WEB}/${P(lg)}/athletes/${id}`)}`, 8000); }),
+  // A player's stats season by season (every category ESPN keeps for him).
+  athleteStats: (lg, id) => { const u = `${WEB}/${P(lg)}/athletes/${id}/stats`; return get(u, 9000).catch((e) => { if (!proxyUrl) throw e; return get(`${proxyUrl}/?u=${encodeURIComponent(u)}`, 9000); }); },
   seasonStats: (lg, { season, category, page = 1, limit = 200 } = {}) => {
     const q = new URLSearchParams({ seasontype: '2', limit: String(limit), page: String(page), isqualified: 'false' });
     if (season) q.set('season', season);

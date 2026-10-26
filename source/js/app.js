@@ -53,6 +53,7 @@ import {
   marketStatus, dividendCalendar, parseBio,
 } from './extras3.js';
 import { weekId } from './util.js';
+import { parseCareerStats, statsView, orderCats, seasonYear } from './playerstats.js';
 
 // ---------- state ----------
 
@@ -1692,7 +1693,7 @@ function openDetail(id) {
   const wasOpen = !!ui.detail;
   if (ui.game) $('#game').style.zIndex = ''; // the player page goes on top of the game
   ui.detail = id; ui.chartAnim = true;
-  loadBio(state.assets[id]);
+  loadBio(state.assets[id]); loadCareerStats(state.assets[id]);
   state.recentSearch = [id, ...(state.recentSearch || []).filter((x) => x !== id)].slice(0, 6);
   ui.scrub = false;
   try { history.pushState({ sheet: id }, ''); } catch { /* sandboxed frame */ }
@@ -1730,7 +1731,7 @@ function renderDetail({ keepScroll = true } = {}) {
   const watching = state.watch.includes(a.id);
   const alerting = state.alerts.some((x) => x.assetId === a.id);
   const news = state.news.filter((n) => (n.targets || []).includes(a.id)).slice(0, 14);
-  const dtab = a.kind === 'fund' && ui.dtab === 'cards' ? 'overview' : (ui.dtab || 'overview');
+  const dtab = (a.kind === 'fund' && ui.dtab === 'cards') || (a.kind !== 'player' && ui.dtab === 'stats') ? 'overview' : (ui.dtab || 'overview');
   const myOpts = Object.values(state.options).filter((o) => o.under === a.id);
   const myOrders = state.orders.filter((o) => o.assetId === a.id);
   const divEarned = state.divs.filter((d) => d.id === a.id).reduce((s, d) => s + d.amt, 0);
@@ -1754,7 +1755,7 @@ function renderDetail({ keepScroll = true } = {}) {
     <div class="chart-wrap" id="dchart"></div>
     <div class="ranges">${Object.keys(RANGES).map((rg) => `<button data-range="${rg}" class="${rg === ui.range ? 'on' : ''}">${rg}</button>`).join('')}</div>
 
-    <div class="dtabs">${[['overview', 'Overview'], ['research', 'Research'], ['news', `News${news.length ? ` <i>${news.length}</i>` : ''}`], ...(a.kind !== 'fund' ? [['cards', 'Cards']] : [])].map(([k, t]) => `<button data-dtab="${k}" class="${dtab === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+    <div class="dtabs">${[['overview', 'Overview'], ['research', 'Research'], ...(a.kind === 'player' ? [['stats', 'Stats']] : []), ['news', `News${news.length ? ` <i>${news.length}</i>` : ''}`], ...(a.kind !== 'fund' ? [['cards', 'Cards']] : [])].map(([k, t]) => `<button data-dtab="${k}" class="${dtab === k ? 'on' : ''}">${t}</button>`).join('')}</div>
     <div class="dsec" data-sec="overview">
     ${ipoCard(a)}
     ${a.live ? `<div class="card" style="margin-top:14px"><span class="tag live">LIVE</span> <b style="margin-left:6px">${esc(a.live.text)}</b></div>` : ''}
@@ -1817,6 +1818,7 @@ function renderDetail({ keepScroll = true } = {}) {
       ${Math.abs(b.imp) > 0.0005 ? `<div class="brk"><span>Your order flow</span><b class="${cls(b.imp)}">${fmtPct(b.imp, 1)}</b></div>` : ''}
     </div>` : ''}
 
+    </div><div class="dsec" data-sec="stats">${a.kind === 'player' ? statsTab(a, now) : ''}
     </div><div class="dsec" data-sec="news">
     ${news.length ? `<h3>News</h3><div class="list">${news.map((n) => `<a class="news" href="${esc(n.url)}" data-article="${esc(n.id)}">
       <div class="h">${esc(n.headline)}</div><div class="meta"><span class="senti ${(n.fx?.[a.id] || 0) > 0.12 ? 'up' : (n.fx?.[a.id] || 0) < -0.12 ? 'down' : 'flat'}">${(n.fx?.[a.id] || 0) > 0.12 ? 'Bullish' : (n.fx?.[a.id] || 0) < -0.12 ? 'Bearish' : 'Mention'}</span><span class="tiny faint">${timeAgo(n.published)}</span></div></a>`).join('')}</div>` : ''}
@@ -2451,6 +2453,7 @@ document.addEventListener('click', async (e) => {
   if (d.cmp != null && ui.page?.type === 'compare') { ui.page.b = d.cmp || null; ui.page.q = ''; renderPage(); $('#page').scrollTop = 0; if (!d.cmp) setTimeout(() => $('#pageq')?.focus(), 50); return; }
   if (d.cmprange && ui.page) { ui.page.range = d.cmprange; renderPage(); return; }
   if (d.gview) { setGview(d.gview); return; }
+  if (d.scat != null && ui.detail) { ui.scat = d.scat; const sec = $('#dinner .dsec[data-sec="stats"]'); const a = state.assets[ui.detail]; if (sec && a) sec.innerHTML = statsTab(a, Date.now()); return; }
   if (d.dtab) { ui.dtab = d.dtab; const inner = $('#dinner'); if (inner) { inner.dataset.dtab = d.dtab; inner.querySelectorAll('.dtabs button').forEach((b) => b.classList.toggle('on', b.dataset.dtab === d.dtab)); } return; }
   if (d.wfolder != null && ui.detail) { (state.watchMeta ||= {})[ui.detail] = { ...(state.watchMeta[ui.detail] || {}), folder: d.wfolder }; dirty = true; save(); renderDetail(); return; }
   if (d.chal) { try { answerChallenge(state, d.chal === 'yes'); dirty = true; save(); buzz(); toast('Locked in. Good luck!'); renderHome(); } catch (err) { toast(err.message); } return; }
@@ -2767,6 +2770,7 @@ document.addEventListener('click', async (e) => {
     case 'packdone':
       if (ui.packView && $('#packview').querySelectorAll('.pv-card:not(.flipped)').length) { $('#packview').querySelectorAll('.pv-card').forEach((x) => x.classList.add('flipped')); el.textContent = 'Done'; break; }
       ui.packView = null; $('#packview').hidden = true; $('#packview').innerHTML = ''; { const y = view().scrollTop; render(); view().scrollTop = y; } break;
+    case 'retrystats': { const a = state.assets[ui.detail]; if (a) { loadCareerStats(a, true); const sec = $('#dinner .dsec[data-sec="stats"]'); if (sec) sec.innerHTML = statsTab(a, Date.now()); } break; }
     case 'recapdone': career(state).recap = null; dirty = true; save(); $('#recap').hidden = true; ui.tab = 'games'; ui.gtab = 'season'; closeOverlays(); render(); view().scrollTop = 0; break;
     case 'sharepf': sharePortfolio().catch((err) => toast(err.message)); break;
     case 'shareasset': if (ui.detail) shareAsset(state.assets[ui.detail]).catch((err) => toast(err.message)); break;
@@ -3724,6 +3728,58 @@ function marketPill() {
   const txt = long ? `<span class="mq"><span class="mq-in" style="animation-duration:${dur}s;animation-delay:-${((Date.now() / 1000) % dur).toFixed(2)}s"><span>${esc(m.text)}</span><span aria-hidden="true">${esc(m.text)}</span></span></span>` : `<span class="muted">· ${esc(m.text)}</span>`;
   return `<button class="mkt ${m.state}" data-tab="games" aria-label="Market status: ${esc(m.text)}"><span class="dot"></span>${label} ${long ? '<span class="muted">·</span>' : ''}${txt}</button>`;
 }
+// ---------- season stats ----------
+// A player's stats for last season, this season and a projection for next season, with his
+// full career table under it. Loaded from ESPN when the page opens and kept for the session.
+const careerStats = new Map(); // asset id -> { t, cats, err, loading }
+function loadCareerStats(a, force = false) {
+  if (!a || a.kind !== 'player' || STATIC) return;
+  const c = careerStats.get(a.id);
+  if (c?.loading || (!force && c && Date.now() - c.t < (c.err ? 2 * 60e3 : 6 * HOUR))) return;
+  careerStats.set(a.id, { ...(c || {}), loading: true });
+  api.athleteStats(a.league, a.rid).then((j) => {
+    const cats = orderCats(a.league, parseCareerStats(a.league, j), a.pos);
+    careerStats.set(a.id, { t: Date.now(), cats, err: cats.length ? null : 'none' });
+  }).catch((e) => careerStats.set(a.id, { ...(careerStats.get(a.id) || {}), t: Date.now(), err: e?.message || 'failed', loading: false }))
+    .then(() => { const x = careerStats.get(a.id); if (x) x.loading = false; if (ui.detail === a.id) { const sec = $('#dinner .dsec[data-sec="stats"]'); if (sec) sec.innerHTML = statsTab(a, Date.now()); } });
+}
+const ageOf = (a) => { const f = (a.bio?.facts || []).find(([k]) => k === 'Age'); const n = f ? parseInt(f[1], 10) : NaN; return Number.isFinite(n) ? n : null; };
+function statsTab(a, now) {
+  if (STATIC) return '<div class="card small muted" style="margin-top:14px">Season stats need a live data connection, which this snapshot version doesn\'t have.</div>';
+  const c = careerStats.get(a.id);
+  if (!c || (c.loading && !c.cats)) return `<div style="margin-top:14px">${skelCards(2)}</div>`;
+  if (!c.cats?.length) {
+    return `<div class="card" style="margin-top:14px"><b>${c.err === 'none' ? 'No season stats yet' : 'Couldn\'t load season stats'}</b><div class="small muted" style="margin-top:4px">${c.err === 'none' ? `ESPN has no season-by-season stats for ${esc(a.name)} yet, which is usual for a rookie before his first games.` : 'ESPN didn\'t answer. If this keeps happening, set up the data proxy in Account.'}</div>${c.err === 'none' ? '' : '<button class="btn ghost" data-act="retrystats" style="margin-top:10px">Try again</button>'}</div>`;
+  }
+  const cat = c.cats.find((x) => x.key === ui.scat) || c.cats[0];
+  const v = statsView(a.league, cat, { now, age: ageOf(a) });
+  const col = (r) => (r ? r.values : null);
+  const cols = [[v.lastName, 'Last', col(v.last)], [v.nowName, 'This', col(v.now)], [v.nextName, 'Next', col(v.next)]];
+  const rows = cat.labels.map((lab, j) => [lab, cat.full?.[j] || lab, cols.map(([, , vals]) => (vals ? vals[j] : ''))])
+    .filter(([, , vals]) => vals.some((x) => x != null && x !== ''));
+  // Arrow on the projection: where next season is heading compared with this one (or last).
+  // Next season against last season (both full seasons; this one may have only a few games).
+  // Green when the change is good for him: up for points, down for turnovers or ERA.
+  const cmp = (j, nx, inv) => { const base = num(v.last?.values[j]) ?? num(v.now?.values[j]); const p = num(nx); if (base == null || p == null || base === 0) return ''; const d = p / base - 1; if (Math.abs(d) < 0.03) return ''; return ` <span class="${(d > 0) !== inv ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'}</span>`; };
+  const inverse = (lab) => /^(TO|PF|INT|ERA|WHIP|BB|L|FUM|LOST|CS|ER|SO)$/i.test(lab) && cat.key !== 'batting'; // lower is better
+  const yr = seasonYear(a.league, now);
+  const career = cat.rows.slice().reverse();
+  return `
+    ${c.cats.length > 1 ? `<div class="chips tight" style="margin-top:12px">${c.cats.map((x) => `<button class="chip ${x.key === cat.key ? 'on' : ''}" data-scat="${esc(x.key)}">${esc(x.name.replace(/^Regular Season /, ''))}</button>`).join('')}</div>` : ''}
+    <h3>Season by season</h3>
+    <div class="boxwrap"><table class="box sstat"><tr><th>Stat</th>${cols.map(([name, k], i) => `<th class="${i === 2 ? 'proj' : ''}">${k}<br><span class="faint">${esc(name)}${i === 2 ? ' P' : ''}</span></th>`).join('')}</tr>
+      ${rows.map(([lab, full, vals]) => { const j = cat.labels.indexOf(lab); return `<tr><td><b>${esc(lab)}</b>${full && full !== lab ? `<div class="tiny faint ellipsis">${esc(full)}</div>` : ''}</td>${vals.map((x, i) => `<td class="${i === 1 ? 'cur' : i === 2 ? 'proj' : ''}">${x === '' || x == null ? '<span class="faint">—</span>' : esc(x)}${i === 2 && x ? cmp(j, x, inverse(lab)) : ''}</td>`).join('')}</tr>`; }).join('')}
+    </table></div>
+    <p class="tiny faint" style="margin:8px 2px 0">${v.now ? `This season is to date${v.now.gp != null ? ` (${v.now.gp} games)` : ''}. ` : `No ${esc(v.nowName)} games yet. `}<b>P</b> = StatStreet projection: his last three seasons weighted 5-4-3 (this season by how much of it is played)${ageOf(a) != null ? `, adjusted for age (${ageOf(a)})` : ''}. It's a guide, not a forecast.</p>
+    <h3>Career</h3>
+    <div class="boxwrap"><table class="box sstat career"><tr><th>Season</th>${cat.labels.map((l) => `<th>${esc(l)}</th>`).join('')}</tr>
+      ${v.next ? `<tr class="proj"><td><b>${esc(v.nextName)}</b> <span class="tiny faint">proj</span></td>${v.next.values.map((x) => `<td>${x ? esc(x) : '<span class="faint">—</span>'}</td>`).join('')}</tr>` : ''}
+      ${career.map((r) => `<tr class="${r.year === yr ? 'cur' : ''}"><td><b>${esc(r.season)}</b>${r.abbr ? ` <span class="tiny faint">${esc(r.abbr)}</span>` : ''}</td>${r.values.map((x) => `<td>${esc(x)}</td>`).join('')}</tr>`).join('')}
+      ${cat.totals?.length === cat.labels.length ? `<tr class="tot"><td><b>Career</b></td>${cat.totals.map((x) => `<td>${esc(x)}</td>`).join('')}</tr>` : ''}
+    </table></div>`;
+}
+const num = (s) => { const t = String(s ?? '').replace(/,/g, ''); return /^-?(\d+\.?\d*|\.\d+)$/.test(t) ? Number(t) : null; };
+
 // ---------- about ----------
 const bioLoading = new Set();
 function loadBio(a) {
