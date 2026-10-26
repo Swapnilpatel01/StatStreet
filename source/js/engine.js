@@ -369,9 +369,15 @@ function playerFair(state, a) {
 }
 
 // Per-game spread of game scores around a player's own level, by position group.
+// Learned from every game at the position, but never below the starting value: the learning is
+// dominated by backups whose games barely vary, which had shrunk it to about half, so one
+// touchdown by a low-usage player read as a 2-3 sd surprise and hit the +25% cap.
 export function gameNoise(state, league, group) {
-  return state.gnoise?.[league]?.[group] ?? GAME_NOISE[league]?.[group] ?? 4;
+  const d = GAME_NOISE[league]?.[group] ?? 4;
+  const l = state.gnoise?.[league]?.[group];
+  return l > d ? l : d;
 }
+const rawNoise = (state, league, group) => state.gnoise?.[league]?.[group] ?? GAME_NOISE[league]?.[group] ?? 4;
 function learnNoise(state, league, group, diff) {
   const g = gameNoise(state, league, group);
   const d = clamp(Math.abs(diff), 0, 4 * g);
@@ -1202,6 +1208,51 @@ function rescaleReturnBounce(state, now) {
     }
   }
   for (const lg of Object.keys(LEAGUES)) rebuildInjuryCache(state, lg);
+  return n;
+}
+
+// One-time fix (v122) for the last game each player played under the shrunken noise:
+//  - the game's effect on his level is worked out again with the floored noise (both ways:
+//    big jumps come down, and big drops after a poor game come back up);
+//  - a back-from-injury bounce that carried an older, bigger discount (IR, then "Questionable",
+//    then cleared) is scaled to how he played, which the v121 fix missed.
+export const GAME_FIX_V = 1;
+export function repairLastGames(state, now = Date.now()) {
+  if ((state.gameFixV || 0) >= GAME_FIX_V) return 0;
+  state.gameFixV = GAME_FIX_V;
+  let n = 0;
+  for (const a of Object.values(state.assets)) {
+    if (a.kind !== 'player' || !a.perf || a.perf.ema == null) continue;
+    const g = a.perf.last?.[0];
+    if (!g || !Number.isFinite(g.gs) || now - g.t > 4 * DAY || /\(preseason\)$/.test(g.text || '')) continue;
+    const grp = posGroup(a.league, a.pos);
+    const sd = state.stats[a.league]?.[grp]?.sd;
+    if (!sd) continue;
+    const aOld = clamp(TARGET_MOVE[a.league] * sd / (zSlope(a.league) * rawNoise(state, a.league, grp)), 0.01, 0.35);
+    const aNew = groupAlpha(state, a.league, grp);
+    const max = (MAX_GAME_LN / zSlope(a.league)) * sd;
+    // His level before the game, from his level after it: after = before + alpha (gs - before), capped.
+    let before = (a.perf.ema - aOld * g.gs) / (1 - aOld);
+    if (Math.abs(a.perf.ema - before) > max + 1e-9) before = a.perf.ema - Math.sign(a.perf.ema - before) * max;
+    const fixedEma = Math.abs(aNew - aOld) > 1e-6 ? capStep(state, a.league, grp, before, before + aNew * (g.gs - before)) : a.perf.ema;
+    // The injury bounce: work out his discount before the game from what the old rule left.
+    let rust = a.rust;
+    const evs = (a.events || []).filter((e) => e.t <= g.t + 12 * HOUR).sort((x, y) => y.t - x.t);
+    const lastGame = evs.findIndex((e) => e.kind === 'game' && e.t < g.t - HOUR);
+    const cleared = evs.slice(0, lastGame < 0 ? evs.length : lastGame).some((e) => /^Cleared: back from/.test(e.text));
+    const touched = (a.events || []).some((e) => /^Return bounce scaled/.test(e.text) && e.t > g.t);
+    if (cleared && !touched && a.rust != null && a.rust < 0.985) {
+      const r60 = (a.rust - 0.6) / 0.4; const r10 = (a.rust - 0.1) / 0.9;
+      const rb = r60 >= 0.6 ? r60 : r10;
+      const own = a.perf.gn ?? gameNoise(state, a.league, grp);
+      rust = rb + (1 - rb) * rustShare((g.gs - before) / (own || 1));
+    }
+    if (Math.abs(fixedEma - a.perf.ema) < 1e-6 && rust === a.rust) continue;
+    withEvent(state, a, now, now, 'game', `Last game re-priced: ${g.text.replace(/ vs [A-Z]+( \(preseason\))?$/, '')}`, () => {
+      a.perf.ema = fixedEma; if (rust != null) { if (rust > 0.985) delete a.rust; else a.rust = rust; }
+    }, { minPct: 0.005 });
+    n++;
+  }
   return n;
 }
 

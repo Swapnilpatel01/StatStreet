@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup, storyBlocks, parseScoreboard, parseBoxScore, lineText, gameScore } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown, spanFrom,
-  leagueIndex, rebuildInjuryCache, formRating, gameRating, ratedGames, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, undoReturnBounce, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
+  leagueIndex, rebuildInjuryCache, formRating, gameRating, ratedGames, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, undoReturnBounce, repairLastGames, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -4529,6 +4529,7 @@ function afterLoad() {
     repairNewcomers(state, Date.now());
     rescoreNews(state, Date.now());
     if (undoReturnBounce(state, Date.now())) dirty = true;
+    if (repairLastGames(state, Date.now())) dirty = true;
     if ((state.histV || 1) < HIST_V) resetHistory(state, Date.now()); // charts from the old pricing model
     ensureFunds(state, Date.now());
   }

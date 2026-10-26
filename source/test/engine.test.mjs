@@ -180,6 +180,43 @@ t('one-time fix: a return bounce from an ordinary game is scaled back, once', ()
   assert.equal(b.rust, 0.888);
 });
 
+t('learned game noise never drops below its starting value', () => {
+  const st = buildNBA();
+  st.gnoise = { nba: { ALL: 3 } };
+  assert.equal(E.gameNoise(st, 'nba', 'ALL'), 7.5);
+  st.gnoise.nba.ALL = 9; assert.equal(E.gameNoise(st, 'nba', 'ALL'), 9);
+});
+
+t('one-time fix: the last game under the shrunken noise is re-priced, both ways, once', () => {
+  const play = (pts, { rust } = {}) => {
+    const st = buildNBA(); const a = st.assets['nba:p:12'];
+    st.gnoise = { nba: { ALL: 3.5 } }; // what the learning had shrunk it to
+    const grp = 'ALL'; const sd = st.stats.nba[grp].sd;
+    const aOld = Math.min(0.35, 0.06 * sd / (0.75 * 3.5));
+    const before = a.perf.ema; const gs = before + pts; const t = now - 20 * HOUR;
+    const max = Math.log(1.25) / 0.75 * sd;
+    a.perf.ema = before + Math.max(-max, Math.min(max, aOld * (gs - before))); // what the old code did
+    a.perf.last.unshift({ e: 'g', t, gs, text: `${Math.round(gs)} PTS vs MIN` });
+    a.events = [{ t, kind: 'game', text: 'x', pct: 0.2 }];
+    if (rust) { a.rust = rust; a.events.push({ t: t - 2 * DAY, kind: 'injury', text: 'Cleared: back from "Questionable"', pct: 0 }); }
+    E.repriceLeague(st, 'nba', now);
+    const p0 = E.targetPrice(st, a, now);
+    E.repairLastGames(st, now);
+    const right = before + 0.06 * sd / (0.75 * 7.5) * (gs - before);
+    return { a, st, move: E.targetPrice(st, a, now) / p0 - 1, right };
+  };
+  const td = play(+9); // a fluky big game
+  assert.ok(Math.abs(td.a.perf.ema - td.right) < 0.01, `level as the floored noise gives it: ${td.a.perf.ema} vs ${td.right}`);
+  assert.ok(td.move < -0.05, `jump comes down: ${td.move}`);
+  const poor = play(-9);
+  assert.ok(poor.move > 0.05, `drop comes back up: ${poor.move}`);
+  assert.equal(E.repairLastGames(td.st, now + 1000), 0, 'only once');
+  // IR discount carried through a "Questionable" listing, then a 60% bounce for an ordinary game.
+  const ret = play(0, { rust: 0.748 + 0.252 * 0.6 });
+  assert.ok(Math.abs(ret.a.rust - (0.748 + 0.252 * 0.25)) < 0.01, `rust ${ret.a.rust}`);
+  assert.ok(ret.move < -0.08, `bounce scaled back: ${ret.move}`);
+});
+
 t('news shocks decay over time', () => {
   const st = buildNBA();
   const a = st.assets['nba:p:12'];
