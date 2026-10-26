@@ -339,12 +339,12 @@ with sync_playwright() as p:
     # --- persistence
     page.wait_for_timeout(500); page.reload(); page.wait_for_timeout(1500)
     saved = page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
-        return await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { const s = g.result; r({h: Object.keys(s.holdings).length, o: Object.keys(s.options).length, a: s.alerts.length, drip: s.settings.drip, funds: Object.keys(s.assets).filter(k => k.startsWith('fund:')).length}); }; }); })()""")
+        return await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { const s = g.result._json ? JSON.parse(g.result._json) : g.result; r({h: Object.keys(s.holdings).length, o: Object.keys(s.options).length, a: s.alerts.length, drip: s.settings.drip, funds: Object.keys(s.assets).filter(k => k.startsWith('fund:')).length}); }; }); })()""")
     print('saved after reload:', saved); assert saved['h'] == 2 and saved['o'] == 1 and saved['a'] == 1 and saved['drip'] and saved['funds'] >= 3
 
     # --- booster cards: open a pack, boost a stock, buy from the market, auction one
     page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
-        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
+        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { const x = g.result; r(x && x._json ? { ...JSON.parse(x._json), _hist: x._hist } : x); }; });
         s.cash = 500000;
         await new Promise(r => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(s, 'state'); t.oncomplete = r; }); })()""")
     page.reload(); page.wait_for_timeout(2500)
@@ -386,7 +386,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(3000)
     nw_before = page.evaluate("""(async () => {
         const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
-        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
+        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { const x = g.result; r(x && x._json ? { ...JSON.parse(x._json), _hist: x._hist } : x); }; });
         s.modelV = 1; s.histV = 1; for (const lg of Object.keys(s.sync)) { delete s.sync[lg].priorV; }
         let nw = s.cash;
         for (const a of Object.values(s.assets)) { if (a.kind === 'fund') continue; a.price = Math.round(a.price * 0.4 * 100) / 100; }
@@ -401,13 +401,13 @@ with sync_playwright() as p:
     print('upgrade: options value dropped from estimate; net worth', round(nw_before, 2), '->', nw_after, 'notice:', note)
     assert note >= 1
     flat = page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
-        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
+        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { const x = g.result; r(x && x._json ? { ...JSON.parse(x._json), _hist: x._hist } : x); }; });
         return [s.histV, Math.max(...s._hist.lens.filter((_, i) => !s._hist.ids[i].startsWith('fund:')))]; })()""")
     print('charts restarted (histV, longest player history):', flat); assert flat[0] == 2 and flat[1] < 40
 
     # --- the one-time $5 fresh start for older saves; cards go when shares are sold
     page.evaluate("""(async () => { const db = await new Promise(r => { const q = indexedDB.open('statstreet', 1); q.onsuccess = () => r(q.result); });
-        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => r(g.result); });
+        const s = await new Promise(r => { const g = db.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { const x = g.result; r(x && x._json ? { ...JSON.parse(x._json), _hist: x._hist } : x); }; });
         s.settings.startCashV = 1; s.collection['nba:t:2'] = { first: 1, peak: 50 };
         await new Promise(r => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(s, 'state'); t.oncomplete = r; }); })()""")
     page.reload(); page.wait_for_timeout(3000)

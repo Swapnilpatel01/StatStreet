@@ -181,28 +181,42 @@ async function refresh(state, league, progress, now, { liveOnly = false } = {}) 
   const L = LEAGUES[league];
   const s = state.sync[league];
   const from = liveOnly ? now - 6 * HOUR : Math.max((s.scoreboard || now) - DAY, now - 10 * DAY);
+  // Everything that doesn't depend on the scores starts at once, alongside them, instead of
+  // waiting its turn: on a phone each round trip is the slow part of opening the app.
+  const side = liveOnly ? null : Promise.all([
+    newsAndInjuries(state, league, now, false),
+    loadSchedule(state, league, now),
+  ]);
+  const standingsJson = liveOnly ? null : api.standings(league).catch(() => null);
   const events = await loadScoreboards(league, from, now);
   const finals = events.filter((e) => e.completed && !state.games[e.id]?.final);
-  if (finals.length) {
-    const boxed = await withBox(league, finals, progress, `${L.name}: new results`);
-    for (const g of boxed) {
-      if (!g || g.error) continue;
-      applyFinalGame(state, league, g, { now, at: Math.min(now, g.date + L.gameHours * HOUR) });
-    }
+  const live = events.filter((e) => e.state === 'in');
+  // New results and live games' box scores load together.
+  const [boxed, liveBoxed] = await Promise.all([
+    finals.length ? withBox(league, finals, progress, `${L.name}: new results`) : [],
+    withBox(league, live),
+  ]);
+  for (const g of boxed) {
+    if (!g || g.error) continue;
+    applyFinalGame(state, league, g, { now, at: Math.min(now, g.date + L.gameHours * HOUR) });
   }
-  const liveCount = await liveGames(state, league, events, now);
+  for (const g of liveBoxed) if (g && !g.error) applyLiveGame(state, league, g, { now });
   if (!liveOnly) {
-    // Standings after games so a just-finished game isn't counted twice. The rest in parallel.
-    await Promise.all([
-      loadStandings(state, league).then(() => { s.standings = now; }).catch(() => { /* keep last */ }),
-      newsAndInjuries(state, league, now, false),
-      loadSchedule(state, league, now),
-    ]);
+    // Standings are applied after the games so a just-finished game isn't counted twice.
+    const json = await standingsJson;
+    if (json) {
+      try {
+        for (const t of parseStandings(league, json)) upsertTeam(state, league, t);
+        const season = findSeason(json); if (season) s.season = season;
+        s.standings = now;
+      } catch { /* keep last */ }
+    }
+    await side;
     s.scoreboard = now;
   }
   clearStaleLive(state, now);
   repriceLeague(state, league, now, { record: false });
-  return { finals: finals.length, live: liveCount };
+  return { finals: finals.length, live: live.length };
 }
 
 export async function syncLeague(state, league, { progress = () => {}, now = Date.now(), liveOnly = false } = {}) {

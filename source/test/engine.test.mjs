@@ -329,6 +329,18 @@ t('chart gaps from time away are filled with market wiggle; real points and jump
   assert.equal(E.fillGaps(st, t0 + 22 * H), 0, 'filling twice changes nothing');
 });
 
+t('gap filling only looks at the part of the chart since the last fill', () => {
+  const st = E.newState(100); const t0 = 1e12; const H = 3600e3;
+  st.assets.x = { id: 'x', kind: 'player', league: 'nba', hist: [t0, 10, t0 + 60e3, 10, t0 + 9 * H, 10.2] };
+  assert.equal(E.fillGaps(st, t0 + 10 * H), 1);
+  const before = st.assets.x.hist.slice();
+  st.assets.x.hist.push(t0 + 15 * H, 10.5); // the app was closed again
+  assert.equal(E.fillGaps(st, t0 + 16 * H), 1, 'only the new gap');
+  assert.deepEqual(st.assets.x.hist.slice(0, before.length), before, 'earlier chart untouched');
+  st.assets.x.hist = [t0, 10, t0 + 5 * H, 11]; // charts restarted: a fill mark past the chart is ignored
+  assert.equal(E.fillGaps(st, t0 + 6 * H), 1);
+});
+
 t('ratings over 7 days, 30 days and the season stay on the 0-15 scale', () => {
   const st = E.newState(100); st.stats = { nba: { ALL: { mu: 20, sd: 6 } } };
   const now = 1.8e12; const D = 86400e3;

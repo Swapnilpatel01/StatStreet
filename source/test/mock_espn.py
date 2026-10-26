@@ -23,6 +23,20 @@ PLAYERS = {
             ('33039', 'Mookie Betts', 'SS', '19', None), ('41292', 'Yandy Diaz', '1B', '30', None), ('42140', 'Rafael Devers', '3B', '2', None)],
 }
 PATH = {'basketball/nba': 'nba', 'football/nfl': 'nfl', 'baseball/mlb': 'mlb'}
+
+# SCALE=1 (perf testing): real-league sizes — 30 teams, full rosters, a real day's slate of games.
+SCALE = os.environ.get('SCALE') == '1'
+if SCALE:
+    _roster = {'nba': (15, ['G', 'F', 'C']), 'nfl': (40, ['QB', 'RB', 'WR', 'WR', 'TE', 'DT', 'DT', 'DT']), 'mlb': (26, ['RF', '1B', 'SS', '3B', 'C', 'SP', 'SP', 'CF'])}
+    for _lg, (_n, _pos) in _roster.items():
+        _base = list(TEAMS[_lg])
+        TEAMS[_lg] = _base + [(str(900 + i), f'T{i:02d}', f'Team {i}') for i in range(30 - len(_base))]
+        _have = {}
+        for p in PLAYERS[_lg]: _have[p[3]] = _have.get(p[3], 0) + 1
+        for _ti, (_tid, _ab, _nm) in enumerate(TEAMS[_lg]):
+            for _k in range(_have.get(_tid, 0), _n):
+                PLAYERS[_lg].append((f'{_lg[0]}{_ti:02d}{_k:02d}9', f'Player {_ab}{_k}', _pos[_k % len(_pos)], _tid, (8 + (_k * 7) % 22) if _lg == 'nba' else None))
+GAMES_PER_DAY = {'nba': 8, 'nfl': 14, 'mlb': 12} if SCALE else None
 TODAY_ET = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-4))).strftime('%Y%m%d')
 
 
@@ -79,7 +93,8 @@ def season_stats(lg, qs):
 
 def event_for(lg, date, idx, state):
     t = TEAMS[lg]
-    a, b = t[idx % 4], t[(idx + 1) % 4]
+    n = len(t) if SCALE else 4
+    a, b = (t[(2 * idx) % n], t[(2 * idx + 1) % n]) if SCALE else (t[idx % 4], t[(idx + 1) % 4])
     eid = f'{lg}{date}{idx}'
     r = random.Random(eid)
     sa, sb = r.randint(80, 130) if lg == 'nba' else r.randint(3, 35) if lg == 'nfl' else r.randint(0, 9), 0
@@ -98,6 +113,11 @@ def event_for(lg, date, idx, state):
 
 def scoreboard(lg, qs):
     date = qs.get('dates', [TODAY_ET])[0]
+    if SCALE:
+        n = GAMES_PER_DAY[lg]
+        if lg == 'nfl' and datetime.datetime.strptime(date, '%Y%m%d').weekday() != 6: return {'events': []}
+        if date > TODAY_ET: return {'events': [event_for(lg, date, i, 'pre') for i in range(n)]}
+        return {'events': [event_for(lg, date, i, 'in' if date == TODAY_ET and i < 2 else 'pre' if date == TODAY_ET and i > n // 2 else 'post') for i in range(n)]}
     if date > TODAY_ET: return {'events': [event_for(lg, date, 0, 'pre'), event_for(lg, date, 2, 'pre')]}
     evs = [event_for(lg, date, 0, 'post')]
     if date == TODAY_ET: evs.append(event_for(lg, date, 2, 'in'))
@@ -127,8 +147,14 @@ def summary(lg, eid):
 def _summary(lg, eid):
     r = random.Random(eid)
     sides = {}
+    playing = None
+    if SCALE:
+        m = re.match(r'[a-z]+(\d{8})(\d+)$', eid)
+        if m:
+            t = TEAMS[lg]; i = int(m.group(2))
+            playing = {t[(2 * i) % len(t)][0], t[(2 * i + 1) % len(t)][0]}
     for pid, name, pos, team, ppg in PLAYERS[lg]:
-        sides.setdefault(team, []).append((pid, name, pos))
+        if playing is None or team in playing: sides.setdefault(team, []).append((pid, name, pos))
     players = []
     for team, plist in sides.items():
         stats = []

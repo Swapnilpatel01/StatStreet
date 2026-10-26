@@ -971,9 +971,20 @@ export function fillGaps(state, now = Date.now(), rnd = gauss) {
   for (const a of Object.values(state.assets)) {
     const h = a.hist;
     if (!h || h.length < 4) continue;
+    // Only look at the stretch since the last fill: everything before it was filled already.
+    // (Scanning every chart in full on each refresh was most of the work after opening the app.)
+    const lastT = h[h.length - 2];
+    let i0 = 2;
+    if (a.gapT && a.gapT <= lastT) {
+      let lo = 0; let hi = (h.length >> 1) - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (h[mid * 2] < a.gapT) lo = mid + 1; else hi = mid; }
+      i0 = Math.max(2, lo * 2);
+    }
+    a.gapT = lastT;
+    if (i0 >= h.length) continue;
     let out = null;
     const sigma = a.kind === 'fund' ? 0.005 : a.kind === 'team' ? 0.01 : 0.02;
-    for (let i = 2; i < h.length; i += 2) {
+    for (let i = i0; i < h.length; i += 2) {
       const t0 = h[i - 2]; const p0 = h[i - 1]; const t1 = h[i]; const p1 = h[i + 1];
       if (out) out.push(t0, p0);
       const gap = t1 - t0;
@@ -1054,7 +1065,7 @@ export const HIST_V = 2;
 export function resetHistory(state, now = Date.now()) {
   for (const a of Object.values(state.assets)) {
     if (a.kind === 'fund') continue;
-    a.hist = [now - 60e3, a.price, now, a.price];
+    a.hist = [now - 60e3, a.price, now, a.price]; delete a.gapT;
     a.events = (a.events || []).map((e) => ({ ...e, pct: 0 })).filter((e) => e.kind === 'injury' || now - e.t < 3 * DAY);
   }
   state.histV = HIST_V;
@@ -1111,7 +1122,7 @@ export function repairNewcomers(state, now = Date.now()) {
   });
   for (const a of Object.values(state.assets)) if (a.kind === 'player' && old.get(a.id) > 0 && Math.abs(a.price / old.get(a.id) - 1) > 0.02) fixed.push(a);
   for (const a of fixed) {
-    a.hist = [now - 60e3, a.price, now, a.price];
+    a.hist = [now - 60e3, a.price, now, a.price]; delete a.gapT;
     a.events = (a.events || []).map((e) => ({ ...e, pct: 0 }));
   }
   return fixed.length;

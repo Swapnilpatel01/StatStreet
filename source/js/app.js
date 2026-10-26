@@ -69,6 +69,7 @@ const STATIC = typeof window !== 'undefined' && !!window.STATIC_SNAPSHOT; // hos
 const RANGES = { '1D': DAY, '1W': 7 * DAY, '1M': 30 * DAY, '3M': 90 * DAY, ALL: 3650 * DAY };
 const SHARES_OUT = { player: 1e6, team: 5e6 };
 let syncing = false; let syncError = ''; let dirty = false;
+let pxDirty = false; let lastSave = Date.now(); // prices moved, nothing else: saved now and then, not every 30s
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -404,7 +405,8 @@ const rollLast = new Map();
 function roll(el, v, key) {
   const from = rollLast.get(key); rollLast.set(key, v);
   cancelAnimationFrame(el._raf);
-  if (from == null || from === v || document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = money(v); return; }
+  // Small moves (every price tick) just update: animating them repainted the page ~25 times every 4 seconds.
+  if (from == null || from === v || Math.abs(v - from) < Math.abs(from) * 0.0025 || document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = money(v); return; }
   const t0 = performance.now();
   const step = (t) => { const k = Math.min(1, (t - t0) / 420); el.textContent = money(from + (v - from) * (1 - (1 - k) ** 3)); if (k < 1) el._raf = requestAnimationFrame(step); };
   el.textContent = money(from); el._raf = requestAnimationFrame(step);
@@ -415,8 +417,9 @@ function updateNwHeader(now = Date.now()) {
   const nw = netWorth(state, now); const ref = nwAt(spanFrom(now, RANGES[ui.homeRange])) ?? state.startCash; const ch = nw - ref;
   roll(nwEl, nw, 'nw');
   const c = $('[data-nwc]');
-  c.className = `change-line ${cls(ch)}`;
-  c.innerHTML = `${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} (${fmtPct(ref ? ch / ref : 0)}) <span class="muted">${rangeLabel(ui.homeRange)}</span>`;
+  const cn = `change-line ${cls(ch)}`; const html = `${ch >= 0 ? '▲' : '▼'} ${money(Math.abs(ch))} (${fmtPct(ref ? ch / ref : 0)}) <span class="muted">${rangeLabel(ui.homeRange)}</span>`;
+  if (c.className !== cn) c.className = cn;
+  if (c._html !== html) { c.innerHTML = html; c._html = html; }
 }
 
 function marketItems() {
@@ -2384,7 +2387,13 @@ function render() {
 }
 
 // Re-render whatever is on top, without jumping scroll or interrupting a gesture.
+// Several leagues finish within moments of each other: redraw once for all of them.
+function queueRefresh(ms = 300) {
+  clearTimeout(queueRefresh.t);
+  queueRefresh.t = setTimeout(softRefresh, ms);
+}
 function softRefresh() {
+  clearTimeout(queueRefresh.t);
   if (ui.order) { refreshBadge(); return; }
   // Never swap out content under a finger: the rest of the gesture would be lost.
   if (ui.touching || Date.now() - ui.lastScroll < 900) { clearTimeout(softRefresh.t); softRefresh.t = setTimeout(softRefresh, 900); return; }
@@ -2402,21 +2411,28 @@ function softRefresh() {
 // Cheap refresh of numbers on screen between full renders.
 function updateNumbers() {
   const now = Date.now();
+  // Read first, then write, so the browser lays the page out once rather than once per price.
+  const changed = [];
   document.querySelectorAll('[data-p]').forEach((el) => {
     const a = state.assets[el.dataset.p]; if (!a) return;
     const txt = money(a.price);
-    if (el.textContent !== txt) {
-      const upTick = a.price >= parseFloat(el.textContent.replace(/[^0-9.\-]/g, ''));
-      el.textContent = txt;
-      el.style.transition = 'none'; el.style.color = `var(--${upTick ? 'up' : 'down'})`;
-      requestAnimationFrame(() => { el.style.transition = 'color 1.2s'; el.style.color = ''; });
-    }
+    if (el.textContent !== txt) changed.push([el, txt, a.price >= parseFloat(el.textContent.replace(/[^0-9.\-]/g, ''))]);
+  });
+  const vh = window.innerHeight;
+  const seen = changed.map(([el]) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < vh && r.width > 0; });
+  changed.forEach(([el, txt, upTick], i) => {
+    el.textContent = txt;
+    if (!seen[i]) return; // only flash prices you can see
+    // A flash, not a fade: a colour fade redraws the whole list every frame for a second after every tick.
+    el.style.transition = 'none'; el.style.color = `var(--${upTick ? 'up' : 'down'})`;
+    clearTimeout(el._flash); el._flash = setTimeout(() => { el.style.color = ''; }, 900);
   });
   document.querySelectorAll('[data-c]').forEach((el) => {
     const a = state.assets[el.dataset.c]; if (!a) return;
     const ch = change(a, now, RANGES[el.dataset.r || '1D']);
-    el.textContent = fmtPct(ch);
-    el.className = el.dataset.plain ? `small ${cls(ch)}` : `pill ${cls(ch)}`;
+    const txt = fmtPct(ch); const cn = el.dataset.plain ? `small ${cls(ch)}` : `pill ${cls(ch)}`;
+    if (el.textContent !== txt) el.textContent = txt;
+    if (el.className !== cn) el.className = cn;
   });
   updateNwHeader(now);
   if (ui.detail && !ui.chain) {
@@ -4433,7 +4449,7 @@ async function runSync({ manual = false, liveOnly = false } = {}) {
       const r = await syncLeague(state, lg, { progress: bootLog, now: Date.now(), liveOnly });
       newFinals += r.finals || 0;
       if (r.first) bootLog(`${LEAGUES[lg].name}: market open ✓`);
-      else if (!needsBoot) softRefresh();
+      else if (!needsBoot && (r.finals || r.live)) queueRefresh(); // only redraw when results changed something
     } catch (err) {
       failures++; syncError = err.message || String(err);
       bootLog(`${LEAGUES[lg].name}: failed (${syncError})`);
@@ -4493,11 +4509,15 @@ function exportData() {
 // True while a finger is down or the page is still coasting from a flick.
 function busyScrolling(ms = 1200) { return ui.touching || Date.now() - ui.lastScroll < ms; }
 
-async function save() {
-  if (!dirty) return;
-  dirty = false;
+// Saving copies the whole account, which stalls the screen for a moment on a phone. Real changes
+// (trades, cash, rewards, notifications) save within 30 seconds; price wiggles every 3 minutes,
+// and everything is saved whenever the app goes to the background.
+async function save({ force = false } = {}) {
+  if (!dirty && !(pxDirty && (force || Date.now() - lastSave > 3 * 60e3))) return;
+  dirty = false; pxDirty = false; lastSave = Date.now();
   try { await saveState(state); } catch (err) { console.warn('save failed', err); dirty = true; }
 }
+const changeSig = () => `${state.cash}|${state.txns.length}|${state.inbox.length}|${state.divs.length}|${Object.keys(state.holdings).length}|${state.orders.length}`;
 
 function afterLoad() {
   migrate(state);
@@ -4615,6 +4635,7 @@ async function main() {
   setInterval(() => {
     if (document.hidden || busyScrolling()) return; // never do heavy work mid-scroll
     const now = Date.now();
+    const sig0 = changeSig();
     tick(state, now);
     runAutomation(state, now);
     runSocial(state, now);
@@ -4626,7 +4647,7 @@ async function main() {
     // Keep auction clocks and bids moving on the Marketplace.
     if (ui.tab === 'marketplace' && !overlayOpen()) updateMarketplaceNumbers(now);
     if (ui.order?.mode === 'lot' && document.activeElement?.id !== 'bidamt' && now - (ui.lotDrawn || 0) > 15e3) { ui.lotDrawn = now; renderLot(); }
-    dirty = true;
+    if (changeSig() !== sig0) dirty = true; else pxDirty = true;
     updateNumbers();
     announce();
   }, 4000);
@@ -4635,7 +4656,7 @@ async function main() {
   setInterval(() => { if (!document.hidden) runSync(); }, 10 * 60e3);
   setInterval(() => { if (!busyScrolling(2500)) save(); }, 30e3);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { markOpen(state); save(); applyUpdate(); return; }
+    if (document.hidden) { markOpen(state); save({ force: true }); applyUpdate(); return; }
     ui.since = sinceLastOpen(state) || ui.since;
     checkForUpdate();
     tick(state, Date.now(), { record: false }); // chart points resume once the sync has applied what happened meanwhile
@@ -4645,6 +4666,7 @@ async function main() {
     if (Date.now() - last > 60e3) runSync(); else softRefresh();
   });
   window.addEventListener('online', () => runSync());
+  window.addEventListener('pagehide', () => { markOpen(state); save({ force: true }); });
 }
 
 main();

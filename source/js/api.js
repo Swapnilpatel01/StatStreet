@@ -13,9 +13,16 @@ let preferProxy = false;
 let articleSrc = null;
 export const netStats = { ok: 0, failed: 0, proxied: 0, lastError: '' };
 
+// Remembered between launches: on a device where ESPN blocks direct requests, every request
+// on every launch used to fail once before going through the proxy.
+const PREF_KEY = 'ss.preferProxy';
 export function setProxy(url) {
   proxyUrl = (url || '').trim().replace(/\/+$/, '');
-  preferProxy = false;
+  try { preferProxy = !!proxyUrl && localStorage.getItem(PREF_KEY) === proxyUrl; } catch { preferProxy = false; }
+}
+function rememberProxy(on) {
+  preferProxy = on;
+  try { if (on) localStorage.setItem(PREF_KEY, proxyUrl); else localStorage.removeItem(PREF_KEY); } catch { /* private mode */ }
 }
 
 async function get(url, timeout = 20000) {
@@ -32,19 +39,23 @@ async function get(url, timeout = 20000) {
 
 export async function fetchJSON(url) {
   const viaProxy = () => get(`${proxyUrl}/?u=${encodeURIComponent(url)}`);
+  const proxied = preferProxy && !!proxyUrl;
   try {
-    const data = (preferProxy && proxyUrl) ? await viaProxy() : await get(url);
+    const data = proxied ? await viaProxy() : await get(url);
     netStats.ok++;
-    if (preferProxy) netStats.proxied++;
+    if (proxied) netStats.proxied++;
     return data;
   } catch (e) {
-    if (proxyUrl && !preferProxy) {
+    if (proxyUrl && !proxied) {
       try {
         const data = await viaProxy();
-        preferProxy = true; // direct is blocked on this device; stop trying it
+        rememberProxy(true); // direct is blocked on this device; stop trying it
         netStats.ok++; netStats.proxied++;
         return data;
       } catch (e2) { e = e2; }
+    } else if (proxied) {
+      // The proxy failed: maybe direct works now (a different network, or the proxy is down).
+      try { const data = await get(url); rememberProxy(false); netStats.ok++; return data; } catch { /* keep the proxy error */ }
     }
     netStats.failed++;
     netStats.lastError = `${e.name === 'AbortError' ? 'Timed out' : e.message} — ${url.replace(/^https:\/\//, '').slice(0, 80)}`;
@@ -53,6 +64,12 @@ export async function fetchJSON(url) {
 }
 
 const P = (league) => LEAGUES[league].path;
+// Optional extras (player profile and stats) with a shorter timeout: the known-good route first.
+function getShort(url, timeout) {
+  const viaProxy = () => get(`${proxyUrl}/?u=${encodeURIComponent(url)}`, timeout);
+  if (preferProxy && proxyUrl) return viaProxy().catch(() => get(url, timeout));
+  return get(url, timeout).catch((e) => { if (!proxyUrl) throw e; return viaProxy(); });
+}
 
 export const api = {
   standings: (lg, season) => fetchJSON(`${V2}/${P(lg)}/standings${season ? `?season=${season}` : ''}`),
@@ -76,9 +93,9 @@ export const api = {
   },
   injuries: (lg) => fetchJSON(`${SITE}/${P(lg)}/injuries`),
   // A player's profile (age, height, college, draft, experience). Optional: the page works without it.
-  athlete: (lg, id) => get(`${WEB}/${P(lg)}/athletes/${id}`, 8000).catch((e) => { if (!proxyUrl) throw e; return get(`${proxyUrl}/?u=${encodeURIComponent(`${WEB}/${P(lg)}/athletes/${id}`)}`, 8000); }),
+  athlete: (lg, id) => getShort(`${WEB}/${P(lg)}/athletes/${id}`, 8000),
   // A player's stats season by season (every category ESPN keeps for him).
-  athleteStats: (lg, id) => { const u = `${WEB}/${P(lg)}/athletes/${id}/stats`; return get(u, 9000).catch((e) => { if (!proxyUrl) throw e; return get(`${proxyUrl}/?u=${encodeURIComponent(u)}`, 9000); }); },
+  athleteStats: (lg, id) => getShort(`${WEB}/${P(lg)}/athletes/${id}/stats`, 9000),
   seasonStats: (lg, { season, category, page = 1, limit = 200 } = {}) => {
     const q = new URLSearchParams({ seasontype: '2', limit: String(limit), page: String(page), isqualified: 'false' });
     if (season) q.set('season', season);

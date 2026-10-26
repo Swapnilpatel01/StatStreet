@@ -50,10 +50,14 @@ export function packState(state) {
     const { hist, ...lite } = a;
     assets[id] = lite;
   });
-  return { ...rest, assets, _hist: { v: 2, ids, lens, ts, px } };
+  // Everything except the price histories goes in as one JSON string: copying one long string
+  // into storage (and back) is about twice as fast as copying thousands of small objects,
+  // which is what made opening the app pause.
+  return { _json: JSON.stringify({ ...rest, assets }), _hist: { v: 2, ids, lens, ts, px } };
 }
 
 export function unpackState(s) {
+  if (s && typeof s._json === 'string') s = { ...JSON.parse(s._json), _hist: s._hist }; // v3 saves
   if (!s?._hist) return s;
   const { ids, lens, ts, px } = s._hist;
   let k = 0;

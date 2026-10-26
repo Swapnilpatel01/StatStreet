@@ -24,6 +24,22 @@ export function sparkline(flat, from, w = 64, h = 28) {
   return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path d="${d}" fill="none" stroke="var(--${up ? 'up' : 'down'})" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
+// Keep the first, last, lowest and highest point in each pixel column, in time order, so
+// spikes survive while thousands of points shrink to a few hundred.
+export function thin(pts, x, w) {
+  if (pts.length <= w * 2) return pts;
+  const out = [pts[0]];
+  let col = -1; let lo = null; let hi = null; let first = null; let lastP = null;
+  const flush = () => { if (!first) return; const keep = [first, lo, hi, lastP].filter((p, i, a) => a.indexOf(p) === i).sort((p, q) => p[0] - q[0]); out.push(...keep); };
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i]; const c = Math.floor(x(p[0]));
+    if (c !== col) { flush(); col = c; first = lo = hi = lastP = p; continue; }
+    if (p[1] < lo[1]) lo = p; if (p[1] > hi[1]) hi = p; lastP = p;
+  }
+  flush(); out.push(pts[pts.length - 1]);
+  return out;
+}
+
 // Full-width chart. onScrub(point|null) lets the header show the touched price.
 // Scrubbing starts only on a sideways drag or a press-and-hold, so vertical
 // swipes that begin on the chart still scroll the page.
@@ -40,7 +56,9 @@ export function lineChart(el, flat, from, { onScrub, height = 190, animate = fal
   const t0 = pts[0][0]; const t1 = pts[pts.length - 1][0];
   const x = (t) => ((t - t0) / Math.max(1, t1 - t0)) * (w - 12) + 2;
   const y = (v) => h - 6 - ((v - lo) / (hi - lo)) * (h - 12);
-  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join('');
+  // The line needs at most a high and a low per pixel column: a long history (1,500 points)
+  // drawn in full made the chart the slowest part of showing the home page.
+  const d = thin(pts, x, w).map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join('');
   const up = ys[ys.length - 1] >= ys[0];
   const color = `var(--${up ? 'up' : 'down'})`;
   const base = y(ys[0]);
