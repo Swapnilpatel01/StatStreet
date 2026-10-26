@@ -297,8 +297,25 @@ export function parseBoxScore(league, json) {
   }
   const list = [...players.values()];
   if (league === 'nba') return list.filter((p) => p.line.min > 0);
+  // ESPN's NFL box scores carry no positions: work one out from what he did, so a backup tight end
+  // isn't priced against linebackers.
+  if (league === 'nfl') for (const p of list) if (!p.pos) p.pos = inferNflPos(p.line);
   if (league === 'nfl') return list.filter((p) => gameScore('nfl', p.line) !== 0 || p.line.att > 0 || p.line.car > 0 || p.line.rec > 0);
   return list.filter((p) => p.line.ab > 0 || p.line.ip > 0 || p.line.bb > 0);
+}
+
+// A best guess at an NFL player's position from one or more stat lines (summed). Tight ends
+// can't be told from receivers, nor one defensive spot from another, so those come back as
+// WR and DB, which land in the right pricing group.
+export function inferNflPos(...lines) {
+  const t = {}; for (const l of lines) for (const [k, v] of Object.entries(l || {})) t[k] = (t[k] || 0) + (Number(v) || 0);
+  const off = (t.att || 0) + (t.car || 0) + (t.rec || 0);
+  if ((t.fg || 0) + (t.fga || 0) + (t.xp || 0) + (t.xpa || 0) > 0 && !off) return 'PK';
+  if ((t.att || 0) >= 2 * Math.max(1, lines.length)) return 'QB';
+  if ((t.car || 0) > 0 && (t.car || 0) >= (t.rec || 0)) return 'RB';
+  if ((t.rec || 0) > 0) return 'WR';
+  if ((t.tkl || 0) + (t.sacks || 0) + (t.pd || 0) + (t.defInt || 0) > 0) return 'DB';
+  return '';
 }
 
 export function parseInjuries(json) {

@@ -2,7 +2,7 @@
 import { LEAGUES, posGroup, storyBlocks, parseScoreboard, parseBoxScore, lineText, gameScore } from './scoring.js';
 import {
   newState, migrate, tick, trade, previewTrade, netWorth, holdingsValue, change, priceAt, breakdown, spanFrom,
-  leagueIndex, rebuildInjuryCache, formRating, gameRating, ratedGames, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, undoReturnBounce, repairLastGames, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
+  leagueIndex, rebuildInjuryCache, formRating, gameRating, ratedGames, recomputeStats, START_OPTIONS, dividendYield, fmtQty, SPREAD, upgradeModel, repairNewcomers, rescoreNews, undoReturnBounce, repairLastGames, repairPricing, fillGaps, resetHistory, HIST_V, resetPortfolio, minOrder, bankrollScale,
 } from './engine.js';
 import { ensureFunds, fundHoldings } from './funds.js';
 import {
@@ -1798,7 +1798,7 @@ function renderDetail({ keepScroll = true } = {}) {
     </div><div class="dsec" data-sec="overview">
     <h3>Why it's moving</h3>
     <div class="list">${(a.events || []).slice(0, 10).map((e) => `<div class="driver">
-      <div class="ic">${{ game: '🏟️', milestone: '🏆', news: '📰', injury: '🩹', fund: '🧺', report: '📋' }[e.kind] || '•'}</div>
+      <div class="ic">${{ game: '🏟️', milestone: '🏆', news: '📰', injury: '🩹', fund: '🧺', report: '📋', market: '📊', fix: '🛠️' }[e.kind] || '•'}</div>
       <div class="txt">${esc(e.text)}<div class="tiny faint">${timeAgo(e.t)}</div></div>
       <div class="pct ${cls(e.pct)}">${Math.abs(e.pct) < 0.0005 ? '<span class="faint">—</span>' : fmtPct(e.pct, 1)}</div></div>`).join('')
       || '<div class="empty">No price-moving events yet.</div>'}</div>
@@ -4528,6 +4528,7 @@ function afterLoad() {
     upgradeModel(state, Date.now());
     repairNewcomers(state, Date.now());
     rescoreNews(state, Date.now());
+    if (repairPricing(state, Date.now())) dirty = true; // covers the two below for saves that never ran them
     if (undoReturnBounce(state, Date.now())) dirty = true;
     if (repairLastGames(state, Date.now())) dirty = true;
     if ((state.histV || 1) < HIST_V) resetHistory(state, Date.now()); // charts from the old pricing model

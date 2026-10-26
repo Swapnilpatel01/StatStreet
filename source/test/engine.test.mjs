@@ -86,7 +86,7 @@ function buildNBA() {
     { id: '3', abbr: 'MIA', name: 'Miami', short: 'Heat', w: 35, l: 35, t: 0, gp: 70, diff: 0, streak: 1, playoffPct: 50 },
   ];
   teams.forEach((x) => E.upsertTeam(st, 'nba', x));
-  const mk = (id, name, gs, teamId) => ({ id, name, pos: 'G', teamId, teamAbbr: '', img: '', gp: 60, gs, line: {} });
+  const mk = (id, name, gs, teamId) => ({ id, name, pos: 'G', teamId, teamAbbr: '', img: '', gp: 60, gs, line: { min: 30, pts: gs } });
   E.seedPlayer(st, 'nba', mk('10', 'Star Player', 30, '1'));
   E.seedPlayer(st, 'nba', mk('11', 'Solid Starter', 14, '1'));
   E.seedPlayer(st, 'nba', mk('12', 'Role Player', 8, '2'));
@@ -148,7 +148,7 @@ t('back from injury: an ordinary first game earns back a little of the discount,
   const run = (pts) => {
     const st = buildNBA(); const a = st.assets['nba:p:12'];
     a.rust = 0.72; // back from injured reserve
-    const lvl = a.perf.ema; const p0 = E.targetPrice(st, a, now);
+    const lvl = a.perf.ema; a.perf.rl = E.ratingOf('nba', { pts: lvl }); const p0 = E.targetPrice(st, a, now);
     E.applyFinalGame(st, 'nba', { id: `r${pts}`, date: now, preseason: false, teams: [{ id: '1', abbr: 'BOS', score: 100, home: true }, { id: '2', abbr: 'WAS', score: 90 }],
       players: [{ id: '12', name: 'Role Player', pos: 'G', teamId: '2', line: { min: 30, pts: Math.max(0, lvl + pts), fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 } }] }, { now: now + 3 * HOUR });
     return { move: E.targetPrice(st, a, now + 3 * HOUR) / p0 - 1, rust: a.rust ?? 1 };
@@ -215,6 +215,94 @@ t('one-time fix: the last game under the shrunken noise is re-priced, both ways,
   const ret = play(0, { rust: 0.748 + 0.252 * 0.6 });
   assert.ok(Math.abs(ret.a.rust - (0.748 + 0.252 * 0.25)) < 0.01, `rust ${ret.a.rust}`);
   assert.ok(ret.move < -0.08, `bounce scaled back: ${ret.move}`);
+});
+
+t('game moves follow the rating: a quiet touchdown or a tackle pile is not a breakout', () => {
+  const st = E.newState(100);
+  for (let i = 0; i < 8; i++) E.upsertTeam(st, 'nfl', { id: `T${i}`, abbr: `T${i}`, name: `T${i}`, w: 3, l: 3, gp: 6, diff: 0, streak: 0 });
+  const L = (o) => ({ ...S.emptyLine('nfl'), ...o });
+  for (let i = 0; i < 60; i++) E.seedPlayer(st, 'nfl', { id: `w${i}`, name: `w${i}`, pos: i % 3 ? 'WR' : 'TE', teamId: `T${i % 8}`, gp: 7, gs: 2 + (i % 12), line: L({ rec: 1 + (i % 6), recYds: 10 + (i % 12) * 7 }) });
+  for (let i = 0; i < 90; i++) E.seedPlayer(st, 'nfl', { id: `d${i}`, name: `d${i}`, pos: ['LB', 'S', 'CB'][i % 3], teamId: `T${i % 8}`, gp: 7, gs: 2 + (i % 7), line: L({ tkl: 2 + (i % 7), pd: (i % 3) / 3 }) });
+  E.initForm(st, 'nfl', { all: true }); E.repriceLeague(st, 'nfl', now);
+  const play = (id, ln) => { const a = st.assets[`nfl:p:${id}`]; const p0 = E.targetPrice(st, a, now);
+    E.applyFinalGame(st, 'nfl', { id: `g${id}`, date: now, preseason: false, teams: [{ id: 'T1', abbr: 'A', score: 20, home: true }, { id: 'T2', abbr: 'B', score: 10 }], players: [{ id, name: id, pos: a.pos, teamId: 'T1', line: L(ln) }] }, { now: now + 4 * HOUR });
+    return E.targetPrice(st, a, now + 4 * HOUR) / p0 - 1; };
+  const td = play('w0', { rec: 2, recYds: 24, recTD: 1 }); // a backup tight end's touchdown
+  assert.ok(td > 0.02 && td < 0.14, `quiet touchdown game: ${td}`);
+  const tackles = play('d4', { tkl: 12 }); // a linebacker who usually makes ~6
+  assert.ok(tackles > 0.02 && tackles < 0.14, `12-tackle game: ${tackles}`);
+  const pick6 = play('d7', { tkl: 5, defInt: 1, defTD: 1 });
+  assert.ok(pick6 > 0.2, `pick-six is a big game: ${pick6}`);
+  const dud = play('w5', { rec: 0 });
+  assert.ok(dud < 0, `no catches: ${dud}`);
+});
+
+t('NFL box-score players get a position from their stat line', () => {
+  assert.equal(S.inferNflPos({ rec: 2, recYds: 24 }), 'WR');
+  assert.equal(S.inferNflPos({ car: 3, rushYds: 23, rec: 1 }), 'RB');
+  assert.equal(S.inferNflPos({ att: 30, cmp: 20, car: 3 }), 'QB');
+  assert.equal(S.inferNflPos({ tkl: 5 }), 'DB'); assert.equal(S.posGroup('nfl', 'DB'), 'DEF');
+  assert.equal(S.inferNflPos({ fg: 2, xp: 3 }), 'PK');
+  assert.equal(S.inferNflPos({ rec: 1 }, { rec: 3 }, { car: 1 }), 'WR', 'several lines are summed');
+});
+
+t('the trading day rolls over at 4am New York time', () => {
+  const at = (iso) => new Date(E.dayOpen(Date.parse(iso))).toISOString();
+  assert.equal(at('2026-10-26T17:11:00Z'), '2026-10-26T08:00:00.000Z'); // Monday afternoon: since Monday 4am EDT
+  assert.equal(at('2026-10-26T07:00:00Z'), '2026-10-25T08:00:00.000Z'); // 3am ET: still Sunday's day (games just ended)
+  assert.equal(at('2026-12-15T12:00:00Z'), '2026-12-15T09:00:00.000Z'); // winter: 4am EST
+});
+
+t("today is measured from the last real price before the open, not the chart's filled-in hours", () => {
+  const st = buildNBA(); const a = st.assets['nba:p:11'];
+  const open = E.dayOpen(now); const closedAt = open - 6 * HOUR;
+  st.nw = [closedAt - 60e3, 100]; // the app was last open six hours before the open
+  a.hist = [closedAt, 10, open - HOUR, 13, open + HOUR, 13]; a.price = 13; // made-up wiggle while closed
+  E.updateDayRef(st, open + 2 * HOUR);
+  assert.ok(Math.abs(E.change(a, open + 2 * HOUR) - 0.3) < 1e-9, 'from the real $10, not the filled-in $13');
+  st.nw.push(open - 5 * 60e3, 100); E.updateDayRef(st, open + 2 * HOUR); // open across the open: its own price
+  assert.ok(Math.abs(E.change(a, open + 2 * HOUR)) < 1e-9);
+  E.updateDayRef(E.newState(5), open + 2 * HOUR); // no history: plain open
+});
+
+t('one-time pricing repair: random market-event jolts are taken back, charts follow, once', () => {
+  const st = buildNBA(); const a = st.assets['nba:p:11'];
+  const t0 = now - 10 * HOUR; const start = now - 4 * HOUR;
+  st.events = { nba: { name: 'Awards buzz', start, end: start + 6 * HOUR } };
+  st.nw = [start - 3 * HOUR, 100]; // the app was last open three hours before the event
+  a.events = []; a.hist = []; for (let t = t0; t <= now; t += 15 * 60e3) a.hist.push(t, t < start - 2 * HOUR ? a.price : Math.round(a.price * 1.18 * 100) / 100);
+  const p0 = a.price; a.h = (a.h || 0) + Math.log(1.18); E.repriceLeague(st, 'nba', now, { record: false });
+  st.priceFixV = 0;
+  const r = E.repairPricing(st, now);
+  assert.ok(r.jolts >= 1);
+  assert.ok(Math.abs(a.price / p0 - 1) < 0.02, `back to before: ${p0} -> ${a.price}`);
+  assert.ok(Math.abs(a.hist[a.hist.length - 1] / p0 - 1) < 0.02, 'chart no longer shows the jump');
+  assert.equal(E.repairPricing(st, now + 1000), null, 'only once');
+});
+
+t('one-time pricing repair: a weekend game priced by the old rule is re-priced on its rating', () => {
+  const st = buildNBA(); const a = st.assets['nba:p:12'];
+  st.gnoise = { nba: { ALL: 3.5 } };
+  const sd = st.stats.nba.ALL.sd; const aOld = Math.min(0.35, 0.06 * sd / (0.75 * 3.5)); const max = Math.log(1.25) / 0.75 * sd;
+  const before = a.perf.ema; const t = now - 20 * HOUR; const gs = before + 9; // a fluky big night by the old score
+  const line = { min: 30, pts: Math.round(before) + 1 }; // ...that rates only a little above his usual
+  a.perf.rt = [[t - 3 * DAY, E.ratingOf('nba', { min: 30, pts: before })], [t - 2 * DAY, E.ratingOf('nba', { min: 30, pts: before })]];
+  const p0 = E.targetPrice(st, a, now);
+  a.perf.ema = before + Math.max(-max, Math.min(max, aOld * (gs - before)));
+  const jump = E.targetPrice(st, a, now) / p0 - 1;
+  a.perf.n = 5; a.perf.last.unshift({ e: 'g', t, gs, text: 'x vs MIN', line });
+  a.events = [{ t: t + 3 * HOUR, kind: 'game', text: 'x vs MIN', pct: jump }, { t: now - HOUR, kind: 'injury', text: 'Return bounce scaled to how he has played', pct: -0.01 }];
+  a.hist = [t - HOUR, 10, t + 3 * HOUR, 10 * (1 + jump), now - HOUR, 10 * (1 + jump) * 0.99];
+  E.repriceLeague(st, 'nba', now, { record: false });
+  st.priceFixV = 0; const pBefore = a.price;
+  E.repairPricing(st, now);
+  assert.ok(jump > 0.15, `old rule: ${jump}`);
+  const g0 = a.events.find((e) => e.kind === 'game');
+  assert.ok(a.price < pBefore * 0.9, `re-priced down: ${pBefore} -> ${a.price} (old jump ${jump}, game now ${g0.pct}, rating ${E.ratingOf('nba', line)} usual ${a.perf.rt[0][1]})`);
+  const games = a.events.filter((e) => e.kind === 'game');
+  assert.equal(games.length, 1); assert.ok(!a.events.some((e) => /^Return bounce/.test(e.text)), 'earlier fix folded into the game'); assert.ok(games[0].pct < 0.08 && games[0].pct > -0.02, `game now ${games[0].pct}`);
+  assert.ok(Math.abs(a.hist[a.hist.length - 1] / 10 - (1 + games[0].pct)) < 0.03, 'chart from the game on follows');
+  assert.equal(a.hist[1], 10, 'before the game untouched');
 });
 
 t('news shocks decay over time', () => {

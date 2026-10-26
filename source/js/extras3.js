@@ -1,6 +1,6 @@
 // Market events, rookie IPOs, monthly player reports, the hall of fame and friend challenges.
 
-import { netWorth, notify, tradeGuards, boostHooks, cardDivBonus } from './engine.js';
+import { netWorth, notify, tradeGuards, boostHooks, cardDivBonus, logEvent } from './engine.js';
 import { calendar } from './extras.js';
 import { posGroup } from './scoring.js';
 import { career } from './xp.js';
@@ -23,7 +23,8 @@ export function startEvent(state, league, now = Date.now(), rnd = Math.random) {
   state.events ||= {};
   const name = EVENT_NAMES[Math.floor(rnd() * EVENT_NAMES.length)];
   state.events[league] = { name, start: now, end: now + EVENT_LEN };
-  for (const a of Object.values(state.assets)) if (a.league === league && a.kind !== 'fund') a.h = (a.h || 0) + (a.kind === 'team' ? 0.03 : 0.05) * gauss();
+  // A small jolt each (it was ±5%, with nothing on the player's page to say why it moved).
+  for (const a of Object.values(state.assets)) if (a.league === league && a.kind !== 'fund') a.h = (a.h || 0) + (a.kind === 'team' ? 0.01 : 0.015) * gauss();
   notify(state, 'event', `${league.toUpperCase()} market event: ${name}. Prices are swinging more than usual for the next 6 hours.`, null, now);
   return state.events[league];
 }
@@ -88,8 +89,9 @@ function runIpos(state, now) {
       notify(state, 'ipo', `IPO open: ${a.name} (${a.ticker}) at ${money(a.ipo.price)}. Your allocation is available for 3 hours.`, a.id, now);
     }
     if (ph === 'done') {
-      const kick = clamp(0.14 * gauss(), -0.35, 0.35); // the first-day move: unknown until it happens
+      const kick = clamp(0.08 * gauss(), -0.2, 0.2); // the first-day move: unknown until it happens
       a.h = (a.h || 0) + kick;
+      logEvent(a, now, 'market', `IPO first-day move`, Math.exp(kick) - 1);
       a.ipoDone = { t: now, price: a.ipo.price, kick: Math.round(kick * 1000) / 1000 };
       if (a.ipo.spent > 0 || (state.watch || []).includes(a.id)) notify(state, 'ipo', `${a.ticker} is trading freely after its IPO at ${money(a.ipo.price)}: first move ${kick >= 0 ? 'up' : 'down'} about ${Math.abs(Math.round((Math.exp(kick) - 1) * 100))}%.`, a.id, now);
       delete a.ipo;

@@ -3,7 +3,7 @@
 
 import { clamp, gauss, mean, std, median, decay, HOUR, DAY, tickerFrom } from './util.js';
 import {
-  LEAGUES, posGroup, posMultiplier, gameScore, lineText, milestone, injuryFactor, sentimentScore, newsEffects, perfRating, emptyLine } from './scoring.js';
+  LEAGUES, posGroup, posMultiplier, gameScore, lineText, milestone, injuryFactor, sentimentScore, newsEffects, perfRating, emptyLine, inferNflPos } from './scoring.js';
 import { optionsValue, optionMid, CONTRACT } from './bs.js';
 
 export const START_CASH = 5;
@@ -179,6 +179,7 @@ function pushHist(a, t, p) {
   }
 }
 
+export function logEvent(a, t, kind, text, pct) { addEvent(a, t, kind, text, pct); }
 function addEvent(a, t, kind, text, pct) {
   a.events = a.events || [];
   a.events.unshift({ t, kind, text, pct: Math.round(pct * 10000) / 10000 });
@@ -194,10 +195,43 @@ export function priceAt(a, t) {
   return h[1];
 }
 
-// Local midnight: "today" moves start from 0 each day, like a stock's change since the open.
-export const dayOpen = (now) => new Date(now).setHours(0, 0, 0, 0);
-// When a period starts: a one-day span means "today" (since midnight), anything else is rolling.
-export const spanFrom = (now, span = DAY) => (span === DAY ? dayOpen(now) : now - span);
+// The trading day: "today" moves start from 0 each day, like a stock's change since the open.
+// It rolls over at 4am US Eastern, when no NBA, NFL or MLB game is being played (1:30pm in India,
+// 2:30pm in winter). At local midnight in India, Sunday's NFL games were half over, so "today"
+// was measured from a mid-game price and a game's whole move landed on the next day.
+const etOffset = (t) => {
+  try {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })
+      .formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - Math.floor(t / 60e3) * 60e3;
+  } catch { return -4 * HOUR; }
+};
+export const DAY_ROLL_ET = 4 * HOUR;
+export const dayOpen = (now) => {
+  const off = etOffset(now);
+  const et = now + off; // clock time in New York, as if it were UTC
+  const open = Math.floor((et - DAY_ROLL_ET) / DAY) * DAY + DAY_ROLL_ET;
+  return open - etOffset(open - off);
+};
+// The last moment before `t` that the app actually saw prices (it was open). Charts fill the
+// hours it was closed with made-up wiggle, so a price read off the chart in those hours is not
+// a real one. The portfolio history is only written while the app is open, so its times mark
+// real prices: the reference is just after the last of them (where the chart is real).
+export function realBefore(state, t) {
+  const nw = state?.nw || [];
+  for (let i = nw.length - 2; i >= 0; i -= 2) if (nw[i] <= t) return Math.min(t, nw[i] + 60e3);
+  return t;
+}
+// "Today" is measured from the last real price before the trading day opened (like a
+// previous close). Worked out once per tick, so the many places showing "today" agree.
+let dayRef = { open: 0, t: 0 };
+export function updateDayRef(state, now = Date.now()) { const open = dayOpen(now); dayRef = { open, t: realBefore(state, open) }; }
+// When a period starts: a one-day span means "today", anything else is rolling.
+export const spanFrom = (now, span = DAY) => {
+  if (span !== DAY) return now - span;
+  const open = dayOpen(now);
+  return dayRef.open === open ? dayRef.t : open;
+};
 export const change = (a, now, span = DAY) => {
   const ref = priceAt(a, spanFrom(now, span));
   return ref ? a.price / ref - 1 : 0;
@@ -378,6 +412,40 @@ export function gameNoise(state, league, group) {
   return l > d ? l : d;
 }
 const rawNoise = (state, league, group) => state.gnoise?.[league]?.[group] ?? GAME_NOISE[league]?.[group] ?? 4;
+
+// ---------- game ratings drive game moves ----------
+// A game moves a price by how far its rating (the number shown on every game) beat or missed
+// the player's usual rating, in units of how much ratings normally vary at his position.
+// (Moves used to come from a fantasy-style score that weighed a touchdown as 60 yards and an
+// interception as 4 tackles, while the rating weighs them as 31 yards and 17 tackles, so a
+// game rated "poor" could price like a breakout.) Spreads measured from real games.
+const RATING_NOISE = { nba: { ALL: 0.95 }, nfl: { QB: 1.5, RB: 1.35, WR: 1.3, K: 1.9, DEF: 1.25, OL: 1 }, mlb: { H: 1.25, P: 1.1 } };
+export const RL_ALPHA = 0.15; // how fast his usual rating follows new games (about the last six)
+export const ratingOf = (league, line) => perfRating(league, { ...emptyLine(league), ...(line || {}) });
+export function ratingNoise(state, league, group) {
+  const d = RATING_NOISE[league]?.[group] ?? 1.25;
+  const l = state.rnoise?.[league]?.[group];
+  return l > d ? l : d; // learned, never below the measured starting value
+}
+function learnRatingNoise(state, league, group, diff) {
+  const g = ratingNoise(state, league, group);
+  const d = clamp(Math.abs(diff), 0, 4 * g) * 1.2533;
+  state.rnoise ||= {}; state.rnoise[league] ||= {};
+  state.rnoise[league][group] = Math.sqrt(0.985 * g * g + 0.015 * d * d);
+}
+// His usual rating: worked out once from his season line, recent games and the position's
+// average, then followed game by game.
+export function ensureRl(state, a, beforeT = Infinity) {
+  if (a.perf.rl != null) return a.perf.rl;
+  let num = 0; let den = 0;
+  if (a.perf.avg) { const w = Math.min(a.perf.season?.gp || 6, 8); num += ratingOf(a.league, a.perf.avg) * w; den += w; }
+  const recent = (a.perf.rt || []).filter((x) => x[0] < beforeT).slice(-8);
+  for (const [, r] of recent) { num += r; den += 1; }
+  const gm = state.stats[a.league]?.[posGroup(a.league, a.pos)]?.rmu;
+  if (gm != null) { num += gm * 3; den += 3; }
+  a.perf.rl = den ? num / den : (gm ?? 1);
+  return a.perf.rl;
+}
 function learnNoise(state, league, group, diff) {
   const g = gameNoise(state, league, group);
   const d = clamp(Math.abs(diff), 0, 4 * g);
@@ -455,11 +523,19 @@ export function recomputeStats(state, league) {
     }
   }
   const out = {};
+  // Each group's average rating (season lines where known), the anchor for a player's usual rating.
+  const rsum = {};
+  for (const a of Object.values(state.assets)) {
+    if (a.league !== league || a.kind !== 'player' || !a.perf) continue;
+    const r = a.perf.rl ?? (a.perf.avg ? perfRating(league, { ...emptyLine(league), ...a.perf.avg }) : null);
+    if (r == null || !Number.isFinite(r)) continue;
+    const g = posGroup(league, a.pos); (rsum[g] ||= [0, 0]); rsum[g][0] += r; rsum[g][1]++;
+  }
   for (const [g, all] of Object.entries(groups)) {
     // Players first seen in a box score (no season-start level) don't move the baseline.
     const arr = seeded[g]?.length >= 8 ? seeded[g] : all;
     const mu = mean(arr);
-    out[g] = { mu, sd: Math.max(std(arr, mu), Math.abs(mu) * 0.25, 0.5), n: arr.length };
+    out[g] = { mu, sd: Math.max(std(arr, mu), Math.abs(mu) * 0.25, 0.5), n: arr.length, rmu: rsum[g]?.[1] ? rsum[g][0] / rsum[g][1] : null };
   }
   const tmu = mean(teamDiffs);
   out.team = { mu: tmu, sd: Math.max(std(teamDiffs, tmu), 0.1) };
@@ -596,23 +672,25 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
     const gs = gameScore(league, p.line);
     const opp = game.teams.find((t) => t.id !== p.teamId)?.abbr || '';
     const text = `${lineText(league, p.line)}${opp ? ` vs ${opp}` : ''}${game.preseason ? ' (preseason)' : ''}`;
+    if (league === 'nfl' && !a.pos && p.pos) a.pos = p.pos;
     const grp = posGroup(league, a.pos);
     const before = a.perf.ema;
-    // Surprise is measured against this player's own usual spread, so steady and streaky
-    // players earn dividends equally often.
-    const own = a.perf.gn ?? gameNoise(state, league, grp);
-    const surprise = before == null ? 0 : (gs - before) / own;
+    // The surprise: how far this game's rating beat or missed his usual rating.
+    const rating = ratingOf(league, p.line);
+    const rl = before == null ? null : ensureRl(state, a, game.date);
+    const surprise = rl == null ? 0 : clamp((rating - rl) / ratingNoise(state, league, grp), -4, 4);
     if (before != null && !game.preseason) {
       learnNoise(state, league, grp, gs - before);
-      const d = clamp(Math.abs(gs - before), 0, 4 * own) * 1.2533; // mean |x| → sd
-      a.perf.gn = Math.sqrt(0.92 * own * own + 0.08 * d * d);
+      learnRatingNoise(state, league, grp, rating - rl);
     }
     const playerBefore = a.price;
     const playerPct = withEvent(state, a, now, at, 'game', text, () => {
       const alpha = groupAlpha(state, league, grp) * (game.preseason ? 1 / 3 : 1); // exhibition games count for less
       // A newcomer's first game is mostly luck: start him close to the position average.
+      // His level moves by the rating surprise, expressed in the level's own units.
       a.perf.ema = before == null ? newcomerLevel(state, league, grp, gs)
-        : capStep(state, league, grp, before, before + alpha * (gs - before), game.preseason ? 1 / 3 : 1);
+        : capStep(state, league, grp, before, before + alpha * surprise * gameNoise(state, league, grp), game.preseason ? 1 / 3 : 1);
+      a.perf.rl = rl == null ? rating : rl + RL_ALPHA * (game.preseason ? 1 / 3 : 1) * (rating - rl);
       a.perf.init = MODEL_V;
       // Back from injury: each game wins back part of the discount, scaled by how well he played.
       // An ordinary game earns a quarter of it (so a long absence takes a few games to shake off);
@@ -627,9 +705,9 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       if (a.perf.last.length > 10) a.perf.last.length = 10;
       // Every game's rating is kept (time, rating) so totals over a week, a month or the season can be added up.
       a.perf.rt ||= [];
-      if (!a.perf.rt.some((x) => x[0] === game.date)) { a.perf.rt.push([game.date, perfRating(league, { ...emptyLine(league), ...p.line })]); a.perf.rt.sort((x, y) => x[0] - y[0]); if (a.perf.rt.length > 200) a.perf.rt.splice(0, a.perf.rt.length - 200); }
+      if (!a.perf.rt.some((x) => x[0] === game.date)) { a.perf.rt.push([game.date, rating]); a.perf.rt.sort((x, y) => x[0] - y[0]); if (a.perf.rt.length > 200) a.perf.rt.splice(0, a.perf.rt.length - 200); }
       a.live = null;
-    }, { force: gs !== 0 });
+    }, { force: gs !== 0 || rating !== 0 });
     // Keep the move this result caused on the game's log row. The chart around the game also
     // carries market noise (and, for hours the app was closed, filled-in wiggle), so reading the
     // move off the chart can show a big gain for a poor game; this is what the game itself did.
@@ -793,13 +871,16 @@ export function applyLiveGame(state, league, game, { now = Date.now() } = {}) {
     if (p != null && now - lg.wpT > 45e3) { lg.wp.push(Math.round(p * 1000) / 1000); lg.wpT = now; if (lg.wp.length > 240) lg.wp = lg.wp.filter((_, i) => i % 2 === 0); } }
   for (const p of game.players || []) {
     const a = ensurePlayer(state, league, p);
-    const gs = gameScore(league, p.line);
-    const projected = gs / Math.max(frac, 0.35);
+    if (league === 'nfl' && !a.pos && p.pos) a.pos = p.pos;
     const grp = posGroup(league, a.pos);
     // An unknown player's live price starts from the same backup level his final will use.
     const base = a.perf.ema ?? newcomerLevel(state, league, grp, null);
     const alpha = groupAlpha(state, league, grp) * (game.preseason ? 1 / 3 : 1);
-    a.live = { e: game.id, ema: capStep(state, league, grp, base, base + alpha * frac * (projected - base), frac), text: lineText(league, p.line), line: p.line, t: now };
+    // Live: his rating so far, projected to a full game, against his usual rating.
+    const rl = a.perf.ema == null ? null : ensureRl(state, a, game.date || now);
+    const projected = ratingOf(league, p.line) / Math.max(frac, 0.35);
+    const s = rl == null ? 0 : clamp((projected - rl) / ratingNoise(state, league, grp), -4, 4);
+    a.live = { e: game.id, ema: capStep(state, league, grp, base, base + alpha * frac * s * gameNoise(state, league, grp), frac), text: lineText(league, p.line), line: p.line, t: now };
     setPrice(state, a, now);
   }
   const [t1, t2] = game.teams;
@@ -935,6 +1016,7 @@ export function repriceLeague(state, league, now = Date.now(), { record = true, 
 // record:false moves prices without adding a chart point (used on reopening the app, before
 // the results that came in while it was closed have been applied).
 export function tick(state, now = Date.now(), { record = true } = {}) {
+  updateDayRef(state, now);
   const dt = state.lastTick ? Math.min(now - state.lastTick, 12 * HOUR) : 0;
   state.lastTick = now;
   if (!dt) return;
@@ -952,7 +1034,7 @@ export function tick(state, now = Date.now(), { record = true } = {}) {
     const live = !!a.live || liveTeams.has(a.id);
     // During a market event the whole league trades more wildly.
     const ev = a.kind !== 'fund' && evOn[a.league];
-    const sigma = a.kind === 'fund' ? 0 : (a.kind === 'team' ? 0.004 : 0.008) * (live ? 2.5 : 1) * (ev ? 3 : 1);
+    const sigma = a.kind === 'fund' ? 0 : (a.kind === 'team' ? 0.004 : 0.008) * (live ? 2.5 : 1) * (ev ? 1.5 : 1);
     a.n = sigma ? (a.n || 0) * e + sigma * ne * gauss() : 0;
     const hy = hyp[a.kind];
     if (hy) a.h = (a.h || 0) * hy[0] + hy[1] * gauss();
@@ -1254,6 +1336,128 @@ export function repairLastGames(state, now = Date.now()) {
     n++;
   }
   return n;
+}
+
+// ---------- one-time pricing repair (v123) ----------
+// 1) NFL players first seen in a box score had no position and were priced as defenders: give
+//    them one (from their stat lines) at equal value, like any model change.
+// 2) A league-wide "market event" used to jolt every price ±5% with nothing on the player's
+//    page: players with no other news since the latest event get that swing taken back.
+// 3) Each player's latest game of the last four days is re-priced on its rating against his
+//    usual rating (the new rule), together with any back-from-injury recovery in that game.
+export const PRICE_FIX_V = 1;
+// Apply price corrections back in time: every chart point from `from` on is scaled by the
+// corrections that came after it, so the chart reads as if the price had been right all along.
+// Points between `from` and `full` (the hours the game was on) take the correction gradually.
+function retroScale(a, from, corrections, full = from) {
+  const h = a.hist || [];
+  for (let i = 0; i < h.length; i += 2) {
+    if (h[i] < from) continue;
+    let f = 1; for (const c of corrections) if (c.t > h[i]) f *= c.f;
+    const w = full > from ? Math.min(1, (h[i] - from) / (full - from)) : 1;
+    f = Math.exp(Math.log(f) * w);
+    if (f !== 1) h[i + 1] = Math.round(h[i + 1] * f * 100) / 100;
+  }
+}
+export function repairPricing(state, now = Date.now()) {
+  if ((state.priceFixV || 0) >= PRICE_FIX_V) return null;
+  state.priceFixV = PRICE_FIX_V;
+  if (!Object.keys(state.assets || {}).length) { state.rustV = RUST_V; state.gameFixV = GAME_FIX_V; return null; }
+  const out = { positions: 0, jolts: 0, games: 0 };
+  for (const lg of Object.keys(LEAGUES)) recomputeStats(state, lg);
+  // 2) market-event jolts from the last day and a half
+  for (const [lg, ev] of Object.entries(state.events || {})) {
+    if (!(ev?.start > now - 36 * HOUR)) continue;
+    // The last real price before the event (the app may have reopened right as it began).
+    const t0 = realBefore(state, ev.start - 2 * 60e3);
+    for (const a of Object.values(state.assets)) {
+      if (a.league !== lg || a.kind === 'fund' || !a.hist?.length || a.hist[0] > t0) continue;
+      // Only players with no real news since: earlier one-time fixes don't count, and their
+      // effect is left in place.
+      const isFix = (e) => e.kind === 'fix' || /^Last game re-priced|^Return bounce scaled/.test(e.text);
+      const since = (a.events || []).filter((e) => e.t >= t0);
+      if (since.some((e) => !isFix(e))) continue;
+      // The price before the event (the chart filler can draw a jump up to 3 hours early).
+      const p0 = priceAt(a, t0); if (!(p0 > 0) || !(a.price > 0)) continue;
+      const r = Math.log(a.price / p0) - since.reduce((t, e) => t + Math.log(1 + (e.pct || 0)), 0);
+      if (Math.abs(r) < 0.03) continue;
+      a.h = (a.h || 0) - r;
+      const before = a.price; setPrice(state, a, now, { record: false });
+      retroScale(a, t0, [{ t: now + 1, f: a.price / before }], ev.start);
+      out.jolts++;
+    }
+  }
+  // 3) latest game on its rating. His level before the game is worked out from his level after
+  //    it (the old rule is known exactly), then the game is applied again with the new rule.
+  //    Injury discounts are left as the earlier fixes set them.
+  for (const a of Object.values(state.assets)) {
+    if (a.kind !== 'player' || !a.perf) continue;
+    const g = a.perf.last?.[0];
+    const ge = g && (a.events || []).find((e) => e.kind === 'game' && e.t >= g.t - HOUR && e.t <= g.t + 3 * DAY && e.text === g.text);
+    delete a.perf.rl;
+    const grp = posGroup(a.league, a.pos); const st = state.stats[a.league]?.[grp];
+    if (!g || !g.line || !ge || !Number.isFinite(g.gs) || now - g.t > 4 * DAY || /\(preseason\)$/.test(g.text || '') || (a.perf.n || 0) < 2 || a.perf.ema == null || !st?.sd) { ensureRl(state, a); continue; }
+    const rating = ratingOf(a.league, g.line);
+    const rl = ensureRl(state, a, g.t);
+    const rgrp = a.league === 'nfl' && !a.pos ? posGroup('nfl', inferNflPos(...(a.perf.last || []).map((x) => x.line).filter(Boolean))) : grp;
+    const sp = clamp((rating - rl) / ratingNoise(state, a.league, rgrp), -4, 4);
+    a.perf.rl = rl + RL_ALPHA * (rating - rl);
+    // The old rule: after = before + alpha (gs - before), capped; v122 had redone it with the floored noise.
+    const redone = (a.events || []).some((e) => e.t >= ge.t && /^Last game re-priced/.test(e.text));
+    const noise = redone ? gameNoise(state, a.league, grp) : rawNoise(state, a.league, grp);
+    const aOld = clamp(TARGET_MOVE[a.league] * st.sd / (zSlope(a.league) * noise), 0.01, 0.35);
+    const max = (MAX_GAME_LN / zSlope(a.league)) * st.sd;
+    let before = (a.perf.ema - aOld * g.gs) / (1 - aOld);
+    if (Math.abs(a.perf.ema - before) > max + 1e-9) before = a.perf.ema - Math.sign(a.perf.ema - before) * max;
+    const emaNew = capStep(state, a.league, grp, before, before + groupAlpha(state, a.league, grp) * sp * gameNoise(state, a.league, grp));
+    const f0 = fairOnly(state, a); const p0 = a.price;
+    a.perf.ema = emaNew;
+    const f1 = fairOnly(state, a);
+    if (g.pct != null) g.pct = Math.round(((1 + g.pct) * f1 / f0 - 1) * 10000) / 10000;
+    setPrice(state, a, now, { record: false });
+    // Fold this and the earlier fixes for the game into the game itself: the chart from the game
+    // on, and the game's own entry in "Why it's moving".
+    const fixes = (a.events || []).filter((e) => e.t >= ge.t && e !== ge && (/^Last game re-priced/.test(e.text) || /^Return bounce scaled/.test(e.text)));
+    const corr = [...fixes.map((e) => ({ t: e.t, f: 1 + (e.pct || 0) })), { t: now + 1, f: a.price / p0 }];
+    retroScale(a, ge.t - 3 * HOUR, corr, ge.t);
+    ge.pct = Math.round((corr.reduce((t, c) => t * c.f, 1 + (ge.pct || 0)) - 1) * 10000) / 10000;
+    if (g.pct != null) g.pct = ge.pct;
+    a.events = a.events.filter((e) => !fixes.includes(e));
+    out.games++;
+  }
+  // 4) any remaining earlier fixes (comebacks before this weekend): dated back to the game they
+  //    corrected, so they don't read as today's drop.
+  for (const a of Object.values(state.assets)) {
+    if (a.kind !== 'player') continue;
+    const fixes = (a.events || []).filter((e) => /^Return bounce scaled|^Last game re-priced/.test(e.text));
+    for (const fx of fixes) {
+      let ge = null;
+      if (/^Last game re-priced: /.test(fx.text)) {
+        const txt = fx.text.replace(/^Last game re-priced: /, '');
+        ge = (a.events || []).find((e) => e.kind === 'game' && e !== fx && e.t < fx.t && e.text.startsWith(txt));
+      } else {
+        const back = (a.events || []).find((e) => e.kind === 'injury' && /^Cleared: back from/.test(e.text) && e.t < fx.t);
+        ge = back && (a.events || []).filter((e) => e.kind === 'game' && e.t > back.t && e.t < fx.t && !/re-priced/.test(e.text)).sort((x, y) => x.t - y.t)[0];
+        ge ||= back;
+      }
+      if (!ge) continue;
+      retroScale(a, ge.t - 3 * HOUR, [{ t: fx.t, f: 1 + (fx.pct || 0) }], ge.t);
+      if (ge.kind === 'game') ge.pct = Math.round(((1 + (ge.pct || 0)) * (1 + (fx.pct || 0)) - 1) * 10000) / 10000;
+      a.events = a.events.filter((e) => e !== fx);
+    }
+  }
+  // 1) positions (after the games, so each game is undone in the group it was priced in)
+  const nopos = Object.values(state.assets).filter((a) => a.kind === 'player' && a.league === 'nfl' && !a.pos);
+  if (nopos.length) {
+    withRebase(state, now, () => {
+      for (const a of nopos) { const p = inferNflPos(...(a.perf?.last || []).map((g) => g.line).filter(Boolean)); if (p) { a.pos = p; out.positions++; } }
+      repriceLeague(state, 'nfl', now, { record: false });
+    });
+  }
+  for (const lg of Object.keys(LEAGUES)) rebuildInjuryCache(state, lg);
+  // The older one-time fixes are covered by this one.
+  state.rustV = RUST_V; state.gameFixV = GAME_FIX_V;
+  return out;
 }
 
 export const NEWS_V = 2;
