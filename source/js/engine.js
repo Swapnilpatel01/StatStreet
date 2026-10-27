@@ -562,7 +562,7 @@ export function recomputeStats(state, league) {
     // Baselines come from each player's season-start level (not the game-to-game estimate),
     // so they stay put all season: otherwise growing noise in the estimates would squeeze
     // everyone toward the middle and make stars drift down and cheap players drift up.
-    const lvl = a.perf?.lvl ?? (a.perf?.n >= 1 ? a.perf.ema : null);
+    const lvl = a.perf?.lvl ?? a.perf?.blvl ?? (a.perf?.n >= 1 ? a.perf.ema : null);
     if (a.kind === 'player' && lvl != null) {
       const g = posGroup(league, a.pos);
       (groups[g] ||= []).push(lvl);
@@ -603,7 +603,7 @@ export function recomputeStats(state, league) {
   const ranked = [];
   for (const a of Object.values(state.assets)) {
     if (a.league !== league || a.kind !== 'player') continue;
-    const lvl = a.perf?.lvl ?? (a.perf?.n >= 1 ? a.perf.ema : null);
+    const lvl = a.perf?.lvl ?? a.perf?.blvl ?? (a.perf?.n >= 1 ? a.perf.ema : null);
     const g = out[posGroup(league, a.pos)];
     if (lvl == null || !g || (a.perf.lvl == null && seeded[posGroup(league, a.pos)]?.length >= 8)) { a.fame = 1; continue; }
     ranked.push([a, (lvl - g.mu) / g.sd]);
@@ -685,6 +685,8 @@ export function foldDiscount(state, a, f) {
   if (!(f < 0.999) || a.kind !== 'player' || a.perf?.ema == null) { if (f < 0.999) a.rust = f; return; }
   const st = state.stats[a.league]?.[posGroup(a.league, a.pos)];
   if (!st?.sd) { a.rust = f; return; }
+  // His part in the position average stays where it was: folding moves only him, not the group.
+  if (a.perf.lvl == null && a.perf.blvl == null) a.perf.blvl = a.perf.ema;
   const z = playerZ(state, a) + Math.log(f) / zSlope(a.league);
   const zc = Math.max(z, Z_MIN);
   a.perf.ema = st.mu + zc * st.sd;
