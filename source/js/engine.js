@@ -677,6 +677,22 @@ function setPrice(state, a, now, { record = true, at = now } = {}) {
   return a.price;
 }
 
+// Turn an injury discount into the player's level at the same price: from then on it is simply
+// where he trades, with no built-in recovery. If his level would fall past the bottom of the scale,
+// what doesn't fit stays as a fixed discount (it never recovers either).
+export function foldDiscount(state, a, f) {
+  delete a.rust;
+  if (!(f < 0.999) || a.kind !== 'player' || a.perf?.ema == null) { if (f < 0.999) a.rust = f; return; }
+  const st = state.stats[a.league]?.[posGroup(a.league, a.pos)];
+  if (!st?.sd) { a.rust = f; return; }
+  const z = playerZ(state, a) + Math.log(f) / zSlope(a.league);
+  const zc = Math.max(z, Z_MIN);
+  a.perf.ema = st.mu + zc * st.sd;
+  if (a.live) a.live.ema = a.perf.ema;
+  if (z < zc) { const rest = Math.exp(zSlope(a.league) * (z - zc)); if (rest < 0.999) a.rust = rest; }
+  a.rustFixed = true;
+}
+
 // Apply a change and log it as a price driver if it moved the price.
 function withEvent(state, a, now, at, kind, text, mutate, { minPct = 0.002, force = false, histAt = at } = {}) {
   const before = targetPrice(state, a, now);
@@ -752,14 +768,10 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       const boost = game.preseason ? 0 : bigGameBoost(state, league, grp, rating);
       if (boost > 0) { a.shocks ||= []; a.shocks.push({ t: at, v: boost, hl: BIG_GAME_HALF_LIFE, game: game.id }); }
       a.perf.init = MODEL_V;
-      // Back from injury: each game wins back part of the discount, scaled by how well he played.
-      // An ordinary game earns a quarter of it (so a long absence takes a few games to shake off);
-      // only a standout game earns most of it, and a poor one almost nothing. (It used to be 60% for
-      // any game at his usual level, which for low-volume positions meant a quiet game jumped ~25%.)
-      if (a.rust != null && !a.injury) {
-        const share = before == null ? 0.25 : rustShare(surprise);
-        a.rust += (1 - a.rust) * share; if (a.rust > 0.985) delete a.rust;
-      }
+      // Back from injury: nothing is won back automatically. The discount became his level when
+      // he was cleared (see foldDiscount), so like anyone else he moves up only by beating his usual
+      // and down by missing it. (Any recovery rule, per game or over time, made returning players
+      // a predictable buy.)
       a.perf.n = Math.min(a.perf.n + 1, 20);
       a.perf.last.unshift({ e: game.id, t: game.date, gs: Math.round(gs * 10) / 10, text, opp, line: p.line });
       if (a.perf.last.length > 10) a.perf.last.length = 10;
@@ -1025,7 +1037,7 @@ export function applyInjuries(state, league, list, { now = Date.now() } = {}) {
     const prev = a.injury?.status;
     // A listing that says he is fine ("Active", "Probable" with nothing wrong) is the same as being cleared.
     if (inj && injuryFactor(inj.status, inj.detail) >= 0.985 && statusOnlyFine(inj.status)) {
-      if (prev) withEvent(state, a, now, now, 'injury', `Cleared: back from "${prev}"`, () => { const f = a.injury.factor; a.injury = null; if (f < 0.985) a.rust = f; else delete a.rust; }, { force: true });
+      if (prev) withEvent(state, a, now, now, 'injury', `Cleared: back from "${prev}"`, () => { const f = a.injury.factor; a.injury = null; foldDiscount(state, a, f); }, { force: true });
       continue;
     }
     if (inj) {
@@ -1047,7 +1059,7 @@ export function applyInjuries(state, league, list, { now = Date.now() } = {}) {
     } else if (prev && list.length) {
       withEvent(state, a, now, now, 'injury', `Cleared: back from "${prev}"`, () => {
         // No free bounce for being cleared: the discount stays until he earns it back on the field.
-        const f = a.injury.factor; a.injury = null; if (f < 0.985) a.rust = f; else delete a.rust;
+        const f = a.injury.factor; a.injury = null; foldDiscount(state, a, f);
       }, { force: true });
     }
   }
@@ -1544,6 +1556,23 @@ export function catchUpBigGames(state, now = Date.now()) {
       if (ge) { retroScale(a, ge.t - 3 * HOUR, [{ t: now + 1, f }], ge.t); ge.pct = Math.round(((1 + (ge.pct || 0)) * f - 1) * 10000) / 10000; if (g.pct != null) g.pct = ge.pct; }
       n++;
     }
+  }
+  return n;
+}
+
+// One-time (v126): players back from injury with a discount still waiting to be won back have
+// it folded into their level at today's price, so nothing about them recovers on its own.
+export const RUST_FOLD_V = 1;
+export function foldExistingRust(state, now = Date.now()) {
+  if ((state.rustFoldV || 0) >= RUST_FOLD_V) return 0;
+  state.rustFoldV = RUST_FOLD_V;
+  let n = 0;
+  for (const a of Object.values(state.assets)) {
+    if (a.kind !== 'player' || a.injury || a.rust == null || a.rustFixed) continue;
+    const p0 = targetPrice(state, a, now);
+    foldDiscount(state, a, a.rust);
+    if (Math.abs(targetPrice(state, a, now) / p0 - 1) > 1e-6) console.warn('fold moved price', a.id);
+    n++;
   }
   return n;
 }

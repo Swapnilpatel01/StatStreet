@@ -59,7 +59,8 @@ assert.ok(S.injuryFactor('Injured Reserve', good) > 0.85 && S.injuryFactor('Inju
   E.applyInjuries(st, 'nfl', [{ athleteId: 's', status: 'Injured Reserve', detail: good }], { now: now2 + 1000 });
   assert.ok(a.price <= low * 1.001, `a better report alone does not lift the price: ${low} -> ${a.price}`);
   E.applyInjuries(st, 'nfl', [{ athleteId: 's', status: 'Active' }], { now: now2 + 2000 });
-  assert.ok(a.injury === null && a.rust < 0.8 && a.price <= low * 1.001, 'becoming active does not lift it either');
+  assert.ok(a.injury === null && a.price <= low * 1.001, 'becoming active does not lift it either');
+  assert.ok(a.rust == null, 'the discount is now simply his level: nothing left to win back');
 }
 {
   // The feed tags only the team; the player named in the story still moves.

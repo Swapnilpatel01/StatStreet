@@ -140,24 +140,26 @@ t('injury and bad news push price down, being cleared alone does not', () => {
   assert.ok(a.price < hurt);
   E.applyInjuries(st, 'nba', [{ athleteId: '99', status: 'Out' }], { now });
   assert.equal(a.injury, null);
-  assert.ok(a.rust < 1, 'discount stays after he is cleared');
-  assert.ok(E.breakdown(st, a, now).inj < 0.9, 'no bounce just for being cleared');
+  assert.ok(Math.abs(E.targetPrice(st, a, now) / E.targetPrice(st, a, now - 1) - 1) < 0.02 && a.price < base * 0.9, 'no bounce just for being cleared: the discount stays in his price');
 });
 
-t('back from injury: an ordinary first game earns back a little of the discount, a big one most of it', () => {
-  const run = (pts) => {
+t('back from injury: no automatic recovery; only beating his usual lifts the price', () => {
+  const run = (pts, games = 1) => {
     const st = buildNBA(); const a = st.assets['nba:p:12'];
-    a.rust = 0.72; // back from injured reserve
-    const lvl = a.perf.ema; a.perf.rl = E.ratingOf('nba', { pts: lvl }); const p0 = E.targetPrice(st, a, now);
-    E.applyFinalGame(st, 'nba', { id: `r${pts}`, date: now, preseason: false, teams: [{ id: '1', abbr: 'BOS', score: 100, home: true }, { id: '2', abbr: 'WAS', score: 90 }],
-      players: [{ id: '12', name: 'Role Player', pos: 'G', teamId: '2', line: { min: 30, pts: Math.max(0, lvl + pts), fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 } }] }, { now: now + 3 * HOUR });
-    return { move: E.targetPrice(st, a, now + 3 * HOUR) / p0 - 1, rust: a.rust ?? 1 };
+    a.perf.avg = { min: 30, pts: 8 }; delete a.perf.rv; delete a.perf.rl; a.perf.rt = [];
+    E.applyInjuries(st, 'nba', [{ athleteId: '12', status: 'Out', detail: 'Knee' }], { now });
+    E.applyInjuries(st, 'nba', [{ athleteId: '99', status: 'Out' }], { now: now + 1000 }); // cleared
+    const p0 = E.targetPrice(st, a, now + 2000);
+    for (let i = 0; i < games; i++) E.applyFinalGame(st, 'nba', { id: `r${pts}_${i}`, date: now + (i + 1) * DAY, preseason: false, teams: [{ id: '1', abbr: 'BOS', score: 100, home: true }, { id: '2', abbr: 'WAS', score: 90 }],
+      players: [{ id: '12', name: 'Role Player', pos: 'G', teamId: '2', line: { min: 30, pts, fgm: 0, fga: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, to: 0, pf: 0 } }] }, { now: now + (i + 1) * DAY + 3 * HOUR });
+    return { move: E.targetPrice(st, a, now + (games + 1) * DAY) / p0 - 1, a };
   };
-  const usual = run(0); const poor = run(-6); const great = run(15);
-  assert.ok(usual.move > 0.04 && usual.move < 0.13, `ordinary game: ${usual.move}`);
-  assert.ok(usual.rust < 0.85, 'most of the discount is still there after an ordinary game');
-  assert.ok(poor.move < 0.03, `poor game: ${poor.move}`);
-  assert.ok(great.move > 0.25 && great.rust > 0.85, `standout game: ${great.move} ${great.rust}`);
+  const usual = run(8);
+  assert.ok(Math.abs(usual.move) < 0.03, `first game at his usual level: no boost (${usual.move})`);
+  assert.equal(usual.a.rust, undefined, 'no discount waiting to be won back');
+  assert.ok(Math.abs(run(8, 6).move) < 0.05, `six ordinary games: still no drift back up (${run(8, 6).move})`);
+  assert.ok(run(2).move < -0.02, 'a poor first game drops it further');
+  assert.ok(run(22).move > 0.08, 'a big first game earns it back');
 });
 
 t('one-time fix: a return bounce from an ordinary game is scaled back, once', () => {
@@ -339,6 +341,15 @@ t('prices go down after below-usual games as surely as up after big ones (no dri
   assert.ok(downs >= 15 && ups >= 15, `both ways: ${downs} down, ${ups} up`);
   const drift = E.targetPrice(st, a, now + 70 * DAY) / p0 - 1;
   assert.ok(Math.abs(drift) < 0.25, `same player, same level: no runaway drift (${drift})`);
+});
+
+t('one-time: discounts waiting to be won back are folded into the level at the same price', () => {
+  const st = buildNBA(); const a = st.assets['nba:p:12'];
+  a.rust = 0.8; const p0 = E.targetPrice(st, a, now);
+  assert.equal(E.foldExistingRust(st, now), 1);
+  assert.equal(a.rust, undefined);
+  assert.ok(Math.abs(E.targetPrice(st, a, now) / p0 - 1) < 1e-9, 'same price');
+  assert.equal(E.foldExistingRust(st, now), 0, 'once');
 });
 
 t('news shocks decay over time', () => {
