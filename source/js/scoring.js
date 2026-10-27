@@ -102,7 +102,7 @@ export function lineText(league, l) {
     if (l.att > 0) bits.push(`${l.cmp}/${l.att} · ${l.passYds} YDS · ${l.passTD} TD` + (l.int ? ` · ${l.int} INT` : ''));
     if (l.car > 0) bits.push(`${l.car} CAR · ${l.rushYds} YDS` + (l.rushTD ? ` · ${l.rushTD} TD` : ''));
     if (l.rec > 0) bits.push(`${l.rec} REC · ${l.recYds} YDS` + (l.recTD ? ` · ${l.recTD} TD` : ''));
-    if (l.tkl > 0 || l.sacks > 0 || l.defInt > 0) bits.push(`${l.tkl} TKL` + (l.sacks ? ` · ${l.sacks} SCK` : '') + (l.defInt ? ` · ${l.defInt} INT` : ''));
+    if (l.tkl > 0 || l.sacks > 0 || l.defInt > 0 || l.fr > 0 || l.defTD > 0) bits.push(`${l.tkl} TKL` + (l.sacks ? ` · ${l.sacks} SCK` : '') + (l.defInt ? ` · ${l.defInt} INT` : '') + (l.fr ? ` · ${l.fr} FR` : '') + (l.defTD ? ` · ${l.defTD} TD` : ''));
     if (l.fg > 0 || l.xp > 0) bits.push(`${l.fg} FG · ${l.xp} XP`);
     return bits.slice(0, 2).join(' | ') || 'No stats';
   }

@@ -17,7 +17,7 @@ E.applyFinalGame(st,'nfl',g(4,{tkl:3,pd:1}),{now});
 E.repriceLeague(st,'nfl',now);
 console.log('newcomer live', live, 'final', a.price, 'star game', d3b, '->', d3.price, 'mu', mu0, st.stats.nfl.DEF.mu, 'fame', a.fame);
 assert.ok(Math.abs(a.price/live-1) < 0.3);
-assert.ok(d3.price/d3b < 1.4);
+assert.ok(d3.price/d3b < 1.6); // one game: at most +25% on his level, +15% big-game boost, plus market noise
 assert.equal(st.stats.nfl.DEF.mu, mu0);
 // repair of an old save
 a.perf.ema = st.stats.nfl.DEF.mu; st.fixV = 0; E.repriceLeague(st,'nfl',now); st.holdings[a.id]={qty:2,cost:10,since:0}; const v=2*a.price;

@@ -305,6 +305,21 @@ t('one-time pricing repair: a weekend game priced by the old rule is re-priced o
   assert.equal(a.hist[1], 10, 'before the game untouched');
 });
 
+t('a monster game gets a fading big-game boost even for a star playing to his level', () => {
+  const st = buildNBA(); const a = st.assets['nba:p:10'];
+  const line = { min: 36, pts: 31, reb: 12, ast: 6, stl: 1, blk: 1, to: 3, fgm: 0, fga: 0, ftm: 0, fta: 0, pf: 0 };
+  a.perf.rl = E.ratingOf('nba', line); // his usual is already this good
+  const p0 = E.targetPrice(st, a, now);
+  E.applyFinalGame(st, 'nba', { id: 'big', date: now, preseason: false, teams: [{ id: '1', abbr: 'BOS', score: 120, home: true }, { id: '2', abbr: 'DEN', score: 110 }],
+    players: [{ id: '10', name: 'Star Player', pos: 'G', teamId: '1', line }] }, { now: now + 3 * HOUR });
+  const up = E.targetPrice(st, a, now + 3 * HOUR) / p0 - 1;
+  assert.ok(up > 0.07 && up < 0.15, `31/12/6: ${up}`);
+  const later = E.targetPrice(st, a, now + 3 * HOUR + 8 * DAY) / p0 - 1;
+  assert.ok(later < up / 3, `fades: ${later}`);
+  assert.equal(E.bigGameBoost(st, 'nba', 'ALL', 2.0), 0, 'an ordinary night gets nothing');
+  assert.ok(Math.abs(E.bigGameBoost(st, 'nba', 'ALL', 9) - E.BIG_GAME_MAX) < 1e-9, 'capped');
+});
+
 t('news shocks decay over time', () => {
   const st = buildNBA();
   const a = st.assets['nba:p:12'];

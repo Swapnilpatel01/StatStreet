@@ -420,6 +420,23 @@ const rawNoise = (state, league, group) => state.gnoise?.[league]?.[group] ?? GA
 // interception as 4 tackles, while the rating weighs them as 31 yards and 17 tackles, so a
 // game rated "poor" could price like a breakout.) Spreads measured from real games.
 const RATING_NOISE = { nba: { ALL: 0.95 }, nfl: { QB: 1.5, RB: 1.35, WR: 1.3, K: 1.9, DEF: 1.25, OL: 1 }, mlb: { H: 1.25, P: 1.1 } };
+// Big games: a game in the top 10% of the league's game ratings (by position group where there
+// are enough games) also gets a boost that fades over a few days, up to +15% at the top 1%.
+// A player's usual level decides most of his price, so a star having a star night barely moves
+// it; this is the market getting excited about a monster game. Measured cut-offs as fallbacks.
+const BIG_GAME = { nba: [3.8, 6.2], nfl: [3.6, 6.9], mlb: [2.8, 5.4] };
+export const BIG_GAME_MAX = 0.15; export const BIG_GAME_HALF_LIFE = 4 * DAY;
+function bigGameCuts(league, ratings) {
+  if (!ratings || ratings.length < 60) return { rp90: BIG_GAME[league]?.[0], rp99: BIG_GAME[league]?.[1] };
+  const y = [...ratings].sort((a, b) => a - b); const q = (p) => y[Math.floor(p * (y.length - 1))];
+  return { rp90: q(0.9), rp99: Math.max(q(0.99), q(0.9) + 0.5) };
+}
+export function bigGameBoost(state, league, group, rating) {
+  const st = state.stats[league]?.[group];
+  const lo = st?.rp90 ?? BIG_GAME[league]?.[0]; const hi = st?.rp99 ?? BIG_GAME[league]?.[1];
+  if (lo == null || !(hi > lo)) return 0;
+  return Math.round(BIG_GAME_MAX * clamp((rating - lo) / (hi - lo), 0, 1) * 1000) / 1000;
+}
 export const RL_ALPHA = 0.15; // how fast his usual rating follows new games (about the last six)
 export const ratingOf = (league, line) => perfRating(league, { ...emptyLine(league), ...(line || {}) });
 export function ratingNoise(state, league, group) {
@@ -525,6 +542,13 @@ export function recomputeStats(state, league) {
   const out = {};
   // Each group's average rating (season lines where known), the anchor for a player's usual rating.
   const rsum = {};
+  // Game ratings by group (recent regular-season games), for the big-game boost cut-offs.
+  const games = {}; const allGames = [];
+  for (const a of Object.values(state.assets)) {
+    if (a.league !== league || a.kind !== 'player' || !a.perf?.last) continue;
+    const g = posGroup(league, a.pos);
+    for (const x of a.perf.last) { if (!x.line || /\(preseason\)$/.test(x.text || '')) continue; const r = perfRating(league, { ...emptyLine(league), ...x.line }); (games[g] ||= []).push(r); allGames.push(r); }
+  }
   for (const a of Object.values(state.assets)) {
     if (a.league !== league || a.kind !== 'player' || !a.perf) continue;
     const r = a.perf.rl ?? (a.perf.avg ? perfRating(league, { ...emptyLine(league), ...a.perf.avg }) : null);
@@ -535,7 +559,7 @@ export function recomputeStats(state, league) {
     // Players first seen in a box score (no season-start level) don't move the baseline.
     const arr = seeded[g]?.length >= 8 ? seeded[g] : all;
     const mu = mean(arr);
-    out[g] = { mu, sd: Math.max(std(arr, mu), Math.abs(mu) * 0.25, 0.5), n: arr.length, rmu: rsum[g]?.[1] ? rsum[g][0] / rsum[g][1] : null };
+    out[g] = { mu, sd: Math.max(std(arr, mu), Math.abs(mu) * 0.25, 0.5), n: arr.length, rmu: rsum[g]?.[1] ? rsum[g][0] / rsum[g][1] : null, ...bigGameCuts(league, games[g]?.length >= 60 ? games[g] : allGames) };
   }
   const tmu = mean(teamDiffs);
   out.team = { mu: tmu, sd: Math.max(std(teamDiffs, tmu), 0.1) };
@@ -560,7 +584,7 @@ export function recomputeStats(state, league) {
 
 function sentiment(a, now) {
   a.shocks = (a.shocks || []).filter((s) => now - s.t < 12 * DAY);
-  return clamp(a.shocks.reduce((sum, s) => sum + decay(s.v, now - s.t, NEWS_HALF_LIFE), 0), -0.3, 0.3);
+  return clamp(a.shocks.reduce((sum, s) => sum + decay(s.v, now - s.t, s.hl || NEWS_HALF_LIFE), 0), -0.3, 0.3);
 }
 
 function impact(a, now) {
@@ -691,6 +715,8 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       a.perf.ema = before == null ? newcomerLevel(state, league, grp, gs)
         : capStep(state, league, grp, before, before + alpha * surprise * gameNoise(state, league, grp), game.preseason ? 1 / 3 : 1);
       a.perf.rl = rl == null ? rating : rl + RL_ALPHA * (game.preseason ? 1 / 3 : 1) * (rating - rl);
+      const boost = game.preseason ? 0 : bigGameBoost(state, league, grp, rating);
+      if (boost > 0) { a.shocks ||= []; a.shocks.push({ t: at, v: boost, hl: BIG_GAME_HALF_LIFE, game: game.id }); }
       a.perf.init = MODEL_V;
       // Back from injury: each game wins back part of the discount, scaled by how well he played.
       // An ordinary game earns a quarter of it (so a long absence takes a few games to shake off);
@@ -1458,6 +1484,34 @@ export function repairPricing(state, now = Date.now()) {
   // The older one-time fixes are covered by this one.
   state.rustV = RUST_V; state.gameFixV = GAME_FIX_V;
   return out;
+}
+
+// One-time (v124): games of the last four days that were played before the big-game boost
+// existed get it now, faded by how long ago they were, shown on the game itself.
+export const BIG_FIX_V = 1;
+export function catchUpBigGames(state, now = Date.now()) {
+  if ((state.bigFixV || 0) >= BIG_FIX_V) return 0;
+  state.bigFixV = BIG_FIX_V;
+  let n = 0;
+  for (const a of Object.values(state.assets)) {
+    if (a.kind !== 'player' || !a.perf?.last) continue;
+    const grp = posGroup(a.league, a.pos);
+    for (const g of a.perf.last) {
+      if (!g.line || now - g.t > 4 * DAY || /\(preseason\)$/.test(g.text || '')) continue;
+      if ((a.shocks || []).some((x) => x.game === g.e)) continue;
+      const boost = bigGameBoost(state, a.league, grp, ratingOf(a.league, g.line));
+      if (!(boost > 0)) continue;
+      const ge = (a.events || []).find((e) => e.kind === 'game' && e.t >= g.t - HOUR && e.t <= g.t + 3 * DAY && e.text === g.text);
+      const at = ge ? ge.t : g.t;
+      const p0 = a.price;
+      a.shocks ||= []; a.shocks.push({ t: at, v: boost, hl: BIG_GAME_HALF_LIFE, game: g.e });
+      setPrice(state, a, now, { record: false });
+      const f = a.price / p0;
+      if (ge) { retroScale(a, ge.t - 3 * HOUR, [{ t: now + 1, f }], ge.t); ge.pct = Math.round(((1 + (ge.pct || 0)) * f - 1) * 10000) / 10000; if (g.pct != null) g.pct = ge.pct; }
+      n++;
+    }
+  }
+  return n;
 }
 
 export const NEWS_V = 2;
