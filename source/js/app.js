@@ -480,7 +480,15 @@ function posIs(a, key) {
   return key === 'IF' ? ['1B', '2B', '3B', 'SS', 'IF'].includes(p) : key === 'OF' ? ['LF', 'CF', 'RF', 'OF'].includes(p) : p === key;
 }
 // The rating shown in a player's circle: 7 days, else 30, else his games on record.
-const playerRating = (a) => formRating(state, a, '7d') || formRating(state, a, '30d') || formRating(state, a, 'season');
+// The rating shown on a player: his game in progress if he's playing now, else his latest game.
+const playerRating = (a) => {
+  if (a.kind !== 'player' || !a.perf) return null;
+  if (a.live?.line) { const r = gameRating(state, a, { line: a.live.line }); if (r != null) return { rating: r, avg: r, n: 1, live: true }; }
+  const all = ratedGames(state, a);
+  if (!all.length) return null;
+  const [t, r] = all[all.length - 1];
+  return { rating: r, avg: r, n: 1, t };
+};
 const SORTS = [['trending', 'Trending'], ['rated', 'Top rated'], ['movers', 'Top gainers'], ['losers', 'Top losers'], ['price', 'Most valuable'], ['mvp', 'MVP race'], ['div', 'Dividends'],
   ['vol', 'Most volatile'], ['streak', 'Hot streaks'], ['live', 'Live'], ['news', 'In the news'], ['injured', 'Injured']];
 
@@ -4188,10 +4196,10 @@ const formTone = (v) => (v >= 5 ? 'hi' : v >= 2 ? 'mid' : 'lo');
 // A player's current form in a circle, against players at his position. Green is hot, orange middling, red cold.
 const SPAN_LABEL = { '7d': '7 days', '30d': '30 days' };
 function formDot(a, size = '') {
-  // His average game rating over the last 7 days; failing that the last 30, then the season.
+  // His latest game's rating (the game in progress while he's playing).
   const f = playerRating(a);
   if (!f) return '';
-  return `<span class="formdot ${size} ${formTone(f.avg)}" aria-label="Average rating ${f.rating.toFixed(1)} over ${f.n} game${f.n > 1 ? 's' : ''}">${f.rating.toFixed(1)}</span>`;
+  return `<span class="formdot ${size} ${formTone(f.avg)} ${f.live ? 'live' : ''}" aria-label="${f.live ? 'Live game' : 'Latest game'} rating ${f.rating.toFixed(1)}">${f.rating.toFixed(1)}</span>`;
 }
 // The best three players of the game so far, by game score.
 function topPerformers(g, league) {

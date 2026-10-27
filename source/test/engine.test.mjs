@@ -308,16 +308,37 @@ t('one-time pricing repair: a weekend game priced by the old rule is re-priced o
 t('a monster game gets a fading big-game boost even for a star playing to his level', () => {
   const st = buildNBA(); const a = st.assets['nba:p:10'];
   const line = { min: 36, pts: 31, reb: 12, ast: 6, stl: 1, blk: 1, to: 3, fgm: 0, fga: 0, ftm: 0, fta: 0, pf: 0 };
-  a.perf.rl = E.ratingOf('nba', line); // his usual is already this good
+  a.perf.rl = E.ratingOf('nba', line); a.perf.rv = E.ratingValue(a.perf.rl); // his usual is already this good
   const p0 = E.targetPrice(st, a, now);
   E.applyFinalGame(st, 'nba', { id: 'big', date: now, preseason: false, teams: [{ id: '1', abbr: 'BOS', score: 120, home: true }, { id: '2', abbr: 'DEN', score: 110 }],
     players: [{ id: '10', name: 'Star Player', pos: 'G', teamId: '1', line }] }, { now: now + 3 * HOUR });
   const up = E.targetPrice(st, a, now + 3 * HOUR) / p0 - 1;
-  assert.ok(up > 0.07 && up < 0.15, `31/12/6: ${up}`);
+  assert.ok(up > 0.05 && up < 0.11, `31/12/6 for a star at his usual: only the boost: ${up}`);
   const later = E.targetPrice(st, a, now + 3 * HOUR + 8 * DAY) / p0 - 1;
   assert.ok(later < up / 3, `fades: ${later}`);
   assert.equal(E.bigGameBoost(st, 'nba', 'ALL', 2.0), 0, 'an ordinary night gets nothing');
   assert.ok(Math.abs(E.bigGameBoost(st, 'nba', 'ALL', 9) - E.BIG_GAME_MAX) < 1e-9, 'capped');
+});
+
+t('rating value curve follows Real: 4 or less as is, then faster (5→6, 7→12, 8→16, 10→24)', () => {
+  for (const [r, v] of [[-1, -1], [3, 3], [4, 4], [5, 6], [7, 12], [8, 16], [10, 24], [11, 28]]) assert.equal(E.ratingValue(r), v);
+  assert.ok(E.ratingValue(6) - E.ratingValue(5) > E.ratingValue(3) - E.ratingValue(2), 'a point is worth more near the top');
+});
+
+t('prices go down after below-usual games as surely as up after big ones (no drift)', () => {
+  const st = buildNBA(); const a = st.assets['nba:p:11'];
+  a.perf.avg = { min: 32, pts: 14, reb: 5, ast: 4, stl: 1, blk: 0, to: 2 }; delete a.perf.rl; delete a.perf.rv; a.perf.rt = [];
+  let seed = 3; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const p0 = E.targetPrice(st, a, now); let downs = 0; let ups = 0; let last = p0;
+  for (let i = 0; i < 60; i++) {
+    const pts = Math.max(0, Math.round(14 + 7 * (rnd() + rnd() + rnd() - 1.5) * 1.4));
+    E.applyFinalGame(st, 'nba', { id: `d${i}`, date: now + i * DAY, preseason: false, teams: [{ id: '1', abbr: 'BOS', score: 100, home: true }, { id: '2', abbr: 'WAS', score: 90 }],
+      players: [{ id: '11', name: 'Solid Starter', pos: 'G', teamId: '1', line: { min: 32, pts, reb: 5, ast: 4, stl: 1, blk: 0, to: 2, fgm: 0, fga: 0, ftm: 0, fta: 0, pf: 0 } }] }, { now: now + i * DAY + 3 * HOUR });
+    const p = E.targetPrice(st, a, now + i * DAY + 3 * HOUR); if (p < last * 0.995) downs++; if (p > last * 1.005) ups++; last = p;
+  }
+  assert.ok(downs >= 15 && ups >= 15, `both ways: ${downs} down, ${ups} up`);
+  const drift = E.targetPrice(st, a, now + 70 * DAY) / p0 - 1;
+  assert.ok(Math.abs(drift) < 0.25, `same player, same level: no runaway drift (${drift})`);
 });
 
 t('news shocks decay over time', () => {

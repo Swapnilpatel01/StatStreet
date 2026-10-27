@@ -1389,3 +1389,4 @@ html.xl-text { -webkit-text-size-adjust: 132%; text-size-adjust: 132%; }
   #view[data-tab="account"] > :not(.dhead) { max-width: 780px; margin-left: auto; margin-right: auto; }
   #view[data-tab="account"] > h2 { padding-left: 0; }
 }
+.formdot.live { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--down); }

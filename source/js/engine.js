@@ -425,7 +425,7 @@ const RATING_NOISE = { nba: { ALL: 0.95 }, nfl: { QB: 1.5, RB: 1.35, WR: 1.3, K:
 // A player's usual level decides most of his price, so a star having a star night barely moves
 // it; this is the market getting excited about a monster game. Measured cut-offs as fallbacks.
 const BIG_GAME = { nba: [3.8, 6.2], nfl: [3.6, 6.9], mlb: [2.8, 5.4] };
-export const BIG_GAME_MAX = 0.15; export const BIG_GAME_HALF_LIFE = 4 * DAY;
+export const BIG_GAME_MAX = 0.10; export const BIG_GAME_HALF_LIFE = 4 * DAY;
 function bigGameCuts(league, ratings) {
   if (!ratings || ratings.length < 60) return { rp90: BIG_GAME[league]?.[0], rp99: BIG_GAME[league]?.[1] };
   const y = [...ratings].sort((a, b) => a - b); const q = (p) => y[Math.floor(p * (y.length - 1))];
@@ -438,6 +438,38 @@ export function bigGameBoost(state, league, group, rating) {
   return Math.round(BIG_GAME_MAX * clamp((rating - lo) / (hi - lo), 0, 1) * 1000) / 1000;
 }
 export const RL_ALPHA = 0.15; // how fast his usual rating follows new games (about the last six)
+
+// ---------- value of a rating (Real-style curve) ----------
+// Like Real's card earnings: a rating of 4 or less is worth itself, and above that the value
+// climbs faster the better the game (5 → 6, 7 → 12, 8 → 16, 10 → 24). A game moves the price by
+// how far its value beat or missed the player's usual value, so huge nights move it much more.
+// "Usual value" is the average value of his games (not the value of his average game), so an
+// ordinary run of games nets out to no move: prices fall after below-usual games as surely as
+// they rise after big ones.
+const RAX = [[4, 4], [5, 6], [7, 12], [8, 16], [10, 24]];
+export function ratingValue(r) {
+  if (!(r > RAX[0][0])) return r;
+  for (let i = 1; i < RAX.length; i++) if (r <= RAX[i][0]) { const [x0, y0] = RAX[i - 1]; const [x1, y1] = RAX[i]; return y0 + (y1 - y0) * (r - x0) / (x1 - x0); }
+  const [x0, y0] = RAX[RAX.length - 1]; return y0 + 4 * (r - x0);
+}
+const valueSlope = (v) => (v <= 4 ? 1 : v <= 6 ? 2 : v <= 12 ? 3 : 4);
+// How far a game's value is from his usual, in "typical games": the spread grows with the slope
+// of the curve where he usually is (gently), so stars swing more than role players, not wildly more.
+function valueSurprise(state, a, group, rating, rv) {
+  const scale = ratingNoise(state, a.league, group) * Math.sqrt(valueSlope(rv)) * 1.2;
+  return clamp((ratingValue(rating) - rv) / scale, -4, 4);
+}
+export function ensureRv(state, a, beforeT = Infinity) {
+  if (a.perf.rv != null) return a.perf.rv;
+  let num = 0; let den = 0;
+  const recent = (a.perf.rt || []).filter((x) => x[0] < beforeT).slice(-8);
+  for (const [, r] of recent) { num += ratingValue(r); den += 1; }
+  if (a.perf.avg) { const w = Math.max(0, Math.min(a.perf.season?.gp || 6, 8) - recent.length); if (w) { num += ratingValue(ratingOf(a.league, a.perf.avg)) * w; den += w; } }
+  const gm = state.stats[a.league]?.[posGroup(a.league, a.pos)]?.rvmu;
+  if (gm != null) { num += gm * 3; den += 3; }
+  a.perf.rv = den ? num / den : (gm ?? 1);
+  return a.perf.rv;
+}
 export const ratingOf = (league, line) => perfRating(league, { ...emptyLine(league), ...(line || {}) });
 export function ratingNoise(state, league, group) {
   const d = RATING_NOISE[league]?.[group] ?? 1.25;
@@ -553,13 +585,13 @@ export function recomputeStats(state, league) {
     if (a.league !== league || a.kind !== 'player' || !a.perf) continue;
     const r = a.perf.rl ?? (a.perf.avg ? perfRating(league, { ...emptyLine(league), ...a.perf.avg }) : null);
     if (r == null || !Number.isFinite(r)) continue;
-    const g = posGroup(league, a.pos); (rsum[g] ||= [0, 0]); rsum[g][0] += r; rsum[g][1]++;
+    const g = posGroup(league, a.pos); (rsum[g] ||= [0, 0, 0]); rsum[g][0] += r; rsum[g][1]++; rsum[g][2] += a.perf.rv ?? ratingValue(r);
   }
   for (const [g, all] of Object.entries(groups)) {
     // Players first seen in a box score (no season-start level) don't move the baseline.
     const arr = seeded[g]?.length >= 8 ? seeded[g] : all;
     const mu = mean(arr);
-    out[g] = { mu, sd: Math.max(std(arr, mu), Math.abs(mu) * 0.25, 0.5), n: arr.length, rmu: rsum[g]?.[1] ? rsum[g][0] / rsum[g][1] : null, ...bigGameCuts(league, games[g]?.length >= 60 ? games[g] : allGames) };
+    out[g] = { mu, sd: Math.max(std(arr, mu), Math.abs(mu) * 0.25, 0.5), n: arr.length, rmu: rsum[g]?.[1] ? rsum[g][0] / rsum[g][1] : null, rvmu: rsum[g]?.[1] ? rsum[g][2] / rsum[g][1] : null, ...bigGameCuts(league, games[g]?.length >= 60 ? games[g] : allGames) };
   }
   const tmu = mean(teamDiffs);
   out.team = { mu: tmu, sd: Math.max(std(teamDiffs, tmu), 0.1) };
@@ -702,7 +734,8 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
     // The surprise: how far this game's rating beat or missed his usual rating.
     const rating = ratingOf(league, p.line);
     const rl = before == null ? null : ensureRl(state, a, game.date);
-    const surprise = rl == null ? 0 : clamp((rating - rl) / ratingNoise(state, league, grp), -4, 4);
+    const rv = before == null ? null : ensureRv(state, a, game.date);
+    const surprise = rv == null ? 0 : valueSurprise(state, a, grp, rating, rv);
     if (before != null && !game.preseason) {
       learnNoise(state, league, grp, gs - before);
       learnRatingNoise(state, league, grp, rating - rl);
@@ -715,6 +748,7 @@ export function applyFinalGame(state, league, game, { now = Date.now(), backfill
       a.perf.ema = before == null ? newcomerLevel(state, league, grp, gs)
         : capStep(state, league, grp, before, before + alpha * surprise * gameNoise(state, league, grp), game.preseason ? 1 / 3 : 1);
       a.perf.rl = rl == null ? rating : rl + RL_ALPHA * (game.preseason ? 1 / 3 : 1) * (rating - rl);
+      a.perf.rv = rv == null ? ratingValue(rating) : rv + RL_ALPHA * (game.preseason ? 1 / 3 : 1) * (ratingValue(rating) - rv);
       const boost = game.preseason ? 0 : bigGameBoost(state, league, grp, rating);
       if (boost > 0) { a.shocks ||= []; a.shocks.push({ t: at, v: boost, hl: BIG_GAME_HALF_LIFE, game: game.id }); }
       a.perf.init = MODEL_V;
@@ -903,9 +937,9 @@ export function applyLiveGame(state, league, game, { now = Date.now() } = {}) {
     const base = a.perf.ema ?? newcomerLevel(state, league, grp, null);
     const alpha = groupAlpha(state, league, grp) * (game.preseason ? 1 / 3 : 1);
     // Live: his rating so far, projected to a full game, against his usual rating.
-    const rl = a.perf.ema == null ? null : ensureRl(state, a, game.date || now);
+    const rv = a.perf.ema == null ? null : ensureRv(state, a, game.date || now);
     const projected = ratingOf(league, p.line) / Math.max(frac, 0.35);
-    const s = rl == null ? 0 : clamp((projected - rl) / ratingNoise(state, league, grp), -4, 4);
+    const s = rv == null ? 0 : valueSurprise(state, a, grp, projected, rv);
     a.live = { e: game.id, ema: capStep(state, league, grp, base, base + alpha * frac * s * gameNoise(state, league, grp), frac), text: lineText(league, p.line), line: p.line, t: now };
     setPrice(state, a, now);
   }
